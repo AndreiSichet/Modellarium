@@ -1,0 +1,7 @@
+# The root .dockerignore does not apply to this build context - Docker reads
+# the one at the root of the CONTEXT, and this image is built from
+# injury-service/ rather than the repo root. Same reason backend/ and
+# frontend/ carry their own.
+__pycache__/
+*.pyc
+.pytest_cache/

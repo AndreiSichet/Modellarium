@@ -205,23 +205,31 @@ def main():
 
     # ------------------------------------------------------------------ 2
     section("2. REAL ROSTER EXCLUSION - the 2026-03-14 injury report")
-    print("Needs network access and a Java runtime (tabula-py). A failure to")
-    print("fetch is reported as SKIPPED, never counted as a pass.\n")
+    print("NEEDS injury-service RUNNING. The report fetch moved into that")
+    print("sidecar - the only part of this path that needs a Java runtime -")
+    print("and this harness goes through it rather than around it, because a")
+    print("check that exercises a different fetch path than production is")
+    print("checking the wrong thing. A failure is reported as SKIPPED with")
+    print("the reason, never counted as a pass.\n")
 
     exclusion_ok = None
     try:
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1]
-                              / "data-pipeline" / "ingestion"))
-        from datetime import datetime
-        from fetch_current_injury_report import get_current_injury_status
-        from injury_availability import reconcile
+        import pandas as _pd
 
-        report = get_current_injury_status(
-            as_of=datetime(2026, 3, 14, 7, 15))
-        print(f"  report fetched: {len(report.players)} player rows, "
-              f"{len(report.pending)} pending team(s)")
+        from injury_availability import (
+            INJURY_SERVICE_URL,
+            fetch_report,
+            reconcile,
+        )
 
-        reconciled = reconcile(report.players)
+        print(f"  asking {INJURY_SERVICE_URL}")
+        payload = fetch_report(as_of="2026-03-14T07:15:00")
+        players = _pd.DataFrame(payload["players"])
+        pending = _pd.DataFrame(payload["pending"])
+        print(f"  report fetched: {len(players)} player rows, "
+              f"{len(pending)} pending team(s)")
+
+        reconciled = reconcile(players)
         out_now = reconciled[reconciled["IS_ABSENT"]
                              & reconciled["PLAYER_ID"].notna()]
         teams_with_outs = out_now["TEAM_ID"].value_counts()

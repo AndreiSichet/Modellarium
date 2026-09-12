@@ -53,6 +53,7 @@ matching logic is wrong, not that the league got younger.
 """
 
 import glob
+import os
 import sys
 import unicodedata
 from pathlib import Path
@@ -67,6 +68,21 @@ PLAYER_HISTORY_PATH = PROCESSED_DIR / "player_boxscores_with_rolling.csv"
 GAMES_GLOB = str(RAW_DIR / "games_*.csv")
 
 ROLLING_COLUMN = "ROLL10_MIN"
+
+# WHERE THE SIDECAR LIVES, and why this is an environment variable rather
+# than a constant. The two contexts genuinely need different values and it
+# must not be discovered at runtime:
+#
+#   in compose      http://injury-service:8001   a service name, resolvable
+#                                                only inside that network
+#   on the host     http://localhost:8001        what a developer running
+#                                                the harness or main() sees
+#
+# Defaulting to localhost means a host run is unchanged and compose sets the
+# override, which is exactly how DB_HOST and INFERENCE_URL already work in
+# the backend.
+INJURY_SERVICE_URL = os.environ.get(
+    "INJURY_SERVICE_URL", "http://localhost:8001") + "/injury-report"
 
 # Only what the join needs; the full file is 339,841 rows x 34 columns.
 HISTORY_COLUMNS = ["GAME_ID", "GAME_DATE", "TEAM_ID", "PLAYER_ID",
@@ -178,17 +194,39 @@ def reconcile(report_players: pd.DataFrame,
 ABSENT_COUNT_COLUMN = "ABSENT_COUNT"
 WEIGHTED_ABSENT_MIN_COLUMN = "WEIGHTED_ABSENT_MIN"
 
-# The report changes roughly hourly, and get_live_features() runs per
-# request, so the fetch is cached. Short enough that a late scratch is
-# picked up within the hour it matters.
+# THIS CACHE NOW GUARDS THE RECONCILIATION, NOT THE FETCH, and the comment
+# that used to sit here described the wrong cost entirely.
+#
+# It was written when this function did both halves: it explained the ~40
+# seconds of HTTP probing a missing report used to cost, because
+# find_latest_report() walks 48 quarter-hour candidates before giving up.
+# That probing now happens in the injury-service sidecar and is cached
+# there. Left unchanged, this comment would explain a cost that no longer
+# exists in this process - worse than no comment, because the next reader
+# would trust it.
+#
+# What it actually guards, measured rather than assumed:
+#
+#   load_current_player_state()   2.11s, then 2.09s on a repeat call
+#
+# An 80.6 MB CSV read and a 1,578-player groupby, with no incidental
+# memoisation saving it. Without this cache every prediction request would
+# pay that.
+#
+# So there are two caches in this path, in two processes, over two different
+# operations - one per expensive thing, not a duplicated one. The shape that
+# WOULD be duplication, two caches over the same fetch, cannot occur here:
+# after the split this module performs no fetch at all.
+#
+# 15 minutes is still short enough that a late scratch is picked up within
+# the hour it matters.
 CACHE_TTL_SECONDS = 15 * 60
 
-# FAILURES ARE CACHED TOO, and that is not an optimisation - without it the
-# offseason path costs ~40 seconds of HTTP probing on EVERY request, since
-# find_latest_report() walks 48 candidates before giving up and nothing was
-# remembered. A shorter TTL than the success case: a transient network blip
-# should not pin availability to NaN for a quarter of an hour during the
-# season, but it must not be retried on every single prediction either.
+# FAILURES ARE CACHED TOO, at a shorter TTL. The reason changed with the
+# split but did not go away: a sidecar that is down, or a league that has
+# published nothing, should not be retried on every single prediction - and
+# equally should not pin availability to NaN for a quarter of an hour once
+# it recovers.
 FAILURE_CACHE_TTL_SECONDS = 5 * 60
 
 _cache: dict = {}
@@ -231,6 +269,52 @@ def get_team_live_availability(team_id: int,
     }
 
 
+class NoReportAvailable(Exception):
+    """No injury report exists for the requested moment.
+
+    Defined here now rather than imported. The fetch itself moved to the
+    injury-service sidecar, which is the only part of this path that needs a
+    Java runtime, and this module no longer has that file on its path - it
+    talks HTTP instead. The exception stays because its job never depended
+    on where the PDF was parsed: raised rather than returning an empty frame
+    so that "nothing published" cannot be read as "nobody is injured".
+    """
+
+
+def fetch_report(as_of=None) -> dict:
+    """The parsed report from the sidecar.
+
+    The one network call in this module. It returns the PARSED REPORT, not
+    computed features - the reconciliation below runs here, against
+    player_boxscores_with_rolling.csv, which this image already carries.
+    Sending it over the wire instead would mean a second copy of that 80.6 MB
+    file and a second place for the reconciliation to drift out of step with
+    what the models were trained on.
+    """
+    import requests
+
+    params = {"as_of": as_of} if as_of is not None else None
+    try:
+        response = requests.get(INJURY_SERVICE_URL, params=params, timeout=90)
+        response.raise_for_status()
+    except Exception as error:
+        # Named rather than re-raised bare: the sidecar being down and the
+        # league not having published are different situations, and a
+        # developer reading a log should not have to tell them apart from a
+        # stack trace.
+        raise NoReportAvailable(
+            f"injury-service unreachable at {INJURY_SERVICE_URL} "
+            f"({type(error).__name__}: {error}). "
+            f"Start it with: docker compose up -d injury-service"
+        ) from error
+
+    payload = response.json()
+    if not payload.get("report_available"):
+        raise NoReportAvailable(
+            payload.get("reason") or "no injury report published")
+    return payload
+
+
 def get_live_availability(as_of=None, use_cache: bool = True):
     """Fetch, parse and reconcile the current report.
 
@@ -239,9 +323,6 @@ def get_live_availability(as_of=None, use_cache: bool = True):
     live_features.get_live_features().
     """
     import time
-
-    sys.path.insert(0, str(PROJECT_ROOT / "data-pipeline" / "ingestion"))
-    from fetch_current_injury_report import get_current_injury_status
 
     key = ("live" if as_of is None else str(as_of))
 
@@ -254,12 +335,14 @@ def get_live_availability(as_of=None, use_cache: bool = True):
             return payload
 
     try:
-        report = get_current_injury_status(as_of=as_of)
-        reconciled = reconcile(report.players)
+        payload = fetch_report(as_of=as_of)
+        reconciled = reconcile(pd.DataFrame(payload["players"]))
 
         team_lookup = load_team_lookup()
+        pending = pd.DataFrame(payload["pending"])
+        pending_teams = pending["Team"] if "Team" in pending.columns else []
         pending_team_ids = frozenset(
-            tid for tid in (team_lookup.get(name_key(t)) for t in report.pending["Team"])
+            tid for tid in (team_lookup.get(name_key(t)) for t in pending_teams)
             if tid is not None
         )
         payload = (reconciled, pending_team_ids)
@@ -294,28 +377,33 @@ def report_unmatched(rows: pd.DataFrame):
 
 
 def main():
-    sys.path.insert(0, str(PROJECT_ROOT / "data-pipeline" / "ingestion"))
-    from fetch_current_injury_report import (  # noqa: E402
-        NoReportAvailable,
-        get_current_injury_status,
-    )
+    """Ad-hoc check of the report and its reconciliation.
 
+    GOES THROUGH THE SIDECAR, exactly as a prediction does. It used to import
+    the fetch directly, which was convenient and wrong for the same reason a
+    test that builds its own JSON reader is wrong: a tool that exercises a
+    different path than production exercises the wrong thing. This needs
+    injury-service running, and says so plainly when it is not.
+    """
     as_of = None
     if len(sys.argv) > 1:
-        as_of = pd.Timestamp(sys.argv[1]).to_pydatetime()
-        print(f"Using as_of = {as_of:%Y-%m-%d %I:%M %p} ET\n")
+        as_of = pd.Timestamp(sys.argv[1]).isoformat()
+        print(f"Using as_of = {as_of} ET\n")
 
+    print(f"Asking {INJURY_SERVICE_URL}\n")
     try:
-        report = get_current_injury_status(as_of=as_of)
+        payload = fetch_report(as_of=as_of)
     except NoReportAvailable as error:
         print("NO REPORT CURRENTLY AVAILABLE")
         print(f"  {error}")
         return 0
 
-    print(f"Report: {report.timestamp:%Y-%m-%d %I:%M %p} ET")
-    print(f"  player rows {len(report.players)}, pending rows {len(report.pending)}")
+    players = pd.DataFrame(payload["players"])
+    pending = pd.DataFrame(payload["pending"])
+    print(f"Report: {payload['timestamp']}")
+    print(f"  player rows {len(players)}, pending rows {len(pending)}")
 
-    rows = reconcile(report.players)
+    rows = reconcile(players)
     report_unmatched(rows)
 
     absent = rows[rows["IS_ABSENT"]]

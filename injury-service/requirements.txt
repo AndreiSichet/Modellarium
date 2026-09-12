@@ -1,0 +1,33 @@
+# Pinned for the same reason every other requirements file here is: a
+# rebuild in six months must produce the same behaviour, and the failure
+# mode of a parser changing under a PDF is not a crash - it is different
+# rows, returned confidently.
+#
+# Versions match what the rest of the project already runs against, so this
+# service does not quietly introduce a fourth environment. fastapi and
+# uvicorn are the inference service's pins; nbainjuries is
+# data-pipeline/requirements.txt's.
+
+fastapi==0.141.1
+uvicorn==0.52.4
+
+# THE PARSER, and the only reason this container needs Java.
+#
+# nbainjuries pulls tabula-py, which shells out to a JVM through jpype1.
+# Both arrive transitively and are deliberately not pinned here - the same
+# direct-only discipline used everywhere else in this project. If a
+# tabula-py change ever breaks the parse, pin it then, with the version that
+# was measured.
+#
+# Chosen over a hand-rolled parse because the PDF separates columns by
+# POSITION rather than by any character - "BrooklynNets Agbaji,Ochai
+# Probable" extracts with no separators at all - and wrapped Reason text
+# comes out in the wrong visual order. That needs coordinate clustering.
+nbainjuries==1.1.1
+
+# tabula-py returns DataFrames, so pandas is not optional here even though
+# this service does no analysis. Pinned to the version the root venv and
+# data-pipeline use, NOT the inference container's 3.0.5: this service only
+# reshapes strings, and matching the environment the report parsing was
+# verified on matters more than matching the one that serves predictions.
+pandas==2.3.3

@@ -39,6 +39,10 @@
 fastapi==0.141.1
 uvicorn==0.52.4
 
+# The one call this service makes out to another service: injury_availability
+# asks the injury-service sidecar for the parsed report. Direct, so pinned.
+requests==2.34.2
+
 # nba_api backs GET /schedule. Not on the prediction path, but a breaking
 # change here takes the browse view down.
 nba_api==1.11.4

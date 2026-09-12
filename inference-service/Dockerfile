@@ -21,7 +21,8 @@ RUN pip install --no-cache-dir -r inference-service/requirements.txt
 # The sibling layout, reproduced exactly. Only the files this service
 # actually reaches for - not the whole pipeline or the training scripts.
 COPY inference-service/ ./inference-service/
-COPY ml-training/common.py ml-training/live_features.py ./ml-training/
+COPY ml-training/common.py ml-training/live_features.py \
+     ml-training/injury_availability.py ./ml-training/
 COPY ml-training/models/ ./ml-training/models/
 COPY data-pipeline/preprocessing/build_elo_ratings.py \
      data-pipeline/preprocessing/build_rest_days.py \
