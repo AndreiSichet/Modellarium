@@ -194,14 +194,32 @@ jobs:
       - name: Confirm the data corpus survived checkout
         shell: powershell
         run: |
-          # If this reports a small number, clean: false is not working and
-          # the next step is about to spend hours re-fetching. Better to say
-          # so here than to discover it from a job duration.
+          # A HARD FAILURE, and this guard earned that by failing twice.
+          #
+          # It used to emit ::warning:: and carry on. A warning leaves the
+          # step GREEN, and a green step at the top of a job that then runs
+          # for three hours is indistinguishable from having no guard at
+          # all - which is precisely what happened. The warning very likely
+          # fired during the repo rename and nobody saw it, because the job
+          # continued and the only visible symptom was duration.
+          #
+          # Same call as splitting exit 2 out of exit 1 for crash-versus-
+          # refusal: a misleading green is worse than a red.
+          #
+          # TWICE, and the second time is the reason this is not a one-off:
+          #   1. the basketball-predictor -> Modellarium rename, which moved
+          #      the runner's _work path and orphaned the seeded corpus
+          #   2. the C: -> D: runner move, which changes the same path for
+          #      the same structural reason
+          # The _work path derives from BOTH the repository name and the
+          # runner's install location, so either kind of move breaks it.
           $files = Get-ChildItem 'data-pipeline/data/raw/player_boxscores/*.csv' -ErrorAction SilentlyContinue
           $count = @($files).Count
           Write-Host "player box scores on disk: $count"
           if ($count -lt 1000) {
-            Write-Host "::warning::Only $count box-score files present. Ingestion will re-fetch the rest, which takes hours. Check that the runner's work directory persists and that checkout is not cleaning ignored files."
+            Write-Host "::error::Only $count of ~13,199 box-score files are present. fetch_player_boxscores.py resumes by file existence, so it would re-fetch the rest at the pipeline's 1 request/second ceiling - roughly 3.7 hours. Stopping here rather than letting that be discovered from a job duration."
+            Write-Host "::error::Most likely cause: the runner's _work path changed. It derives from the repository name AND the runner's install location, so a repo rename or a runner move orphans the seeded corpus. Re-seed with the robocopy command in CLAUDE.md section 4, confirm the file count, then re-run."
+            exit 1
           }
 
           # The LFS-tracked file, checked by SIZE rather than existence,

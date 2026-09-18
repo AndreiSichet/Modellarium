@@ -2,7 +2,7 @@
 BACKEND INSIGHTS
 Basketball Predictor - Spring Boot backend
 Written:      19 August 2026  (version 1)
-Last updated:  5 September 2026  (all five Python response shapes pinned)
+Last updated: 12 September 2026  (a sixth part: the injury sidecar)
 ===============================================================================
 
 WHO THIS DOCUMENT IS FOR
@@ -41,7 +41,7 @@ TABLE OF CONTENTS
 ===============================================================================
 
   1.  THE PROJECT IN ONE PAGE
-  2.  THE FIVE PARTS OF THE SYSTEM
+  2.  THE SIX PARTS OF THE SYSTEM
   3.  GLOSSARY OF TERMS
   4.  WHAT CHANGED SINCE VERSION 1
   5.  THE DATABASE
@@ -101,11 +101,17 @@ factory.
 
 
 ===============================================================================
-2. THE FIVE PARTS OF THE SYSTEM
+2. THE SIX PARTS OF THE SYSTEM
 ===============================================================================
 
-The project has five folders, each a separate program. They run
+The project has six folders, each a separate program. They run
 independently and talk over the network or through shared files.
+
+  A note before the diagram, because it saves a reader a confusing minute:
+  the sixth part was added in September and THE BACKEND DOES NOT TALK TO IT.
+  Nothing in this document changed because of it. It is drawn below only so
+  that someone looking at the running system does not find a container the
+  diagram never mentions.
 
     +-------------------+
     |  data-pipeline    |  Python. Downloads raw NBA results and turns them
@@ -131,6 +137,27 @@ independently and talk over the network or through shared files.
     |                   |  8000. Loads all the models into memory once at
     |                   |  startup. Given two team IDs and a date, builds
     |                   |  the inputs and returns predictions as JSON.
+    +-------------------+
+             ^
+             |  asks, only when predicting: "who is unavailable today?"
+             |
+    +-------------------+
+    |  injury-service   |  Python (FastAPI) on port 8001. The newest
+    |                   |  addition, and the smallest. The NBA publishes
+    |                   |  its injury report as a PDF, and reading a PDF
+    |                   |  needs a Java program - so this is the only
+    |                   |  container in the system with Java installed.
+    |                   |
+    |                   |  Its whole job is turning that PDF into a list of
+    |                   |  players and statuses. It does NOT work out what
+    |                   |  that means for a prediction; the inference
+    |                   |  service does that, because it already holds the
+    |                   |  player history needed to interpret it.
+    |                   |
+    |                   |  If it is switched off, predictions still work.
+    |                   |  They simply say "roster availability unknown"
+    |                   |  rather than failing - which is also what happens
+    |                   |  between seasons, when the NBA publishes nothing.
     +-------------------+
              |
              |  HTTP (a network call), JSON in and JSON out
