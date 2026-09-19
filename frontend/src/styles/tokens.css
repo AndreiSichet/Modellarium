@@ -1,0 +1,82 @@
+/*
+ * Design tokens — the single source of truth for colour, type and spacing.
+ *
+ * NO COMPONENT MAY HARDCODE A COLOUR, FONT FAMILY OR FONT SIZE. Everything
+ * references a variable defined here. That is not tidiness: this file is
+ * what makes a later phase able to change the whole visual language in one
+ * place, and a single hardcoded hex is what makes that no longer true.
+ *
+ * The visual language follows Anthropic's marketing site — cream ground,
+ * near-black ink, hairline rules rather than borders or shadows, generous
+ * whitespace, and a grotesk/serif pairing. Two things in here do more work
+ * than the colours:
+ *
+ *   --space-12   Section gaps want this, not --space-4. When a layout looks
+ *                wrong the answer is usually more space, not a new colour.
+ *
+ *   --measure    Body prose capped at 65ch. Full-width serif at 17px is the
+ *                single fastest way to lose the reference look.
+ */
+
+:root {
+  /* ---- Colour ------------------------------------------------------ */
+  --cream: #f0eee6;      /* page background */
+  --ink: #141413;        /* primary text */
+  --ink-muted: #6b6a65;  /* secondary text, labels, metadata */
+  --rule: #dedbd0;       /* hairline dividers */
+  --surface: #ffffff;    /* cards sitting on cream */
+  --accent: #c15f3c;     /* active states, links — used sparingly */
+
+  /* ---- Type -------------------------------------------------------- */
+  /* Fallbacks are real, not decorative: the Google Fonts request can be
+     blocked, and the difference between degrading to system-ui and
+     degrading to Times New Roman is the whole look. */
+  --font-display: 'Familjen Grotesk', system-ui, -apple-system, sans-serif;
+  --font-body: 'Source Serif 4', Georgia, serif;
+  /* Not part of the design language - <code> only. It is a token anyway so
+     that no font-family string exists outside this file, which is the rule
+     that makes a later phase able to change type in one place. */
+  --font-mono: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+
+  --text-hero: 64px;
+  --text-heading: 32px;
+  --text-subheading: 20px;
+  --text-body: 17px;
+  --text-small: 15px;
+  --text-label: 13px;
+
+  --leading-hero: 1.05;
+  --leading-heading: 1.15;
+  --leading-body: 1.55;
+
+  /* ---- Spacing — an 8px scale -------------------------------------- */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-6: 48px;
+  --space-8: 64px;
+  --space-12: 96px;
+
+  /* ---- Layout ------------------------------------------------------ */
+  --measure: 65ch;       /* maximum body-text line length */
+  --page-max: 1280px;
+  --header-height: 72px;
+}
+
+/*
+ * Responsive type. The hero is the only size that changes across
+ * breakpoints, and it changes HERE rather than in a component, so a
+ * component never needs a media query to know how big its heading is.
+ */
+@media (max-width: 1279px) {
+  :root {
+    --text-hero: 48px;
+  }
+}
+
+@media (max-width: 767px) {
+  :root {
+    --text-hero: 36px;
+  }
+}

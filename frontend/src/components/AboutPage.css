@@ -1,0 +1,130 @@
+/*
+ * Every value comes from tokens.css. Whitespace is doing most of the work
+ * here — the gaps are --space-12, not --space-4, and shrinking them is
+ * what makes this stop looking like the reference.
+ */
+
+/* ---- hero ------------------------------------------------------------ */
+
+.about-hero {
+  display: grid;
+  grid-template-columns: 55fr 45fr;
+  gap: var(--space-8);
+  align-items: start;
+  padding-top: var(--space-12);
+}
+
+.about-hero-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  font-weight: 500;
+  line-height: var(--leading-hero);
+  /* Tightens the optical gap large grotesk leaves between words without
+     touching the tracking of the smaller sizes. */
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  color: var(--ink);
+}
+
+.about-hero-lede {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-subheading);
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+  max-width: var(--measure);
+}
+
+/* ---- rule ------------------------------------------------------------ */
+
+.about-rule {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: var(--space-12) 0;
+}
+
+/* ---- prose ----------------------------------------------------------- */
+
+.about-prose {
+  display: grid;
+  grid-template-columns: 55fr 45fr;
+  gap: var(--space-8);
+  align-items: start;
+  padding-bottom: var(--space-12);
+}
+
+.about-prose-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-heading);
+  font-weight: 500;
+  line-height: var(--leading-heading);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  color: var(--ink);
+}
+
+/* Two-up inside the right column, matching the reference. The right column
+   is narrower than the left, so these are genuinely two columns of prose
+   rather than two columns of the page. */
+.about-blocks {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-8) var(--space-6);
+}
+
+.about-block-heading {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-subheading);
+  font-weight: 500;
+  line-height: var(--leading-heading);
+  color: var(--ink);
+}
+
+.about-block-body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+  /* The cap that matters most on this page. Uncapped serif at this size
+     runs to a measure nobody can track back from. */
+  max-width: var(--measure);
+}
+
+/* ---- responsive ------------------------------------------------------ */
+
+/* 768–1279: both grids collapse to one column and the four blocks stack.
+   --text-hero drops to 48px in tokens.css, not here. */
+@media (max-width: 1279px) {
+  .about-hero,
+  .about-prose {
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+
+  .about-blocks {
+    grid-template-columns: 1fr;
+    gap: var(--space-6);
+  }
+
+  .about-prose {
+    gap: var(--space-6);
+  }
+}
+
+@media (max-width: 767px) {
+  .about-hero {
+    padding-top: var(--space-8);
+  }
+
+  .about-rule {
+    margin: var(--space-8) 0;
+  }
+
+  .about-prose {
+    padding-bottom: var(--space-8);
+  }
+}

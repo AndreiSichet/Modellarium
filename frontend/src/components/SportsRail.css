@@ -1,0 +1,114 @@
+/*
+ * INDEPENDENT SCROLLING — the part of this component most easily got wrong.
+ *
+ * `height`, NOT `max-height`, and that is the load-bearing line. With
+ * max-height a short list leaves the rail shorter than the viewport, it
+ * never becomes its own scroll container, and a wheel over it scrolls the
+ * PAGE instead — which looks fine today with one sport and breaks silently
+ * the moment the list grows.
+ *
+ * overscroll-behavior: contain stops the other half of the same problem:
+ * reaching the end of the rail's own scroll would otherwise hand the
+ * remaining scroll to the page behind it.
+ */
+.sports-rail {
+  position: sticky;
+  top: var(--header-height);
+  height: calc(100vh - var(--header-height));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-4) var(--space-2) var(--space-4) 0;
+}
+
+.sports-rail-heading {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-label);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.sports-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sports-rail-link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  font-weight: 400;
+  color: var(--ink-muted);
+  text-decoration: none;
+  /* A transparent border on the inactive state, so activating an item
+     changes its colour rather than shifting it two pixels right. */
+  border-left: 2px solid transparent;
+}
+
+.sports-rail-link:hover {
+  color: var(--ink);
+}
+
+.sports-rail-link.active {
+  border-left-color: var(--accent);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.sports-rail-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sport-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/*
+ * Below 1024 the rail becomes a horizontal strip under the header and
+ * gives up its sticky full-height behaviour entirely — height: 100vh on a
+ * horizontal strip would take the whole screen.
+ *
+ * NOT a dropdown. With one item a dropdown is a click that reveals
+ * nothing, and it would still be a click when there are three.
+ */
+@media (max-width: 1023px) {
+  .sports-rail {
+    position: static;
+    height: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .sports-rail-list {
+    flex-direction: row;
+    gap: var(--space-1);
+  }
+
+  .sports-rail-link {
+    /* The active marker moves from the left edge to underneath, because a
+       left border on a horizontal strip marks the wrong axis. */
+    border-left: 0;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+
+  .sports-rail-link.active {
+    border-left-color: transparent;
+    border-bottom-color: var(--accent);
+  }
+}

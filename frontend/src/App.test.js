@@ -1,5 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import App from './App';
+// PredictionsFlow, not App. App became a route table in Phase 1 and no
+// longer renders the browse/detail flow; the controller these tests
+// exercise moved to PredictionsFlow.js unchanged. Every assertion below is
+// untouched — only what gets rendered changed.
+import PredictionsFlow from './PredictionsFlow';
 import {
   createPrediction,
   createQuarterHalfPrediction,
@@ -134,7 +138,7 @@ async function fetchSchedule(fixtures) {
   getSchedule.mockResolvedValue(fixtures);
   getHealth.mockResolvedValue(HEALTH);
 
-  render(<App />);
+  render(<PredictionsFlow />);
   fireEvent.click(screen.getByRole('button', { name: 'Fetch future games' }));
   await waitFor(() => expect(getSchedule).toHaveBeenCalled());
 }
@@ -148,7 +152,7 @@ function cardFor(text) {
 
 describe('browse view', () => {
   test('describes the app before anything is fetched', () => {
-    render(<App />);
+    render(<PredictionsFlow />);
 
     expect(screen.getByText('Modellarium')).toBeInTheDocument();
     expect(screen.getByText(/A personal sportsbook/)).toBeInTheDocument();
@@ -184,7 +188,7 @@ describe('browse view', () => {
     );
     getHealth.mockResolvedValue(HEALTH);
 
-    render(<App />);
+    render(<PredictionsFlow />);
     fireEvent.click(screen.getByRole('button', { name: 'Fetch future games' }));
 
     expect(

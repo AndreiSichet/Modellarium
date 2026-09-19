@@ -1,13 +1,34 @@
+/*
+ * Imported FIRST, before any rule below can reference a variable it
+ * defines. @import must precede all other statements in a stylesheet
+ * anyway, so this position is required rather than chosen.
+ */
+@import './styles/tokens.css';
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: var(--text-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: var(--font-mono);
+}
+
+/*
+ * The cream ground is set on body rather than on a wrapper so that
+ * over-scroll at the top and bottom of the page shows cream, not white.
+ */
+html {
+  background: var(--cream);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }

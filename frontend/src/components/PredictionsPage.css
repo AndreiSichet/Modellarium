@@ -1,0 +1,139 @@
+/*
+ * Grid rather than flexbox, because fixed / flexible / fixed is precisely
+ * what grid-template-columns expresses in one line. The flex equivalent
+ * needs flex-basis plus flex-shrink on three children to say the same
+ * thing, and says it less clearly.
+ */
+.predictions {
+  display: grid;
+  grid-template-columns: 240px 1fr 380px;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.predictions-content {
+  /* min-width: 0 on a grid child is not optional. A grid item's default
+     min-width is auto, so a wide child (a long table, a game row that does
+     not wrap) pushes the whole column past its track and the page scrolls
+     sideways. This is the single most common cause of horizontal overflow
+     in a layout like this. */
+  min-width: 0;
+  padding: var(--space-4) 0;
+}
+
+.predictions-overview {
+  min-width: 0;
+  padding: var(--space-4) 0;
+}
+
+/* ---- placeholders ---------------------------------------------------- */
+
+.predictions-placeholder {
+  border: 1px solid var(--rule);
+  padding: var(--space-4);
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+/* ---- messages: empty, error, unknown sport --------------------------- */
+
+.predictions-message {
+  max-width: var(--measure);
+  padding: var(--space-8) 0;
+}
+
+.predictions-message-title {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-display);
+  font-size: var(--text-heading);
+  font-weight: 500;
+  line-height: var(--leading-heading);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.predictions-message-body {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+}
+
+.predictions-message-meta {
+  margin: var(--space-3) 0 0;
+  font-family: var(--font-display);
+  font-size: var(--text-label);
+  color: var(--ink-muted);
+}
+
+.predictions-error-detail {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  color: var(--ink-muted);
+  /* A backend message can be a long unbroken URL or stack line; without
+     this it becomes the widest thing on the page. */
+  overflow-wrap: anywhere;
+}
+
+.predictions-retry {
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+
+.predictions-retry:hover {
+  border-color: var(--ink-muted);
+}
+
+.predictions-retry:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.predictions-muted {
+  padding: var(--space-4) 0;
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+/* ---- responsive ------------------------------------------------------ */
+
+/*
+ * 1024–1279: the overview rail drops out. It is supplementary by design,
+ * and at reduced width the middle column is what the page is for.
+ */
+@media (max-width: 1279px) {
+  .predictions {
+    grid-template-columns: 240px 1fr;
+  }
+
+  .predictions-overview {
+    display: none;
+  }
+}
+
+/* Below 1024 everything stacks and the rail becomes a horizontal strip —
+   its own stylesheet handles that half. */
+@media (max-width: 1023px) {
+  .predictions {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .predictions-content {
+    padding: var(--space-3) 0;
+  }
+
+  .predictions-message {
+    padding: var(--space-6) 0;
+  }
+}
