@@ -34,6 +34,18 @@ FROM nginx:alpine
 
 COPY --from=build /build/build /usr/share/nginx/html
 
+# THE APP ROUTES CLIENT-SIDE, so the server has to be told. React Router
+# renders /predictions/:sport from JavaScript - that path is not a directory
+# on disk, and stock nginx 404s it on a hard refresh or a pasted link. This
+# config adds the fallback, and deliberately exempts /static/ from it so a
+# missing bundle still 404s instead of being served index.html with a 200.
+# Full reasoning in the file itself.
+#
+# It replaces nginx:alpine's own conf.d/default.conf rather than being added
+# beside it: the base image's server block already claims listen 80 for this
+# server_name, so two files would collide rather than layer.
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
 EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]

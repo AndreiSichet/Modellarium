@@ -1,5 +1,28 @@
 # Getting Started with Create React App
 
+## Development fixtures
+
+**The predictions list is empty out of season, and that is correct rather
+than broken.** `MAX_DAYS_AHEAD` is 1 and the pipeline's data ends
+2026-04-12, so no real fixture is predictable until the 2026-27 season has
+been ingested.
+
+To see the game list with data, run with fixtures on:
+
+```powershell
+$env:REACT_APP_DEV_FIXTURES = "1"; npm start
+```
+
+Four games, including one lopsided, one near coin-flip, one pair of long
+team names, and one deliberately unknown `TEAM_ID` so the neutral fallback
+badge is visible. Shapes are copied from the backend's `ScheduledGameDto`
+and `GameSummaryDto` records, not from the inference service's snake_case
+responses.
+
+`create-react-app` inlines `REACT_APP_*` at build time, so a production
+bundle built without the variable cannot reach this path at all.
+
+
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
 ## Available Scripts

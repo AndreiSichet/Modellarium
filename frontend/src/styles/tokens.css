@@ -26,6 +26,12 @@
   --rule: #dedbd0;       /* hairline dividers */
   --surface: #ffffff;    /* cards sitting on cream */
   --accent: #c15f3c;     /* active states, links — used sparingly */
+  /* A translucent hairline for shapes filled with a colour this file does
+     not own — team badges, whose primaries are published brand colours in
+     data/teams.js. Translucent rather than a fixed grey because it sits
+     over arbitrary fills; without it a near-white primary (San Antonio)
+     dissolves into the cream ground. */
+  --edge-on-colour: rgb(0 0 0 / 8%);
 
   /* ---- Type -------------------------------------------------------- */
   /* Fallbacks are real, not decorative: the Google Fonts request can be

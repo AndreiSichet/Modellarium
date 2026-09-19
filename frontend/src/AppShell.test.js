@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 
 import App from './App';
-import { getHealth, getSchedule } from './api';
+import { createPrediction, getHealth, getSchedule } from './api';
 
 jest.mock('./api');
 
@@ -21,9 +21,32 @@ const HEALTH = { dataAsOf: '2026-04-12', daysBehind: 131, stale: true };
 const PREDICTABLE_GAME = {
   homeTeamId: 1610612737,
   homeTeamAbbr: 'ATL',
+  homeTeamName: 'Atlanta Hawks',
   awayTeamId: 1610612738,
   awayTeamAbbr: 'BOS',
+  awayTeamName: 'Boston Celtics',
   gameDate: '2026-04-13',
+};
+
+/** Shaped as GameSummaryDto, which is what POST /api/predictions returns. */
+const SUMMARY = {
+  id: 4,
+  homeTeamAbbreviation: 'ATL',
+  awayTeamAbbreviation: 'BOS',
+  gameDate: '2026-04-13',
+  played: false,
+  latestPrediction: {
+    homeWinProbability: 0.5745,
+    homeMargin: 1.4149,
+    totalPoints: 232.9323,
+    reboundMargin: -0.3438,
+    totalRebounds: 88.7604,
+    assistMargin: 2.2516,
+    totalAssists: 51.0805,
+    dataAsOf: '2026-04-12',
+    stale: true,
+    predictedAt: '2026-09-19T10:00:00Z',
+  },
 };
 
 /** A real fixture, but months past the cutoff — listed, not predictable. */
@@ -41,6 +64,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   getSchedule.mockResolvedValue([]);
   getHealth.mockResolvedValue(HEALTH);
+  createPrediction.mockResolvedValue(SUMMARY);
 });
 
 describe('routing', () => {
@@ -170,12 +194,36 @@ describe('predictions data states', () => {
     ).toBeInTheDocument();
   });
 
-  test('populated: a fixture within the cutoff counts', async () => {
+  test('populated: only the fixture within the cutoff is predicted and listed', async () => {
     getSchedule.mockResolvedValue([PREDICTABLE_GAME, FAR_GAME]);
+    const { container } = renderAt('/predictions/basketball');
+
+    expect(await screen.findByText('Atlanta Hawks')).toBeInTheDocument();
+    // One of the two is predictable; the far one must not reach the list,
+    // and must not cost a POST either.
+    //
+    // Scoped to .game-row: an unscoped getAllByRole('listitem') also
+    // matches the sports rail's own <li>, which made this read 2.
+    expect(container.querySelectorAll('.game-row')).toHaveLength(1);
+    expect(createPrediction).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * ONE POST PER GAME, AND EACH WRITES A ROW. The endpoint is append-only
+   * by design, so this is N rows per page view rather than one per click.
+   * The rate is asserted here so a future change to it is visible rather
+   * than silent — the fix belongs in a backend batch endpoint, not in a
+   * frontend cache.
+   */
+  test('populated: one prediction request per predictable game, no more', async () => {
+    getSchedule.mockResolvedValue([
+      PREDICTABLE_GAME,
+      { ...PREDICTABLE_GAME, homeTeamId: 1610612744, homeTeamName: 'Golden State Warriors' },
+    ]);
     renderAt('/predictions/basketball');
 
-    // One of the two is predictable; the far one must not be counted.
-    expect(await screen.findByText(/1 games/)).toBeInTheDocument();
+    expect(await screen.findByText('Golden State Warriors')).toBeInTheDocument();
+    expect(createPrediction).toHaveBeenCalledTimes(2);
   });
 
   /**
@@ -210,6 +258,60 @@ describe('predictions data states', () => {
       await screen.findByRole('heading', { name: 'No predictions yet' })
     ).toBeInTheDocument();
     expect(getSchedule).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('league tabs', () => {
+  test('only leagues that exist appear — no disabled placeholders', async () => {
+    getSchedule.mockResolvedValue([PREDICTABLE_GAME]);
+    renderAt('/predictions/basketball');
+
+    const tabs = await screen.findAllByRole('tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Upcoming', 'NBA']);
+  });
+
+  test('Upcoming groups under a league heading; NBA is flat', async () => {
+    getSchedule.mockResolvedValue([PREDICTABLE_GAME]);
+    renderAt('/predictions/basketball');
+
+    // Upcoming is the default tab and groups, even with one league — the
+    // group is rendered rather than special-cased away.
+    expect(await screen.findByRole('heading', { name: 'NBA', level: 2 })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'NBA' }));
+    expect(screen.queryByRole('heading', { name: 'NBA', level: 2 })).not.toBeInTheDocument();
+    // The game itself survives the switch.
+    expect(screen.getByText('Atlanta Hawks')).toBeInTheDocument();
+  });
+
+  /**
+   * Tabs are page state, not routes. Were they routes, the browser Back
+   * button would step through tab presses instead of leaving the page.
+   */
+  test('switching tabs does not refetch', async () => {
+    getSchedule.mockResolvedValue([PREDICTABLE_GAME]);
+    renderAt('/predictions/basketball');
+
+    await screen.findByText('Atlanta Hawks');
+    const before = createPrediction.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('tab', { name: 'NBA' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Upcoming' }));
+
+    expect(createPrediction).toHaveBeenCalledTimes(before);
+    expect(getSchedule).toHaveBeenCalledTimes(1);
+  });
+
+  test('the active tab is marked for assistive tech, not just visually', async () => {
+    getSchedule.mockResolvedValue([PREDICTABLE_GAME]);
+    renderAt('/predictions/basketball');
+
+    const upcoming = await screen.findByRole('tab', { name: 'Upcoming' });
+    expect(upcoming).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'NBA' })).toHaveAttribute(
+      'aria-selected',
+      'false'
+    );
   });
 });
 

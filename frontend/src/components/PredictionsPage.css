@@ -8,7 +8,28 @@
   display: grid;
   grid-template-columns: 240px 1fr 380px;
   gap: var(--space-3);
-  align-items: start;
+  /*
+   * NO align-items: start HERE, AND ITS ABSENCE IS LOAD-BEARING.
+   *
+   * It was set in Phase 2 and silently broke both side columns. `start`
+   * sizes each grid item to its own content instead of stretching it to
+   * the row height, so:
+   *
+   *   .predictions-content   tall (the game list)  -> tabs had travel, stuck
+   *   .predictions-rail      = the rail's height   -> zero travel
+   *   .predictions-overview  = a small placeholder -> zero travel
+   *
+   * A sticky element can only travel inside its containing block. When
+   * that block is exactly as tall as the element there is nowhere to
+   * stick, and it scrolls away behaving as `static` — with no warning and
+   * no error. The rule itself stayed correct the whole time, which is why
+   * checking the compiled CSS passed while the page was wrong.
+   *
+   * The default `stretch` makes every column the height of the tallest,
+   * which is what gives the sticky children inside them room to move.
+   * Do not re-add `start` to stop the short columns "looking stretched" —
+   * the stretched box is invisible; what it holds is not.
+   */
 }
 
 .predictions-content {
@@ -24,6 +45,26 @@
 .predictions-overview {
   min-width: 0;
   padding: var(--space-4) 0;
+}
+
+/*
+ * The overview needs its own sticky INNER element, the same shape the rail
+ * uses: the grid item stretches to the row height, and a short child
+ * sticks inside it.
+ *
+ * Making the grid item itself sticky would not work — stretched to the row
+ * height, its containing block is the same size again, which is the exact
+ * bug above wearing different clothes.
+ *
+ * max-height plus overflow so a tall Phase 4 rail scrolls within itself
+ * rather than growing past the viewport and becoming unreachable.
+ */
+.predictions-overview-inner {
+  position: sticky;
+  top: var(--header-height);
+  max-height: calc(100vh - var(--header-height) - var(--space-4));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* ---- placeholders ---------------------------------------------------- */

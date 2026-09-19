@@ -1,0 +1,133 @@
+.game-row {
+  border-bottom: 1px solid var(--rule);
+  padding: var(--space-3) 0;
+  list-style: none;
+}
+
+/*
+ * Four tracks, three rows: a heading strip, then home, then away. The total
+ * occupies the fourth column across the two team rows via grid-row: span 2.
+ */
+.game-row-grid {
+  display: grid;
+  grid-template-columns: 1fr 72px 72px 72px;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.game-row-headings {
+  display: contents;
+}
+
+.game-row-heading {
+  font-family: var(--font-display);
+  font-size: var(--text-label);
+  color: var(--ink-muted);
+  text-align: center;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.game-row-team {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.game-row-team-name {
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  color: var(--ink);
+  /* A long name (Portland Trail Blazers, Minnesota Timberwolves) must
+     truncate rather than widen the track and push the page sideways. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-row-cell {
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  color: var(--ink);
+  text-align: center;
+  /* Digits line up between the home and away lines. */
+  font-variant-numeric: tabular-nums;
+}
+
+.game-row-total {
+  grid-column: 4;
+  grid-row: span 2;
+  align-self: center;
+  font-family: var(--font-display);
+  font-size: var(--text-subheading);
+  font-weight: 500;
+  color: var(--ink);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.game-row-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.game-row-when {
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.game-row-more {
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--ink);
+  text-decoration: none;
+  border: 1px solid var(--rule);
+  padding: var(--space-1) var(--space-3);
+}
+
+.game-row-more:hover {
+  border-color: var(--ink-muted);
+}
+
+.game-row-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/*
+ * Below 1024 the columns COMPRESS BY DROPPING, not by shrinking. Squeezing
+ * three numeric columns into a narrow screen makes all three illegible;
+ * dropping the least essential keeps the rest readable.
+ *
+ * Total goes first — it is the one number not about either team. Below 640
+ * only the win percentage survives, which is the headline figure.
+ */
+@media (max-width: 1023px) {
+  .game-row-grid {
+    grid-template-columns: 1fr 72px 72px;
+  }
+
+  .game-row-total,
+  .game-row-heading:last-child {
+    display: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .game-row-grid {
+    grid-template-columns: 1fr 72px;
+  }
+
+  /* The spread column: its heading is the second .game-row-heading, and
+     the cells are the first .game-row-cell of each team line. */
+  .game-row-heading:nth-child(2),
+  .game-row-team + .game-row-cell {
+    display: none;
+  }
+}
