@@ -10,7 +10,7 @@
  * Sticky positions against the nearest SCROLLING ancestor. In Phase 4 this
  * row lived inside a panel with its own overflow-y, whose top edge already
  * sat below the app header, so `top: 0` was right there. Here the chain is
- * .shell-main > .predictions > .predictions-content and none of them
+ * .shell-body > .predictions > .predictions-content and none of them
  * scroll, so the ancestor is the document and the row has to clear the
  * sticky header itself.
  *

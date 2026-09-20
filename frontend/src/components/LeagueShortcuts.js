@@ -10,7 +10,7 @@ import './LeagueShortcuts.css';
  * `overflow-y`, so it stuck at `top: 0` of that panel and the observer
  * watched the panel. Here the chain is
  *
- *   .shell-main > .predictions > .predictions-content > this
+ *   .shell-body > .predictions > .predictions-content > this
  *
  * and not one of those scrolls - checked, not assumed. So the scrolling
  * ancestor is the document, the row sticks below the app header at

@@ -157,7 +157,12 @@ function PredictionsLayout() {
         <SportsRail />
       </div>
 
-      <div className="predictions-content">{body}</div>
+      {/*
+        THE CONTENT COLUMN IS THE LANDMARK, and the rail above is a sibling
+        nav. A screen reader user can jump straight to the predictions
+        without first walking past the sports list.
+      */}
+      <main className="predictions-content">{body}</main>
     </div>
   );
 }

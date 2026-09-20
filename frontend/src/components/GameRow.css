@@ -87,7 +87,10 @@
   font-weight: 500;
   color: var(--ink);
   text-decoration: none;
-  border: 1px solid var(--rule);
+  /* Same reasoning as the retry button: this border is what makes the
+     link read as a control, so it is judged at 3:1 rather than as a
+     decorative hairline. */
+  border: 1px solid var(--ink-muted);
   padding: var(--space-1) var(--space-3);
 }
 

@@ -1,3 +1,5 @@
+import { useRef } from 'react';
+
 import './DetailTabs.css';
 
 /**
@@ -22,6 +24,16 @@ export const TABS = [
   ...PLAYER_STATS,
 ];
 
+/** Ids shared by the bar and the panel, so the aria wiring cannot
+ *  drift between the two files that reference it. */
+export function tabId(id) {
+  return `detail-tab-${id}`;
+}
+
+export function panelId(id) {
+  return `detail-panel-${id}`;
+}
+
 /** The five that share one lazily-fetched response. */
 export function isPlayerTab(id) {
   return PLAYER_STATS.some((stat) => stat.id === id);
@@ -40,14 +52,59 @@ export function isPlayerTab(id) {
  * move the reading position and use aria-current="location" instead.
  */
 function DetailTabs({ active, onSelect }) {
+  const ref = useRef(null);
+
+  /*
+   * ARROW KEYS MOVE BETWEEN TABS; Tab MOVES OUT OF THE BAR.
+   *
+   * That is the expected behaviour for a tablist and it is not what you get
+   * for free. Seven focusable buttons in a row means seven presses of Tab
+   * to get past them, which is exactly the kind of keyboard trap that makes
+   * a page unusable without a mouse. The fix is a roving tabindex: the
+   * active tab is the only one in the tab order, and Left/Right move focus
+   * between them.
+   *
+   * Focus is moved explicitly rather than left to follow state, because
+   * activating a tab re-renders the bar and the newly-selected button is a
+   * different DOM node — without this the focus ring would land back on the
+   * body and the next arrow press would do nothing.
+   */
+  function onKeyDown(event) {
+    const index = TABS.findIndex((tab) => tab.id === active);
+    let next = null;
+
+    if (event.key === 'ArrowRight') next = (index + 1) % TABS.length;
+    else if (event.key === 'ArrowLeft') next = (index - 1 + TABS.length) % TABS.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = TABS.length - 1;
+    else return;
+
+    // Only after deciding this is ours: otherwise Tab and Shift+Tab would
+    // be swallowed too, which is the trap this exists to avoid.
+    event.preventDefault();
+    onSelect(TABS[next].id);
+    ref.current?.querySelectorAll('[role="tab"]')[next]?.focus();
+  }
+
   return (
-    <div className="detail-tabs" role="tablist" aria-label="Prediction markets">
+    <div
+      className="detail-tabs"
+      role="tablist"
+      aria-label="Prediction markets"
+      ref={ref}
+      onKeyDown={onKeyDown}
+    >
       {TABS.map((tab) => (
         <button
           key={tab.id}
           type="button"
           role="tab"
+          id={tabId(tab.id)}
           aria-selected={tab.id === active}
+          // The panel this tab controls, so a screen reader can move
+          // straight to it rather than hunting for what changed.
+          aria-controls={panelId(tab.id)}
+          tabIndex={tab.id === active ? 0 : -1}
           className={
             tab.id === active ? 'detail-tab detail-tab--active' : 'detail-tab'
           }

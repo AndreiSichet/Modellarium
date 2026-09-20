@@ -188,7 +188,9 @@
 /* Low confidence is the one that has to be noticed, so it is the one that
    carries the accent. The others are informational. */
 .confidence-tag--low {
-  color: var(--accent);
+  /* Text takes the darker token, the border keeps the original: a
+     border is a non-text element at 3:1, which --accent clears. */
+  color: var(--accent-text);
   border-color: var(--accent);
 }
 
@@ -207,7 +209,7 @@
   font-size: var(--text-label);
   font-weight: 600;
   letter-spacing: 0.06em;
-  color: var(--accent);
+  color: var(--accent-text);
   border: 1px solid var(--accent);
   padding: 0 var(--space-1);
 }

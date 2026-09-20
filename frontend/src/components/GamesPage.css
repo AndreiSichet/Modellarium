@@ -64,7 +64,9 @@
 .league-section-more {
   font-family: var(--font-display);
   font-size: var(--text-small);
-  color: var(--accent);
+  /* --accent-text, not --accent: this is 15px link text, judged at
+     4.5:1, where --accent measures 3.64:1. */
+  color: var(--accent-text);
   text-decoration: none;
   white-space: nowrap;
 }

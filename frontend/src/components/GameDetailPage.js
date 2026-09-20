@@ -6,7 +6,7 @@ import { DEV_FIXTURES_ON, devPlayerPropsFor, devQuarterHalfFor } from '../data/d
 import { findLeague } from '../data/leagues';
 import { teamFor } from '../data/teams';
 import Breadcrumb from './Breadcrumb';
-import DetailTabs, { PLAYER_STATS, TABS, isPlayerTab } from './DetailTabs';
+import DetailTabs, { PLAYER_STATS, TABS, isPlayerTab, panelId, tabId } from './DetailTabs';
 import GameTab from './GameTab';
 import PlayerStatTab from './PlayerStatTab';
 import QuarterHalfTab from './QuarterHalfTab';
@@ -138,7 +138,18 @@ function GameDetailPage() {
         panel - and seven mounted panels would put twenty player rows in the
         accessibility tree five times over for tabs nobody is looking at.
       */}
-      <div className="detail-panel" role="tabpanel" aria-label={labelFor(tab)}>
+      <div
+        className="detail-panel"
+        role="tabpanel"
+        id={panelId(tab)}
+        // Named by its own tab rather than by a duplicate aria-label, so
+        // the two cannot come to say different things.
+        aria-labelledby={tabId(tab)}
+        // 0, not -1: the panel holds no focusable element of its own on
+        // most tabs, so without this a keyboard user tabbing out of the bar
+        // skips the content entirely and lands in the footer.
+        tabIndex={0}
+      >
         {tab === 'game' ? (
           <GameTab game={game} health={health} />
         ) : tab === 'quarters' ? (
@@ -154,10 +165,6 @@ function GameDetailPage() {
       </div>
     </div>
   );
-}
-
-function labelFor(id) {
-  return TABS.find((entry) => entry.id === id)?.label ?? id;
 }
 
 /**

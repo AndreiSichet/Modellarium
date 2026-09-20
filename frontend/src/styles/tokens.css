@@ -25,7 +25,20 @@
   --ink-muted: #6b6a65;  /* secondary text, labels, metadata */
   --rule: #dedbd0;       /* hairline dividers */
   --surface: #ffffff;    /* cards sitting on cream */
-  --accent: #c15f3c;     /* active states, links — used sparingly */
+  --accent: #c15f3c;     /* active states, underlines, focus rings */
+  /*
+   * THE SAME ACCENT, DARK ENOUGH TO BE TEXT. Measured, not guessed:
+   * --accent on --cream is 3.64:1, which clears WCAG AA for large text
+   * (3:1) and FAILS it for normal text (4.5:1) — and every place it was
+   * used as text was 13px or 15px. Same hue (15.8deg) and saturation
+   * (53%), lightness dropped 50% -> 42%, giving 4.82:1.
+   *
+   * TWO TOKENS RATHER THAN ONE DARKENED ONE, because the thresholds
+   * genuinely differ: an underline or a focus ring is a non-text element
+   * judged at 3:1, which --accent passes, and darkening those too would
+   * dull the identity to fix a problem they do not have.
+   */
+  --accent-text: #a35033;
   /* A translucent hairline for shapes filled with a colour this file does
      not own — team badges, whose primaries are published brand colours in
      data/teams.js. Translucent rather than a fixed grey because it sits

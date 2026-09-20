@@ -17,7 +17,11 @@
   height: calc(100vh - var(--header-height));
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: var(--space-4) var(--space-2) var(--space-4) 0;
+  /* NO TOP PADDING: it moved to .predictions-rail, the grid item, so that
+     when this sticks its heading lands on the same line as the content
+     column's sticky bar. Inside the box it was a 32px offset that only
+     appeared once the page was scrolled. See --column-top. */
+  padding: 0 var(--space-2) var(--space-4) 0;
 }
 
 .sports-rail-heading {

@@ -172,24 +172,21 @@ describe('routing', () => {
   test('General and Upcoming render the same structure, differing only in scope', async () => {
     getSchedule.mockResolvedValue([fixture(0, TODAY), fixture(1, TODAY)]);
 
-    const general = renderAt('/predictions');
-    await screen.findByRole('heading', { name: 'General', level: 1 });
-    const generalShape = {
-      sections: Array.from(general.container.querySelectorAll('.league-section'), (s) => s.id),
-      shortcuts: Array.from(general.container.querySelectorAll('.league-shortcut'), (c) => c.textContent),
-      more: general.container.querySelector('.league-section-more').getAttribute('href'),
-      rows: general.container.querySelectorAll('.game-row').length,
-    };
-    general.unmount();
+    const shapeOf = (root) => ({
+      sections: Array.from(root.querySelectorAll('.league-section'), (s) => s.id),
+      shortcuts: Array.from(root.querySelectorAll('.league-shortcut'), (c) => c.textContent),
+      more: root.querySelector('.league-section-more').getAttribute('href'),
+      rows: root.querySelectorAll('.game-row').length,
+    });
 
-    const upcoming = renderAt('/predictions/basketball');
+    const { container: general, unmount } = renderAt('/predictions');
+    await screen.findByRole('heading', { name: 'General', level: 1 });
+    const generalShape = shapeOf(general);
+    unmount();
+
+    const { container: upcoming } = renderAt('/predictions/basketball');
     await screen.findByRole('heading', { name: 'Upcoming', level: 1 });
-    const upcomingShape = {
-      sections: Array.from(upcoming.container.querySelectorAll('.league-section'), (s) => s.id),
-      shortcuts: Array.from(upcoming.container.querySelectorAll('.league-shortcut'), (c) => c.textContent),
-      more: upcoming.container.querySelector('.league-section-more').getAttribute('href'),
-      rows: upcoming.container.querySelectorAll('.game-row').length,
-    };
+    const upcomingShape = shapeOf(upcoming);
 
     expect(generalShape).toEqual(upcomingShape);
     expect(generalShape.sections).toEqual(['league-basketball-nba']);

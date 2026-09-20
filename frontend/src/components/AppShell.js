@@ -42,7 +42,15 @@ function AppShell({ children }) {
         </div>
       </header>
 
-      <main className="shell-main">{children}</main>
+      {/*
+        A DIV, NOT <main>, and the routed page supplies its own.
+        <main> has to wrap the PRIMARY content, and the predictions layout
+        puts a <nav> (the sports rail) beside its content column — nesting
+        that nav inside main would file page navigation as page content.
+        Each route now renders exactly one <main> around the column that
+        actually holds its content.
+      */}
+      <div className="shell-body">{children}</div>
     </div>
   );
 }

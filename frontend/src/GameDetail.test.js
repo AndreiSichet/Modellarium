@@ -143,9 +143,9 @@ beforeEach(() => {
 
 /** Waits for the detail page to be past its own mount fetch. */
 async function openDetail(path = DETAIL_URL) {
-  const result = renderAt(path);
+  const view = renderAt(path);
   await screen.findByRole('tab', { name: 'Game' });
-  return result;
+  return view;
 }
 
 function openTab(name) {
@@ -290,13 +290,13 @@ describe('Game tab', () => {
    * second implementation appearing rather than just a wrong constant.
    */
   test('the spread matches the list row exactly', async () => {
-    const list = renderAt('/predictions/basketball/nba');
+    const view = renderAt('/predictions/basketball/nba');
     const row = await screen.findByText('More on this');
     const rowCells = Array.from(
       row.closest('.game-row').querySelectorAll('.game-row-cell'),
       (n) => n.textContent
     );
-    list.unmount();
+    view.unmount();
 
     const { container } = await openDetail();
     const panel = container.querySelector('.detail-panel');

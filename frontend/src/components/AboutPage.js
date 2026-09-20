@@ -60,7 +60,7 @@ const BLOCKS = [
 
 function AboutPage() {
   return (
-    <div className="about">
+    <main className="about">
       <section className="about-hero">
         <h1 className="about-hero-title">
           Computing sports predictions for the love of the game
@@ -86,7 +86,7 @@ function AboutPage() {
           ))}
         </div>
       </section>
-    </div>
+    </main>
   );
 }
 

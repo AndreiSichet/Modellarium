@@ -11,7 +11,7 @@
  * this page has a header above the bar that the other does not. The chain
  * is
  *
- *   .shell-main > .predictions > .predictions-content > .game-detail > this
+ *   .shell-body > .predictions > .predictions-content > .game-detail > this
  *
  * and none of those five scroll - .game-detail deliberately sets no
  * overflow, which is what keeps this true. So the scrolling ancestor is the

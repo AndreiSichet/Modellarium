@@ -12,6 +12,23 @@
   display: grid;
   grid-template-columns: 240px 1fr;
   gap: var(--space-3);
+
+  /*
+   * ONE OFFSET FOR BOTH COLUMNS, and it fixes a 32px misalignment carried
+   * since Phase 4.
+   *
+   * The two columns each started 32px down, which looked right AT REST and
+   * was wrong the moment anything stuck. The rail kept its padding INSIDE
+   * its sticky box, so its heading landed at header + 32px; the shortcut
+   * bar sticks flush at header. Two values that happened to be equal, doing
+   * different jobs.
+   *
+   * Now the PADDING IS ON THE GRID ITEMS and the sticky children start at
+   * their own top edge, so both stick to the same line. Declared here so
+   * the two cannot drift again — including at the breakpoint below, where
+   * one number changes and both columns follow.
+   */
+  --column-top: var(--space-4);
   /*
    * NO align-items: start HERE, AND ITS ABSENCE IS LOAD-BEARING.
    *
@@ -30,6 +47,10 @@
    */
 }
 
+.predictions-rail {
+  padding-top: var(--column-top);
+}
+
 .predictions-content {
   /*
    * min-width: 0 on a grid child is not optional. A grid item's default
@@ -39,7 +60,7 @@
    * in a layout like this.
    */
   min-width: 0;
-  padding: var(--space-4) 0;
+  padding: var(--column-top) 0 var(--space-4);
 
   /*
    * THE SHORTCUT BAR'S HEIGHT, DECLARED ONCE ON THE PARENT THEY SHARE.
@@ -104,13 +125,16 @@
   font-weight: 500;
   color: var(--ink);
   background: var(--surface);
-  border: 1px solid var(--rule);
+  /* --ink-muted (4.67:1), not --rule (1.19:1). A hairline is fine for a
+     divider, which is decorative; this border is the only thing marking
+     the button as a control, so WCAG 1.4.11 judges it at 3:1. */
+  border: 1px solid var(--ink-muted);
   padding: var(--space-1) var(--space-3);
   cursor: pointer;
 }
 
 .predictions-retry:hover {
-  border-color: var(--ink-muted);
+  border-color: var(--ink);
 }
 
 .predictions-retry:focus-visible {
@@ -138,10 +162,19 @@
   .predictions {
     grid-template-columns: 1fr;
     gap: 0;
+    /* One number, and the content column follows it. */
+    --column-top: var(--space-3);
   }
 
-  .predictions-content {
-    padding: var(--space-3) 0;
+  /*
+   * ZERO HERE, because below 1024 the rail is `position: static` and takes
+   * its own padding back (SportsRail.css). The grid item's offset exists
+   * only to line a STUCK rail up with the sticky bar in the other column,
+   * and neither sticks at this width — leaving it on would simply stack
+   * two paddings and push the strip 48px down.
+   */
+  .predictions-rail {
+    padding-top: 0;
   }
 
   .predictions-message {
