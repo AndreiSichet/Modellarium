@@ -1,0 +1,75 @@
+/*
+ * Every value here comes from tokens.css. A hex, a px font-size or a
+ * font-family string in this file is a bug.
+ */
+
+/*
+ * top: var(--header-height), NOT top: 0 - and the difference is the whole
+ * reason this comment exists.
+ *
+ * Sticky positions against the nearest SCROLLING ancestor. In Phase 4 this
+ * row lived inside a panel with its own overflow-y, whose top edge already
+ * sat below the app header, so `top: 0` was right there. Here the chain is
+ * .shell-main > .predictions > .predictions-content and none of them
+ * scroll, so the ancestor is the document and the row has to clear the
+ * sticky header itself.
+ *
+ * THE OPAQUE BACKGROUND IS LOAD-BEARING. A transparent sticky bar lets the
+ * game rows scroll visibly through it, which reads as a rendering fault
+ * rather than as a fixed bar. The check that catches it is scrolling the
+ * page, not looking at a screenshot of the top.
+ *
+ * z-index 5 sits under the header's 10, so if they ever do overlap the
+ * header wins.
+ *
+ * --chips-height is declared on .predictions-content, the parent this row
+ * shares with the sections whose scroll-margin-top reads the same value.
+ * Left to fall out of padding and line-height the two came to 45px and
+ * 33px, and a clicked chip landed its heading 12px under the bar. Two
+ * expressions of one number are two numbers.
+ */
+.league-shortcuts {
+  position: sticky;
+  top: var(--header-height);
+  z-index: 5;
+  background: var(--cream);
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--chips-height);
+  /* Scroll rather than wrap once the leagues outgrow the column. A bar that
+     becomes two rows would change its own height as leagues are added, and
+     --chips-height would quietly stop being true. */
+  overflow-x: auto;
+}
+
+.league-shortcut {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: var(--space-1) 0;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+
+.league-shortcut:hover {
+  color: var(--ink);
+}
+
+/* The same active treatment as the header nav, so the two read as one
+   system rather than two conventions on one page. */
+.league-shortcut--active {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+.league-shortcut:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

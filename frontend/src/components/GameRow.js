@@ -1,33 +1,9 @@
 import { Link } from 'react-router-dom';
 
+import { formatSpread, formatWin } from '../predictionFormat';
 import { teamFor } from '../data/teams';
 import TeamBadge from './TeamBadge';
 import './GameRow.css';
-
-/**
- * SPREAD SIGN — the single easiest thing in this phase to get backwards,
- * and it fails silently because both versions look plausible.
- *
- * `homeMargin` is the predicted home margin: positive means the home team
- * is expected to win by that much. Betting convention gives the FAVOURITE a
- * NEGATIVE spread, so the sign flips on the way to the screen. A homeMargin
- * of +1.41 displays as -1.4 for home and +1.4 for away.
- *
- * Pinned by a test rather than trusted to review.
- */
-export function formatSpread(homeMargin, isHome) {
-  const value = isHome ? -homeMargin : homeMargin;
-  // toFixed(1) on -0.04 gives "-0.0"; normalising through +0 avoids
-  // printing a negative zero.
-  const rounded = Number((value + 0).toFixed(1)) + 0;
-  return rounded > 0 ? `+${rounded.toFixed(1)}` : rounded.toFixed(1);
-}
-
-/** `homeWinProbability` is the home figure; away is its complement. */
-export function formatWin(homeWinProbability, isHome) {
-  const value = isHome ? homeWinProbability : 1 - homeWinProbability;
-  return `${(value * 100).toFixed(1)}%`;
-}
 
 function TeamLine({ teamId, name, spread, win }) {
   return (
@@ -42,7 +18,18 @@ function TeamLine({ teamId, name, spread, win }) {
   );
 }
 
-function GameRow({ game }) {
+/**
+ * THE LINK NEEDS ITS SPORT AND LEAGUE, AND IS GIVEN THEM RATHER THAN
+ * GUESSING. Phase 3 hardcoded /predictions/basketball/game/<id>, which was
+ * a placeholder standing in for a route that did not exist. The route is
+ * /predictions/:sport/:league/:gameId now, and on General a row can belong
+ * to any league - so deriving the sport from the current URL would send
+ * every row to whichever sport the reader happened to be looking at.
+ *
+ * Both come from the subsection that renders the list, which already knows
+ * which league it is.
+ */
+function GameRow({ game, league }) {
   const { prediction } = game;
   const margin = prediction.homeMargin;
   const probability = prediction.homeWinProbability;
@@ -92,7 +79,7 @@ function GameRow({ game }) {
         <span className="game-row-when">{game.gameDate}</span>
         <Link
           className="game-row-more"
-          to={`/predictions/basketball/game/${game.gameId ?? ''}`}
+          to={`/predictions/${league.sport}/${league.slug}/${game.gameId}`}
         >
           More on this
         </Link>

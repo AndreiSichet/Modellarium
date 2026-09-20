@@ -1,0 +1,39 @@
+/*
+ * Every value here comes from tokens.css. A hex, a px font-size or a
+ * font-family string in this file is a bug.
+ */
+
+/* A flex row so a long trail wraps instead of overflowing a narrow
+   column. */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-label);
+}
+
+.breadcrumb-link {
+  color: var(--ink-muted);
+  text-decoration: none;
+}
+
+.breadcrumb-link:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.breadcrumb-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.breadcrumb-sep {
+  color: var(--rule);
+}
+
+.breadcrumb-current {
+  color: var(--ink);
+}

@@ -1,0 +1,71 @@
+/*
+ * Every value here comes from tokens.css. A hex, a px font-size or a
+ * font-family string in this file is a bug.
+ */
+
+/*
+ * STICKY, AND IT MUST NOT MOVE FOR ANY REASON.
+ *
+ * top: var(--header-height) is re-derived here rather than copied from the
+ * league shortcut bar, because the rule depends on the ancestor chain and
+ * this page has a header above the bar that the other does not. The chain
+ * is
+ *
+ *   .shell-main > .predictions > .predictions-content > .game-detail > this
+ *
+ * and none of those five scroll - .game-detail deliberately sets no
+ * overflow, which is what keeps this true. So the scrolling ancestor is the
+ * document, and the bar has to clear the app header itself. Had
+ * .game-detail been given its own overflow, the right answer would have
+ * been top: 0 and everything below would have been wrong by 72px.
+ *
+ * THE OPAQUE BACKGROUND IS LOAD-BEARING. A transparent sticky bar lets the
+ * panel scroll visibly through it, which reads as a rendering fault rather
+ * than a fixed bar. Scrolling is the check, not a screenshot of the top.
+ *
+ * z-index 5 matches the shortcut bar and sits under the header's 10.
+ */
+.detail-tabs {
+  position: sticky;
+  top: var(--header-height);
+  z-index: 5;
+  background: var(--cream);
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+  /* Seven tabs do not fit a narrow viewport. Scrolling rather than
+     wrapping keeps the bar one row tall, so its height - and therefore
+     everything sticky below it - does not change with the width. */
+  overflow-x: auto;
+}
+
+.detail-tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: var(--space-2) 0;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+
+.detail-tab:hover {
+  color: var(--ink);
+}
+
+/* The same active treatment as the header nav and the league shortcuts, so
+   all three read as one system rather than three conventions on one page. */
+.detail-tab--active {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+.detail-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

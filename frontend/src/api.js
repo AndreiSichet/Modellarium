@@ -1,7 +1,13 @@
 /**
  * Thin fetch wrapper around the Spring Boot API.
  *
- * No client library yet — three calls do not justify one.
+ * No client library yet — five calls do not justify one.
+ *
+ * getUpcomingGames and getTeams were removed in Phase 6 along with the
+ * browse flow that was their only caller. GET /api/games/upcoming and
+ * GET /api/teams still exist on the backend and are still documented
+ * there; nothing here calls them, and a wrapper nobody calls is a claim
+ * that something does.
  */
 
 // Inlined by create-react-app at build time. Defaults to the dev-server
@@ -38,14 +44,6 @@ async function request(path, options) {
   }
 
   return response.json();
-}
-
-export function getUpcomingGames() {
-  return request('/games/upcoming');
-}
-
-export function getTeams() {
-  return request('/teams');
 }
 
 /**

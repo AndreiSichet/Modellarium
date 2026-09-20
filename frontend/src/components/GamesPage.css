@@ -1,0 +1,87 @@
+/*
+ * Every value here comes from tokens.css. A hex, a px font-size or a
+ * font-family string in this file is a bug.
+ */
+
+.games-page-head {
+  padding-bottom: var(--space-3);
+}
+
+.games-page-title {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-display);
+  font-size: var(--text-heading);
+  font-weight: 500;
+  line-height: var(--leading-heading);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.games-page-sub {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+}
+
+/* ---- league subsections ---------------------------------------------- */
+
+.league-section {
+  padding-top: var(--space-6);
+  /*
+   * WHERE A SHORTCUT CLICK LANDS. scrollIntoView({ block: 'start' }) puts
+   * the section's top edge at the top of the VIEWPORT - which is behind
+   * both the app header and the sticky shortcut bar. This pushes the
+   * landing point down past both.
+   *
+   * It is the same quantity the observer's rootMargin subtracts, in the
+   * other direction: one decides when a section counts as in view, the
+   * other where it stops when scrolled to. Both read --chips-height -
+   * the observer by measuring the rendered bar, this by reading the
+   * declaration - so they cannot disagree. They did once, by 12px.
+   */
+  scroll-margin-top: calc(var(--header-height) + var(--chips-height));
+}
+
+.league-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.league-section-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-subheading);
+  font-weight: 500;
+  line-height: var(--leading-heading);
+  color: var(--ink);
+}
+
+.league-section-more {
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.league-section-more:hover {
+  text-decoration: underline;
+}
+
+.league-section-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- responsive ------------------------------------------------------ */
+
+@media (max-width: 1023px) {
+  .league-section {
+    padding-top: var(--space-4);
+  }
+}

@@ -1,9 +1,11 @@
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-import GameRow, { formatSpread, formatWin } from './components/GameRow';
+import GameRow from './components/GameRow';
+import { formatSpread, formatWin } from './predictionFormat';
 import TeamBadge from './components/TeamBadge';
 import { badgeTextColour, teamFor, UNKNOWN_TEAM } from './data/teams';
+import { LEAGUES } from './data/leagues';
 
 const GAME = {
   key: 'k',
@@ -22,11 +24,18 @@ const GAME = {
   },
 };
 
-function renderRow(game = GAME) {
+/*
+ * The league is REQUIRED, not optional, and the row throws without it
+ * rather than falling back. Phase 6 made the detail URL
+ * /predictions/:sport/:league/:gameId, and a row on the General page can
+ * belong to any league — a default would silently send every row to
+ * whichever sport happened to be first.
+ */
+function renderRow(game = GAME, league = LEAGUES[0]) {
   return render(
     <MemoryRouter>
       <ul>
-        <GameRow game={game} />
+        <GameRow game={game} league={league} />
       </ul>
     </MemoryRouter>
   );
@@ -140,9 +149,11 @@ describe('team badges', () => {
 
 test('More on this links at the game detail route', () => {
   renderRow();
+  // Built from the league it was handed, not from the current URL: a
+  // /game/ segment would also shadow a league slug called "game".
   expect(screen.getByRole('link', { name: 'More on this' })).toHaveAttribute(
     'href',
-    '/predictions/basketball/game/4'
+    '/predictions/basketball/nba/4'
   );
 });
 

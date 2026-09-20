@@ -2,45 +2,24 @@ import GameRow from './GameRow';
 import './GameList.css';
 
 /**
- * The populated middle column.
+ * A flat list of game rows.
  *
- * `Upcoming` groups by league with a header per group; `NBA` is flat,
- * because the tab itself already says which league you are looking at.
- *
- * WITH ONE LEAGUE THERE IS EXACTLY ONE GROUP, and it renders as a group
- * anyway rather than being special-cased away. Special-casing "only one"
- * is how a second league turns into a structural change instead of a data
- * change — the same reason SPORTS and LEAGUES are constants.
+ * NO GROUPING BRANCH ANY MORE. It existed for Phase 3's `Upcoming` tab,
+ * which grouped by league under its own headings. Leagues are subsections
+ * with their own headings now, and each hands this the games it already
+ * owns - so a second grouping mechanism here would be a second answer to
+ * the same question.
  */
-function GameList({ games, grouped }) {
-  if (!grouped) {
-    return (
-      <ul className="game-list">
-        {games.map((game) => (
-          <GameRow key={game.key} game={game} />
-        ))}
-      </ul>
-    );
-  }
-
-  const groups = games.reduce((acc, game) => {
-    (acc[game.league] = acc[game.league] || []).push(game);
-    return acc;
-  }, {});
-
+function GameList({ games, league }) {
   return (
-    <div className="game-groups">
-      {Object.entries(groups).map(([league, entries]) => (
-        <section className="game-group" key={league}>
-          <h2 className="game-group-heading">{league}</h2>
-          <ul className="game-list">
-            {entries.map((game) => (
-              <GameRow key={game.key} game={game} />
-            ))}
-          </ul>
-        </section>
+    <ul className="game-list">
+      {games.map((game) => (
+        // `league` travels with the list rather than being read from the
+        // URL inside each row: on General the page's route has no league
+        // in it at all, and each subsection knows its own.
+        <GameRow key={game.key} game={game} league={league} />
       ))}
-    </div>
+    </ul>
   );
 }
 
