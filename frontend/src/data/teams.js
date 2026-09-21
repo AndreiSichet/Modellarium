@@ -1,22 +1,5 @@
-/**
- * Team identity, keyed by the real NBA `TEAM_ID` the API returns.
- *
- * WHY A TABLE RATHER THAN LOGO FILES. Monogram badges drawn from these
- * colours mean no trademark exposure, no external CDN, no binary assets to
- * keep in sync, and nothing to source when a second league arrives. If real
- * artwork is ever wanted it is a single swap inside TeamBadge, because
- * everything else keys off this map rather than off an image path.
- *
- * THIS IS THE ONE FILE ALLOWED TO CONTAIN HEX COLOURS. Everywhere else in
- * the app they come from tokens.css; these are published brand colours,
- * which are data about the world rather than design decisions, and putting
- * them in the token file would imply the design system owns them. The
- * hardcoded-value checker carries this path as a named exception rather
- * than being loosened globally.
- *
- * It will also be wrong eventually — teams relocate and rebrand. See
- * TeamBadge for what an unknown id renders instead of crashing.
- */
+// The only file allowed to hold colour literals: published team colours
+// are facts about the world, not design tokens.
 export const TEAMS = {
   1610612737: { abbr: 'ATL', name: 'Atlanta Hawks', primary: '#E03A3E', secondary: '#C1D32F' },
   1610612738: { abbr: 'BOS', name: 'Boston Celtics', primary: '#007A33', secondary: '#BA9653' },
@@ -50,14 +33,6 @@ export const TEAMS = {
   1610612766: { abbr: 'CHA', name: 'Charlotte Hornets', primary: '#1D1160', secondary: '#00788C' },
 };
 
-/**
- * What renders when the id is not in the table.
- *
- * A missing key must degrade to a visible oddity rather than a blank page:
- * the map is right today and will be wrong the first time a franchise
- * moves, and a page that throws on one unknown team is a worse answer than
- * a grey badge reading "?".
- */
 export const UNKNOWN_TEAM = {
   abbr: '?',
   name: 'Unknown team',
@@ -69,7 +44,6 @@ export function teamFor(teamId) {
   return TEAMS[teamId] || UNKNOWN_TEAM;
 }
 
-/** Relative luminance, per WCAG 2.x. */
 function luminance(hex) {
   const channels = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
   const [r, g, b] = channels.map((c) =>
@@ -83,18 +57,6 @@ function contrast(a, b) {
   return (light + 0.05) / (dark + 0.05);
 }
 
-/**
- * The abbreviation's colour: the team's secondary where it is legible on
- * the primary, otherwise whichever of black or white is.
- *
- * COMPUTED RATHER THAN HAND-PICKED, because several real pairings fail.
- * Chicago is black on red and Portland the same; both are genuinely the
- * teams' colours and genuinely unreadable at 13px. Choosing per team by eye
- * would mean re-deciding on every future edit to this table.
- *
- * 3:1 is the WCAG threshold for large or bold text, which is what a 13px
- * 600-weight monogram is.
- */
 export function badgeTextColour({ primary, secondary }) {
   if (contrast(primary, secondary) >= 3) return secondary;
   return contrast(primary, '#FFFFFF') >= contrast(primary, '#000000')

@@ -14,29 +14,12 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * One set of Q1 / first-half model outputs for one game.
- *
- * Reuses the existing Game entity rather than introducing a parallel one:
- * the same fixture is the same fixture whichever markets are being priced,
- * so all three prediction types hang off one games table.
- *
- * WHAT IS DELIBERATELY NOT STORED: the per-market confidence label and the
- * "P(home leads | not tied)" interpretation. Those are static facts about
- * which model produced a number, identical on every row this table will
- * ever hold - q1_winner is always low-confidence because of how it scored,
- * not because of anything about this particular request. Persisting them
- * would duplicate a constant once per prediction. They are attached at
- * response-build time from the inference payload instead, the same way
- * nothing about how the original seven models were selected is stored per
- * row today.
- */
+/** One set of Q1 / first-half model outputs for one game. */
 @Entity
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class QuarterHalfPrediction {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -49,7 +32,7 @@ public class QuarterHalfPrediction {
 
     private double q1Total;
 
-    /** P(home leads Q1 | Q1 is not tied). See the class comment. */
+    /** P(home leads Q1 | Q1 is not tied). */
     private double q1WinnerProbability;
 
     private double half1Spread;

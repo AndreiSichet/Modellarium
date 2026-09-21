@@ -1,26 +1,10 @@
-/*
- * INDEPENDENT SCROLLING — the part of this component most easily got wrong.
- *
- * `height`, NOT `max-height`, and that is the load-bearing line. With
- * max-height a short list leaves the rail shorter than the viewport, it
- * never becomes its own scroll container, and a wheel over it scrolls the
- * PAGE instead — which looks fine today with one sport and breaks silently
- * the moment the list grows.
- *
- * overscroll-behavior: contain stops the other half of the same problem:
- * reaching the end of the rail's own scroll would otherwise hand the
- * remaining scroll to the page behind it.
- */
 .sports-rail {
   position: sticky;
   top: var(--header-height);
   height: calc(100vh - var(--header-height));
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* NO TOP PADDING: it moved to .predictions-rail, the grid item, so that
-     when this sticks its heading lands on the same line as the content
-     column's sticky bar. Inside the box it was a 32px offset that only
-     appeared once the page was scrolled. See --column-top. */
+
   padding: 0 var(--space-2) var(--space-4) 0;
 }
 
@@ -54,8 +38,7 @@
   font-weight: 400;
   color: var(--ink-muted);
   text-decoration: none;
-  /* A transparent border on the inactive state, so activating an item
-     changes its colour rather than shifting it two pixels right. */
+
   border-left: 2px solid transparent;
 }
 
@@ -80,14 +63,6 @@
   flex-shrink: 0;
 }
 
-/*
- * Below 1024 the rail becomes a horizontal strip under the header and
- * gives up its sticky full-height behaviour entirely — height: 100vh on a
- * horizontal strip would take the whole screen.
- *
- * NOT a dropdown. With one item a dropdown is a click that reveals
- * nothing, and it would still be a click when there are three.
- */
 @media (max-width: 1023px) {
   .sports-rail {
     position: static;
@@ -104,8 +79,6 @@
   }
 
   .sports-rail-link {
-    /* The active marker moves from the left edge to underneath, because a
-       left border on a horizontal strip marks the wrong axis. */
     border-left: 0;
     border-bottom: 2px solid transparent;
     white-space: nowrap;

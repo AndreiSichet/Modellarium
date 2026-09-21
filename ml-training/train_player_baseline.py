@@ -1,41 +1,4 @@
-"""
-Baselines for the five player-prop targets, before any XGBoost is touched.
-
-  input: data-pipeline/data/processed/player_dataset.csv  (280,943 rows)
-
-Same discipline every team-level target has been held to: establish what a
-trivially simple method already achieves, so a later model has a real bar
-to clear rather than an impressive-sounding number with no reference point.
-
-TWO BASELINES PER TARGET:
-
-  Naive - the player's own ROLL10_<TARGET>, i.e. "he'll do what he's been
-  doing." There is no separate league-mean baseline here, unlike the team
-  models' always-predict-home. A personalised trailing average is already
-  the natural floor for a prop, and a league mean would be a straw man:
-  nobody prices Jokic's rebounds off the league average.
-
-  LinearRegression - all 17 features, StandardScaler fit on train only.
-
-MIN_NUMERIC IS NOT A TARGET HERE, deliberately. Predicting playing time is
-a different problem from predicting production given playing time: it turns
-on coaching decisions, blowout risk and foul trouble, none of which this
-feature set represents. Bolting it on as a sixth target would produce a
-number that looks like the others and means something else. It deserves its
-own pass.
-
-It is also not a FEATURE - see build_player_dataset.py. This game's minutes
-are a post-game outcome, and knowing a player logged 38 of them gives away
-most of his points. The assertion in check_no_leakage() enforces that here
-too, rather than trusting the upstream split to stay correct.
-
-ROWS WITH INCOMPLETE HISTORY ARE DROPPED, mirroring the team-level
-baselines exactly: LinearRegression cannot take NaN, and imputing a
-player's trailing average would invent the very thing being measured.
-Expect a larger fraction than the team-level 13.1% - players enter and
-leave the league constantly, and a player-season warm-up recurs for every
-rookie, call-up and mid-season signing, not just 30 teams a year.
-"""
+"""Baselines for the five player-prop targets, before any XGBoost is touched."""
 
 import sys
 from pathlib import Path
@@ -45,9 +8,6 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error
 from sklearn.preprocessing import StandardScaler
 
-# The column groups are defined by the script that builds the dataset, and
-# TEST_SEASON_COUNT by the team-level baseline. Both are imported rather
-# than restated so the split boundary and the feature list cannot drift.
 PIPELINE_DIR = Path(__file__).resolve().parents[1] / "data-pipeline" / "preprocessing"
 sys.path.insert(0, str(PIPELINE_DIR))
 from build_player_dataset import (  # noqa: E402
@@ -62,7 +22,6 @@ from train_baseline import TEST_SEASON_COUNT  # noqa: E402
 
 TARGETS = ["PTS", "REB", "AST", "FG3M", "PRA"]
 
-# Excluded on purpose - see the module docstring.
 NOT_A_TARGET = "MIN_NUMERIC"
 
 TARGET_LABELS = {
@@ -73,18 +32,11 @@ TARGET_LABELS = {
     "PRA": "Points+Reb+Ast",
 }
 
-
 def section(title: str) -> None:
     print(f"\n{'=' * 78}\n{title}\n{'=' * 78}")
 
-
 def check_no_leakage() -> None:
-    """No post-game outcome may appear among the inputs.
-
-    Enforced here as well as upstream: this is the file that would actually
-    do the damage, and a feature list is easy to extend without noticing
-    what it now contains.
-    """
+    """No post-game outcome may appear among the inputs."""
     leaked = [c for c in FEATURE_COLUMNS if c in LABEL_COLUMNS]
     if leaked:
         raise ValueError(f"post-game columns present in FEATURE_COLUMNS: {leaked}")
@@ -98,22 +50,14 @@ def check_no_leakage() -> None:
         if target in FEATURE_COLUMNS:
             raise ValueError(f"target {target} is also listed as a feature.")
 
-
 def load_dataset() -> pd.DataFrame:
     df = pd.read_csv(DATASET_PATH)
     df["GAME_DATE"] = pd.to_datetime(df["GAME_DATE"])
     print(f"Loaded {len(df):,} player-games from {DATASET_PATH.name}")
     return df
 
-
 def drop_incomplete(df: pd.DataFrame) -> pd.DataFrame:
-    """Drop rows LinearRegression cannot consume, and say why separately.
-
-    Two distinct causes, reported apart rather than as one number: a
-    player's early-season warm-up, and the handful of team-games with no
-    REST_DAYS because they are a team's first appearance in the data. Same
-    reasoning as the merge checks - "missing" is not one thing.
-    """
+    """Drop rows LinearRegression cannot consume, and say why separately."""
     before = len(df)
 
     warmup = df[PLAYER_FEATURE_COLUMNS].isna().any(axis=1)
@@ -135,14 +79,8 @@ def drop_incomplete(df: pd.DataFrame) -> pd.DataFrame:
 
     return kept
 
-
 def split_by_season(df: pd.DataFrame) -> tuple:
-    """Chronological hold-out, identical boundary to the team models.
-
-    The last TEST_SEASON_COUNT seasons are the test set. Splitting by time
-    rather than at random is what stops a player's future games teaching
-    the model about his own past ones.
-    """
+    """Chronological hold-out, identical boundary to the team models."""
     seasons = sorted(df["SEASON"].unique())
     test_seasons = seasons[-TEST_SEASON_COUNT:]
 
@@ -157,21 +95,14 @@ def split_by_season(df: pd.DataFrame) -> tuple:
 
     return train, test, test_seasons
 
-
 def scale_features(train: pd.DataFrame, test: pd.DataFrame) -> tuple:
-    """Standardise, fitting on train only.
-
-    Fitting on everything would let the test seasons' distribution leak
-    into the transform - small here, but the same principle the team
-    baselines follow.
-    """
+    """Standardise, fitting on train only."""
     scaler = StandardScaler()
     train_x = scaler.fit_transform(train[FEATURE_COLUMNS])
     test_x = scaler.transform(test[FEATURE_COLUMNS])
     print(f"Standardized {len(FEATURE_COLUMNS)} features "
           f"(scaler fit on train only).")
     return train_x, test_x
-
 
 def evaluate(target: str, train: pd.DataFrame, test: pd.DataFrame,
              train_x, test_x) -> dict:
@@ -195,7 +126,6 @@ def evaluate(target: str, train: pd.DataFrame, test: pd.DataFrame,
     return {"target": target, "naive": naive_mae,
             "linear": linear_mae, "change": change}
 
-
 def main():
     check_no_leakage()
 
@@ -217,7 +147,6 @@ def main():
 
     print(f"\n{NOT_A_TARGET} deliberately not modelled here - predicting playing "
           f"time is a\ndifferent problem and deserves its own pass.")
-
 
 if __name__ == "__main__":
     main()

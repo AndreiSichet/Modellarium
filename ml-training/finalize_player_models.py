@@ -1,63 +1,4 @@
-"""
-Ship the five player-prop targets as a HYBRID: two models per target, plus a
-rule for choosing between them.
-
-  input:  data-pipeline/data/processed/player_dataset.csv
-  output: ml-training/models_player_props/<target>_linear.joblib
-          ml-training/models_player_props/<target>_xgb.json
-          ml-training/models_player_props/manifest.json
-          one MLflow run per artifact under "production_player_props"
-
-WHY TWO MODELS, WHEN NEITHER WINS. Every prior finalize_* script here ships
-one model per target because one model was better. That is not the situation.
-Across five targets XGBoost moved MAE by -0.63% to +0.13% against
-LinearRegression - nothing, against a 3% bar. What separates them is not
-accuracy but COVERAGE:
-
-    LinearRegression   225,060 of 280,943 rows   cannot consume NaN
-    XGBoost            280,943 of 280,943 rows   learns a default split
-
-The ~55,900 rows the linear model cannot touch are real players in real
-games - rookies, call-ups, returns from long absence - whose trailing
-history is incomplete. Refusing to predict for them is a worse answer than
-predicting slightly less well. So the linear model handles the rows it was
-measured on, and XGBoost covers the rest.
-
-THE ROUTING RULE, stated once so it cannot drift:
-
-    all 12 rolling features present  ->  <target>_linear
-    any of them missing             ->  <target>_xgb
-
-It is in manifest.json as data, not prose, for the same reason the
-quarter/half confidence field is: a serving layer can read a manifest and
-cannot read a docstring.
-
-TWELVE COLUMNS DECIDE IT, NOT SEVENTEEN - and that is verified, not
-assumed. The five team-context columns are not all guaranteed present:
-REST_DAYS is legitimately NaN for a team's first appearance in the data. A
-row with complete rolling history but a NaN REST_DAYS would be routed to the
-linear model, which would then raise. Measured on the real dataset, that row
-does not exist - all 319 context-NaN rows are a strict SUBSET of the 55,883
-rolling-incomplete rows, because a team's first game is necessarily also a
-player's first game for that team. So the twelve-column rule is sufficient.
-
-  But that is a property of this data, not a law. assert_routing_is_safe()
-  re-checks it on every run and refuses to ship if it ever stops holding,
-  rather than letting a future rebuild produce a router that crashes on one
-  row in a hundred thousand.
-
-TREE COUNTS COME FROM MLFLOW, NOT FROM MEMORY. Frozen below because mlruns/
-is gitignored and a fresh clone could not look them up, then checked against
-the recorded runs on every execution - the same arrangement finalize_models.py
-uses, and the same standard applied when §18's figures were recovered rather
-than recalled.
-
-NO METRICS ARE LOGGED. Selection is over and these train on everything, so
-there is no holdout left to score against; a number here would be misread as
-validation of the shipped model.
-
-Run:  python ml-training/finalize_player_models.py
-"""
+"""Ship the five player-prop targets as a HYBRID: two models per target, plus a"""
 
 import json
 import sys
@@ -76,10 +17,6 @@ from xgboost import XGBRegressor
 
 from common import TRACKING_URI, setup_mlflow
 
-# The filter, the targets and the loader come from the script that defined
-# them. drop_incomplete() in particular IS the definition of "complete" this
-# whole comparison was built on - restating it here would let the shipped
-# router disagree with the measurement that justified it.
 from train_player_baseline import (
     TARGET_LABELS,
     TARGETS,
@@ -102,40 +39,24 @@ MODELS_DIR = Path(__file__).resolve().parent / "models_player_props"
 MANIFEST_PATH = MODELS_DIR / "manifest.json"
 PRODUCTION_EXPERIMENT = "production_player_props"
 
-# Early-stopping results from the real train_player_xgb.py run, under
-# max_depth=4 / learning_rate=0.05. Frozen for a fresh clone; verified
-# against MLflow by verify_tree_counts() on every run.
 TREE_COUNTS = {"PTS": 158, "REB": 363, "AST": 140, "FG3M": 144, "PRA": 372}
 
-# What the baselines were measured on. Asserted, not trusted.
 EXPECTED_COMPLETE_ROWS = 225_060
 
 LINEAR_KEY, XGB_KEY = "linear", "xgb"
-
 
 def artifact_paths(target: str) -> tuple:
     stem = target.lower()
     return (MODELS_DIR / f"{stem}_{LINEAR_KEY}.joblib",
             MODELS_DIR / f"{stem}_{XGB_KEY}.json")
 
-
 def select_model(row: pd.Series) -> str:
-    """THE ROUTING RULE. Returns "linear" or "xgb" for one player-game.
-
-    Takes a Series holding at least the 12 rolling features. See the module
-    docstring on why twelve and not seventeen.
-    """
+    """THE ROUTING RULE. Returns "linear" or "xgb" for one player-game."""
     complete = row[PLAYER_FEATURE_COLUMNS].notna().all()
     return LINEAR_KEY if complete else XGB_KEY
 
-
 def assert_routing_is_safe(df: pd.DataFrame) -> dict:
-    """Refuse to ship a router that could hand NaN to the linear model.
-
-    The rule reads 12 columns but the linear model consumes 17. That is only
-    safe while every context-NaN row is also rolling-incomplete. Checked
-    here rather than assumed - see the module docstring.
-    """
+    """Refuse to ship a router that could hand NaN to the linear model."""
     warmup = df[PLAYER_FEATURE_COLUMNS].isna().any(axis=1)
     context = df[TEAM_CONTEXT_COLUMNS].isna().any(axis=1)
     unsafe = int(((~warmup) & context).sum())
@@ -156,7 +77,6 @@ def assert_routing_is_safe(df: pd.DataFrame) -> dict:
     return {"rolling_incomplete": int(warmup.sum()),
             "context_nan": int(context.sum()),
             "unsafe_rows": unsafe}
-
 
 def verify_tree_counts() -> None:
     """Check the frozen counts against the MLflow runs they came from."""
@@ -197,14 +117,12 @@ def verify_tree_counts() -> None:
     if checked:
         print(f"\n  All {checked} counts match their recorded runs.")
 
-
 def train_linear(complete: pd.DataFrame, target: str) -> Pipeline:
     """Scaler and estimator as one artifact, as for the quarter/half models."""
     pipeline = Pipeline([("scaler", StandardScaler()),
                          ("model", LinearRegression())])
     pipeline.fit(complete[FEATURE_COLUMNS], complete[target])
     return pipeline
-
 
 def train_xgb(df: pd.DataFrame, target: str) -> tuple:
     """Trained on EVERY row - the reason this side of the hybrid exists."""
@@ -214,7 +132,6 @@ def train_xgb(df: pd.DataFrame, target: str) -> tuple:
     model = XGBRegressor(**params)
     model.fit(df[FEATURE_COLUMNS], df[target], verbose=False)
     return model, params
-
 
 def log_production_run(target, kind, model, params, path, sample, rows):
     with mlflow.start_run(run_name=f"{target.lower()}_{kind}"):
@@ -237,7 +154,6 @@ def log_production_run(target, kind, model, params, path, sample, rows):
                          signature=infer_signature(sample, predictions),
                          input_example=sample)
         mlflow.log_artifact(str(path))
-
 
 def write_manifest(entries, counts, total_rows, complete_rows):
     manifest = {
@@ -266,7 +182,6 @@ def write_manifest(entries, counts, total_rows, complete_rows):
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print(f"\nManifest written to {MANIFEST_PATH}")
 
-
 def exercise_router(df: pd.DataFrame, entries) -> None:
     """Run the rule on real rows, end to end, rather than assert it on paper."""
     section("ROUTING EXERCISE (real rows, real artifacts)")
@@ -281,9 +196,7 @@ def exercise_router(df: pd.DataFrame, entries) -> None:
 
     complete_mask = df[PLAYER_FEATURE_COLUMNS].notna().all(axis=1)
 
-    # A player-game with full trailing history.
     veteran = df[complete_mask].iloc[0]
-    # A genuine first appearance: every rolling column missing.
     debut = df[df[PLAYER_FEATURE_COLUMNS].isna().all(axis=1)].iloc[0]
 
     for name, row in (("complete history", veteran), ("first appearance", debut)):
@@ -306,22 +219,14 @@ def exercise_router(df: pd.DataFrame, entries) -> None:
         if chosen == LINEAR_KEY and missing:
             raise RuntimeError("router sent an incomplete row to the linear model")
 
-
 def compare_at_boundary(df: pd.DataFrame, entries) -> None:
-    """Both models on the first row that just barely qualifies as complete.
-
-    Not pass/fail. The two models are trained on different row populations,
-    so they SHOULD differ; the point is to see how much, at the exact point
-    where the router flips, before trusting the handover blind.
-    """
+    """Both models on the first row that just barely qualifies as complete."""
     section("BOUNDARY COMPARISON (the row where routing flips)")
 
     complete = df[PLAYER_FEATURE_COLUMNS].notna().all(axis=1)
     ordered = df.assign(_complete=complete).sort_values(
         ["PLAYER_ID", "GAME_DATE", "GAME_ID"])
 
-    # First qualifying appearance for a player who has enough games to make
-    # the boundary meaningful rather than an artefact of a short career.
     first_complete = ordered[ordered["_complete"]].groupby("PLAYER_ID").head(1)
     counts = ordered.groupby("PLAYER_ID").size()
     eligible = first_complete[first_complete["PLAYER_ID"].map(counts) > 40]
@@ -350,7 +255,6 @@ def compare_at_boundary(df: pd.DataFrame, entries) -> None:
 
     print("\n  Divergence here is expected, not a fault: the two are fit on")
     print("  different row populations. This is a look at the handover, not a test.")
-
 
 def main():
     section("DATA PREP")
@@ -427,7 +331,6 @@ def main():
     print("No metrics logged - these models have no holdout set to score against.")
     print("\nThis is the first hybrid in the project: the manifest's routing")
     print("block, not the caller, defines which model answers a given request.")
-
 
 if __name__ == "__main__":
     main()

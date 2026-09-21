@@ -1,8 +1,3 @@
-/*
- * Every value here comes from tokens.css. A hex, a px font-size or a
- * font-family string in this file is a bug.
- */
-
 .league-page-title {
   margin: 0 0 var(--space-3);
   font-family: var(--font-display);

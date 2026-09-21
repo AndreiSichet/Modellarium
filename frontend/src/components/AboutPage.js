@@ -1,25 +1,5 @@
 import './AboutPage.css';
 
-/**
- * The landing route.
- *
- * THE COPY IS SPORT-AGNOSTIC ON PURPOSE. An earlier version named eleven
- * seasons, quarter-by-quarter scoring and gradient-boosted trees — all true
- * of today's basketball implementation and all of it wrong the moment a
- * second sport or a different model family arrives. It describes the idea,
- * not the current instance, so it does not need editing to stay accurate.
- *
- * TWO PHRASES ARE DELIBERATE AND SHOULD NOT BE SMOOTHED:
- *
- * "is not worse" in the last block describes the promotion gate's real
- * behaviour — it is a regression guard, not an improvement bar. "only if
- * it's better" reads more confident and would be a stronger claim than the
- * system actually makes.
- *
- * The third block stays because the UI depends on it: the low-confidence
- * tags and the availability-unknown notices exist precisely for the reason
- * it gives, and the copy and the interface should agree.
- */
 const BLOCKS = [
   {
     heading: 'How predictions are made',

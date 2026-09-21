@@ -1,16 +1,3 @@
-/*
- * Every value here comes from tokens.css. A hex, a px font-size or a
- * font-family string in this file is a bug.
- *
- * NO overflow ON .game-detail, AND THAT IS LOAD-BEARING. The tab bar below
- * is sticky against the nearest scrolling ancestor; giving this element an
- * overflow would make it that ancestor, and the bar's
- * top: var(--header-height) would suddenly be a header-sized gap instead of
- * a clearance. See DetailTabs.css.
- */
-
-/* ---- game header ----------------------------------------------------- */
-
 .game-header {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -26,8 +13,6 @@
   min-width: 0;
 }
 
-/* The home side mirrors, so both team names sit against the centre and the
-   two badges bookend the row. */
 .game-header-side--home {
   flex-direction: row;
   justify-content: flex-end;
@@ -38,7 +23,7 @@
   font-size: var(--text-subheading);
   font-weight: 500;
   color: var(--ink);
-  /* A long name shortens rather than pushing the date off centre. */
+
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -64,25 +49,10 @@
   white-space: nowrap;
 }
 
-/* ---- panel ----------------------------------------------------------- */
-
-/*
- * A MINIMUM HEIGHT, SO THE TAB BAR DOES NOT MOVE WHEN TABS CHANGE.
- *
- * Switching from a player tab holding twenty rows to the Game tab shrinks
- * the document. If the page was scrolled past the point the shorter tab
- * can reach, the browser clamps the scroll position and the sticky bar
- * appears to jump. A floor under the panel keeps the change small enough
- * that it cannot.
- *
- * Not a fixed height: a tall tab must still be allowed to be tall.
- */
 .detail-panel {
   min-height: 60vh;
   padding-top: var(--space-4);
 }
-
-/* ---- market groups (Game, Quarters & Halves) ------------------------- */
 
 .market-groups {
   display: flex;
@@ -154,12 +124,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/*
- * The interpretation string and the spread convention live HERE, as
- * visible text on their own line, rather than in a title attribute. A
- * caveat you have to hover to find is a caveat most readers never see -
- * and on a touch screen there is no hover at all.
- */
 .market-note {
   flex-basis: 100%;
   font-family: var(--font-body);
@@ -185,11 +149,7 @@
   padding: 0 var(--space-1);
 }
 
-/* Low confidence is the one that has to be noticed, so it is the one that
-   carries the accent. The others are informational. */
 .confidence-tag--low {
-  /* Text takes the darker token, the border keeps the original: a
-     border is a non-text element at 3:1, which --accent clears. */
   color: var(--accent-text);
   border-color: var(--accent);
 }
@@ -214,19 +174,9 @@
   padding: 0 var(--space-1);
 }
 
-/* ---- player boards --------------------------------------------------- */
-
-/*
- * Side by side where there is room, stacked where there is not. auto-fit
- * with a minmax floor does both without a media query: the two boards share
- * the row until one would go below 320px, then they wrap.
- */
 .player-boards {
   display: grid;
-  /* min(320px, 100%) rather than a bare 320px: below a 320px container a
-     bare floor makes the track WIDER than its parent and the page scrolls
-     sideways. The min() clamps the floor to whatever room there is, so the
-     board narrows instead of overflowing. */
+
   grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: var(--space-6);
 }
@@ -310,8 +260,6 @@
   flex-shrink: 0;
 }
 
-/* ---- responsive ------------------------------------------------------ */
-
 @media (max-width: 767px) {
   .game-header {
     grid-template-columns: 1fr;
@@ -319,8 +267,6 @@
     padding: var(--space-3) 0;
   }
 
-  /* Stacked, the mirrored home row would read right-aligned for no
-     reason. */
   .game-header-side--home {
     justify-content: flex-start;
     flex-direction: row-reverse;

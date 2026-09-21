@@ -1,8 +1,3 @@
-/*
- * Every value here comes from tokens.css. A hex, a px font-size or a
- * font-family string in this file is a bug.
- */
-
 .games-page-head {
   padding-bottom: var(--space-3);
 }
@@ -25,22 +20,9 @@
   color: var(--ink-muted);
 }
 
-/* ---- league subsections ---------------------------------------------- */
-
 .league-section {
   padding-top: var(--space-6);
-  /*
-   * WHERE A SHORTCUT CLICK LANDS. scrollIntoView({ block: 'start' }) puts
-   * the section's top edge at the top of the VIEWPORT - which is behind
-   * both the app header and the sticky shortcut bar. This pushes the
-   * landing point down past both.
-   *
-   * It is the same quantity the observer's rootMargin subtracts, in the
-   * other direction: one decides when a section counts as in view, the
-   * other where it stops when scrolled to. Both read --chips-height -
-   * the observer by measuring the rendered bar, this by reading the
-   * declaration - so they cannot disagree. They did once, by 12px.
-   */
+
   scroll-margin-top: calc(var(--header-height) + var(--chips-height));
 }
 
@@ -64,8 +46,7 @@
 .league-section-more {
   font-family: var(--font-display);
   font-size: var(--text-small);
-  /* --accent-text, not --accent: this is 15px link text, judged at
-     4.5:1, where --accent measures 3.64:1. */
+
   color: var(--accent-text);
   text-decoration: none;
   white-space: nowrap;
@@ -79,8 +60,6 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-
-/* ---- responsive ------------------------------------------------------ */
 
 @media (max-width: 1023px) {
   .league-section {

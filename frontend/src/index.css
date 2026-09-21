@@ -1,8 +1,3 @@
-/*
- * Imported FIRST, before any rule below can reference a variable it
- * defines. @import must precede all other statements in a stylesheet
- * anyway, so this position is required rather than chosen.
- */
 @import './styles/tokens.css';
 
 body {
@@ -19,10 +14,6 @@ code {
   font-family: var(--font-mono);
 }
 
-/*
- * The cream ground is set on body rather than on a wrapper so that
- * over-scroll at the top and bottom of the page shows cream, not white.
- */
 html {
   background: var(--cream);
 }

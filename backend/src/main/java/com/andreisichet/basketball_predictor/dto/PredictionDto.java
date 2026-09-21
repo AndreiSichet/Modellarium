@@ -5,12 +5,7 @@ import java.time.LocalDate;
 
 import com.andreisichet.basketball_predictor.model.Prediction;
 
-/**
- * Model output as sent to clients.
- *
- * No id and no link back to the Game: this is always nested inside the game
- * it belongs to, so both would be noise.
- */
+/** Model output as sent to clients. */
 public record PredictionDto(
         double homeWinProbability,
         double homeMargin,
@@ -22,7 +17,6 @@ public record PredictionDto(
         LocalDate dataAsOf,
         boolean stale,
         Instant predictedAt) {
-
     public static PredictionDto from(Prediction prediction) {
         return new PredictionDto(
                 prediction.getHomeWinProbability(),

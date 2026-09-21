@@ -1,23 +1,4 @@
-"""
-Build a model-ready feature row for a game that hasn't been played yet.
-
-The pipeline computes features for all historical games at once. Inference
-needs one matchup on demand, so the same definitions are reimplemented here
-for that shape. A mismatch between the two would produce plausible-looking
-wrong features and never raise an error, so:
-
-  1. Every constant and formula is imported from the pipeline scripts -
-     metric list, season boundary, rest-day cap, Elo K-factor and season
-     regression. Nothing is restated here.
-  2. verify_against_training_data() rebuilds features for real past games
-     and diffs them against the pipeline's own rows. Run it after changing
-     either side.
-
-Results are only as current as the games_final.csv passed in. If the
-pipeline hasn't run since last night's games, features are computed from
-stale history with no indication anything is missing. Callers that care
-should check the newest GAME_DATE.
-"""
+"""Build a model-ready feature row for a game that hasn't been played yet."""
 
 import sys
 from pathlib import Path
@@ -27,13 +8,12 @@ import pandas as pd
 
 from common import FEATURE_COLUMNS
 
-# "data-pipeline" isn't a valid module name, so the pipeline directory goes
-# on sys.path directly. Worth it: the alternative is copying K_FACTOR, the
-# season regression, the rest cap and the metric list into this file.
 PIPELINE_DIR = Path(__file__).resolve().parents[1] / "data-pipeline" / "preprocessing"
 if str(PIPELINE_DIR) not in sys.path:
     sys.path.insert(0, str(PIPELINE_DIR))
 
+# Constants and formulas are IMPORTED from the pipeline, never restated:
+# a second copy is how training and serving drift apart silently.
 from build_elo_ratings import (  # noqa: E402
     BASELINE_RATING,
     K_FACTOR,
@@ -43,39 +23,21 @@ from build_elo_ratings import (  # noqa: E402
 from build_rest_days import REST_DAYS_CAP  # noqa: E402
 from build_rolling_features import METRICS, WINDOWS, derive_season  # noqa: E402
 
-
 def season_of(game_date: pd.Timestamp) -> int:
-    """Season label for one date.
-
-    Wraps derive_season, which takes a Series, so the August boundary stays
-    defined in one place.
-    """
+    """Season label for one date."""
     return int(derive_season(pd.Series([pd.Timestamp(game_date)])).iloc[0])
 
-
 def team_history(games_final_df: pd.DataFrame, team_id: int, before: pd.Timestamp) -> pd.DataFrame:
-    """That team's games strictly before the given date, oldest first.
-
-    Strictly before: including the game being predicted would leak its
-    result into its own features.
-    """
+    """That team's games strictly before the given date, oldest first."""
     rows = games_final_df[
         (games_final_df["TEAM_ID"] == team_id) & (games_final_df["GAME_DATE"] < before)
     ]
     return rows.sort_values(["GAME_DATE", "GAME_ID"])
 
-
 def rolling_features(history: pd.DataFrame, season: int) -> dict:
-    """Trailing means over the team's most recent games this season.
-
-    Season-scoped to match build_rolling_features.py, so windows reset at
-    the season boundary. Fewer games than the window gives NaN, same as the
-    pipeline's shift(1).rolling(n), which XGBoost handles.
-    """
+    """Trailing means over the team's most recent games this season."""
     in_season = history[history["SEASON"] == season]
 
-    # WIN isn't stored: build_rolling_features.py derives it from WL,
-    # averages it into ROLL*_WIN_PCT, then drops it.
     source = in_season.assign(WIN=(in_season["WL"] == "W").astype(int))
 
     features = {}
@@ -88,30 +50,17 @@ def rolling_features(history: pd.DataFrame, season: int) -> dict:
             )
     return features
 
-
 def rest_features(history: pd.DataFrame, game_date: pd.Timestamp) -> dict:
-    """Capped days since the team's last game, plus the back-to-back flag.
-
-    Not season-scoped, matching build_rest_days.py. The cap stops a
-    150-day offseason counting as rest.
-    """
+    """Capped days since the team's last game, plus the back-to-back flag."""
     if history.empty:
-        # Pipeline's diff() gives NaN here, and NaN == 1 is False.
         return {"REST_DAYS": np.nan, "IS_BACK_TO_BACK": 0}
 
     last_date = history["GAME_DATE"].iloc[-1]
     rest_days = min((pd.Timestamp(game_date) - last_date).days, REST_DAYS_CAP)
     return {"REST_DAYS": float(rest_days), "IS_BACK_TO_BACK": int(rest_days == 1)}
 
-
 def current_elo(history: pd.DataFrame, season: int) -> float:
-    """The team's rating going into this game.
-
-    Instead of replaying league history, this takes the last game's stored
-    pre-game ratings and applies one update. That stored value is what the
-    replay held at the time, and nothing can have moved the rating since
-    because the team hasn't played, so the result matches exactly.
-    """
+    """The team's rating going into this game."""
     if history.empty:
         return BASELINE_RATING
 
@@ -121,13 +70,10 @@ def current_elo(history: pd.DataFrame, season: int) -> float:
     actual = 1.0 if last["WL"] == "W" else 0.0
     rating = rating + K_FACTOR * (actual - expected_score(rating, opponent_rating))
 
-    # Regress toward the mean once on season change, for roster turnover.
-    # Matches the pipeline's `last_season[team] != season` check.
     if last["SEASON"] != season:
         rating = BASELINE_RATING + (rating - BASELINE_RATING) * (1 - SEASON_REGRESSION_FRACTION)
 
     return rating
-
 
 def team_features(games_final_df: pd.DataFrame, team_id: int, game_date: pd.Timestamp) -> dict:
     """All 17 pre-game features for one team, keyed by unprefixed name."""
@@ -139,14 +85,7 @@ def team_features(games_final_df: pd.DataFrame, team_id: int, game_date: pd.Time
     features["TEAM_ELO"] = current_elo(history, season)
     return features
 
-
-# Availability is only computed when the models actually consume it, i.e.
-# when common.py lists these in FEATURE_COLUMNS. It does as of the live
-# injury-report work, so predictions now attempt a fetch; if the columns are
-# ever removed again, this module silently stops fetching and needs no other
-# change.
 AVAILABILITY_FEATURES = ("ABSENT_COUNT", "WEIGHTED_ABSENT_MIN")
-
 
 def availability_is_required() -> bool:
     return any(
@@ -155,17 +94,8 @@ def availability_is_required() -> bool:
         for name in AVAILABILITY_FEATURES
     )
 
-
 def _availability_for_both_teams(home_team_id: int, away_team_id: int) -> dict:
-    """Live ABSENT_COUNT / WEIGHTED_ABSENT_MIN, or NaN if unknowable.
-
-    A missing injury report must not fail the whole prediction: the other
-    34 features are still perfectly computable, and XGBoost handles NaN
-    natively. NaN is also the honest value here - the same "insufficient
-    information, never a fabricated zero" rule the rolling windows and
-    REST_DAYS already follow. A zero would claim both teams are at full
-    strength, which is not something a missing report says.
-    """
+    """Live ABSENT_COUNT / WEIGHTED_ABSENT_MIN, or NaN if unknowable."""
     blank = {
         f"{prefix}_{name}": float("nan")
         for prefix in ("HOME", "AWAY")
@@ -173,19 +103,10 @@ def _availability_for_both_teams(home_team_id: int, away_team_id: int) -> dict:
     }
 
     try:
-        # Imported inside the try on purpose. injury_availability pulls in
-        # nbainjuries (and through it a Java runtime) and reads the player
-        # history CSV, none of which the inference image currently carries -
-        # so in a container this raises ImportError. That must degrade to
-        # NaN like any other unavailable-report case, not take the whole
-        # prediction down with it.
         import injury_availability as availability
 
         reconciled, pending_team_ids = availability.get_live_availability()
     except Exception as error:
-        # NoReportAvailable in the offseason, ImportError in a container
-        # built without the availability stack, or a network/parse failure.
-        # None of them justify losing the other 34 features.
         print(f"  availability unknown for this prediction: "
               f"{type(error).__name__}: {error}")
         return blank
@@ -204,22 +125,13 @@ def _availability_for_both_teams(home_team_id: int, away_team_id: int) -> dict:
 
     return values
 
-
 def get_live_features(
     home_team_id: int,
     away_team_id: int,
     game_date,
     games_final_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Assemble the feature row for one matchup, in FEATURE_COLUMNS order.
-
-    games_final_df is passed in so a service can load it once and reuse it
-    instead of re-reading the CSV per request.
-
-    The row is built from every feature this module knows how to compute,
-    then narrowed to FEATURE_COLUMNS. That order matters: the saved models
-    carry these names and check them at predict time.
-    """
+    """Assemble the feature row for one matchup, in FEATURE_COLUMNS order."""
     game_date = pd.Timestamp(game_date)
 
     row = {}
@@ -236,7 +148,6 @@ def get_live_features(
 
     return pd.DataFrame([row])[FEATURE_COLUMNS]
 
-
 def load_games_final() -> pd.DataFrame:
     """Load the history table. A service should call this once at startup."""
     path = (
@@ -250,30 +161,10 @@ def load_games_final() -> pd.DataFrame:
     df["GAME_DATE"] = pd.to_datetime(df["GAME_DATE"])
     return df
 
-
 def verify_against_training_data(sample_size: int = 200, seed: int = 42) -> bool:
-    """Rebuild features for past games and diff against the pipeline's rows.
+    """Rebuild features for past games and diff against the pipeline's rows."""
+    from train_baseline import load_dataset
 
-    There's no ground truth for a future game, but every historical game
-    already has a row in model_dataset.csv. Given only a matchup and a date,
-    this function should reproduce that row exactly.
-
-    Samples across all history so early-season NaN rows, season-opening Elo
-    regression and back-to-backs are covered.
-    """
-    from train_baseline import load_dataset  # local import: avoids a cycle
-
-    # Availability is deliberately excluded from this comparison, and the
-    # exclusion is structural rather than a convenience. Every other feature
-    # is a pure function of games_final.csv, so a past game can be replayed
-    # exactly. Availability is not: at serving time it comes from the NBA's
-    # *current* injury report, which says nothing about who sat out a game in
-    # 2019. There is no live source that reproduces a historical value, so
-    # comparing them would always fail and would say nothing about whether
-    # this module is correct.
-    #
-    # The historical values in model_dataset.csv are validated separately, by
-    # validate_player_boxscores.py and the hand-checks in CLAUDE.md section 15.
     replayable_columns = [c for c in FEATURE_COLUMNS
                           if not any(c.endswith(f"_{name}")
                                      for name in AVAILABILITY_FEATURES)]
@@ -326,7 +217,6 @@ def verify_against_training_data(sample_size: int = 200, seed: int = 42) -> bool
     print("\nPASS - every value reproduces the pipeline exactly.")
     return True
 
-
 def main():
     print("=" * 78)
     print("LIVE FEATURE VERIFICATION")
@@ -344,12 +234,9 @@ def main():
     print(f"games_final.csv newest game: {latest.date()} "
           f"- features are only as current as this.\n")
 
-    # Next-day matchup between the two teams that played most recently.
     last_game = games_final_df[games_final_df["GAME_DATE"] == latest]
     home_id = last_game.loc[last_game["IS_HOME"], "TEAM_ID"].iloc[0]
     away_id = last_game.loc[~last_game["IS_HOME"], "TEAM_ID"].iloc[0]
-    # DateOffset, not Timedelta: pandas 2.3 / numpy 2.5 warn on
-    # Timestamp + Timedelta.
     tip_off = latest + pd.DateOffset(days=1)
 
     print(f"Hypothetical: team {home_id} hosting team {away_id} on {tip_off.date()}")
@@ -357,7 +244,6 @@ def main():
     print(example.T.to_string(header=["value"]))
 
     sys.exit(0 if ok else 1)
-
 
 if __name__ == "__main__":
     main()

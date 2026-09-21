@@ -1,48 +1,4 @@
-"""
-Throwaway: find out what BoxScoreSummaryV3's LineScore actually returns,
-before any quarter/half ingestion is designed against it.
-
-Not part of the pipeline. Same role as the traditional and advanced
-box-score investigations, both of which paid for themselves - V2 was dead
-mid-run, and V3 returned 0 instead of empty for absent players.
-
-THE QUESTION THIS EXISTS TO ANSWER IS OVERTIME, and it was worth checking
-the declared schema before writing a line of ingestion. nba_api declares
-V2's LineScore with per-quarter columns AND ten overtime columns:
-
-    PTS_QTR1..PTS_QTR4, PTS_OT1..PTS_OT10, PTS
-
-but declares V3's with no overtime columns at all:
-
-    period1Score, period2Score, period3Score, period4Score, score
-
-If that declaration is complete, then for any overtime game the four
-period columns cannot sum to `score`, and a validator built on
-"quarters must equal the final" would fail on roughly 6% of games - or,
-worse, an ingestion that silently trusted the sum would quietly understate
-every overtime game. Three possibilities, and only a real call separates
-them:
-
-  1. V3 returns extra columns (period5Score, ...) for overtime games that
-     the declared schema simply does not list.
-  2. V3 returns only four periods, and overtime points are folded into
-     period4Score.
-  3. V3 returns only four periods and overtime points are absent entirely,
-     in which case quarter data alone cannot reconstruct a final score.
-
-Q1 and 1H markets are unaffected either way - they only need periods 1
-and 2 - but which case holds decides whether the validation check is
-"quarters sum to final" or something weaker, and whether full-game
-reconstruction is possible at all.
-
-FOUR GAMES, chosen deliberately rather than at random: regulation and
-overtime, from the oldest and newest seasons. Overtime games were
-identified offline from the raw season CSVs' MIN column - a regulation
-team-game records ~240 minutes, one overtime 265, two 290. (MIN > 240
-alone is not a detector: regulation games record 238-242 from rounding.)
-
-Run:  python data-pipeline/ingestion/investigate_boxscore_summary.py
-"""
+"""Throwaway: find out what BoxScoreSummaryV3's LineScore actually returns,"""
 
 import time
 from pathlib import Path
@@ -55,7 +11,6 @@ GAMES_FINAL_PATH = (
     Path(__file__).resolve().parents[1] / "data" / "processed" / "games_final.csv"
 )
 
-# (label, game_id) - see the module docstring for how these were chosen.
 SAMPLE_GAMES = [
     ("2025-26 regulation", "0022501188"),
     ("2025-26 OVERTIME", "0022501147"),
@@ -66,7 +21,6 @@ SAMPLE_GAMES = [
 REQUEST_TIMEOUT_SECONDS = 30
 DELAY_BETWEEN_CALLS_SECONDS = 2
 
-
 def line_score(game_id: str) -> pd.DataFrame:
     """V3's LineScore frame for one game, by name not position."""
     summary = boxscoresummaryv3.BoxScoreSummaryV3(
@@ -74,15 +28,9 @@ def line_score(game_id: str) -> pd.DataFrame:
     )
     return summary.line_score.get_data_frame()
 
-
 def period_columns(frame: pd.DataFrame) -> list:
-    """Every scoring-period column actually present, in order.
-
-    Discovered from the response, not from the declared schema - the whole
-    point is that the declaration may be incomplete for overtime.
-    """
+    """Every scoring-period column actually present, in order."""
     return [c for c in frame.columns if "period" in c.lower() and "score" in c.lower()]
-
 
 def check_v2_is_dead(game_id: str) -> None:
     print("=" * 74)
@@ -106,7 +54,6 @@ def check_v2_is_dead(game_id: str) -> None:
         print(f"  columns: {list(frame.columns)}")
         print("  -> V2 is alive for this game; V3 is still the right target,")
         print("     but note the release notes' April 2025 cutoff.")
-
 
 def inspect_game(label: str, game_id: str, finals: dict) -> dict:
     print("\n" + "=" * 74)
@@ -148,7 +95,6 @@ def inspect_game(label: str, game_id: str, finals: dict) -> dict:
               f"= {summed:.0f}  vs score {reported}  "
               f"{'OK' if match else 'MISMATCH  <-- overtime points unaccounted for'}")
 
-        # Independent cross-check against a table already trusted for months.
         actual = finals.get((game_id, team_id))
         if actual is not None:
             agrees = abs(float(reported) - actual) < 1e-9
@@ -157,14 +103,12 @@ def inspect_game(label: str, game_id: str, finals: dict) -> dict:
 
     return {"label": label, "periods": periods, "sums_ok": sums_ok}
 
-
 def load_finals() -> dict:
     games = pd.read_csv(GAMES_FINAL_PATH, usecols=["GAME_ID", "TEAM_ID", "PTS"])
     return {
         (str(row.GAME_ID).zfill(10), int(row.TEAM_ID)): float(row.PTS)
         for row in games.itertuples()
     }
-
 
 def main():
     finals = load_finals()
@@ -205,7 +149,6 @@ def main():
         print("  the declared schema was simply incomplete.")
 
     print("\nDone. Five API calls, nothing written to disk.")
-
 
 if __name__ == "__main__":
     main()

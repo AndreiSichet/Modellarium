@@ -1,26 +1,4 @@
-"""
-XGBoost across the six regression targets.
-
-Input:  data-pipeline/data/processed/model_dataset.csv
-Output: one MLflow experiment per target under ml-training/mlruns.
-
-The targets differ only in the y column and the naive baseline formula, so
-one parameterized function handles all six. Split and MLflow wiring come
-from common.py, feature set from train_baseline.py.
-
-Baselines are recomputed here rather than copied from train_baseline.py, so
-a change in data prep shows up instead of being papered over.
-
-LinearRegression is fit on train+validation (2015-2023); XGBoost fits on
-train (2015-2022) and uses validation (2023) for early stopping. Both see
-the same span of history. LinearRegression has nothing to stop early on, so
-withholding a season would only handicap it.
-
-The naive and linear baselines can't score early-season rows at all (the
-naive formula is the rolling columns, and LinearRegression rejects NaN), so
-the table uses complete-window games. XGBoost's full-test number is
-reported separately with no counterpart.
-"""
+"""XGBoost across the six regression targets."""
 
 import numpy as np
 import pandas as pd
@@ -43,7 +21,6 @@ from train_baseline import (
     section,
 )
 
-# Same as the moneyline params, retargeted at a continuous outcome.
 PARAMS = {
     "objective": "reg:squarederror",
     "eval_metric": "rmse",
@@ -58,15 +35,11 @@ PARAMS = {
     "random_state": 42,
 }
 
-# Smaller MAE differences than this are within the noise between reasonable
-# hyperparameter choices, so they say nothing about the model class.
 IMPROVEMENT_THRESHOLD_PCT = 3.0
-
 
 def experiment_name(label: str) -> str:
     """'REB margin' -> 'reb_margin'."""
     return label.lower().replace(" ", "_")
-
 
 def score(y_true, predictions) -> tuple:
     return (
@@ -74,13 +47,8 @@ def score(y_true, predictions) -> tuple:
         np.sqrt(mean_squared_error(y_true, predictions)),
     )
 
-
 def fit_linear_baseline(train, validation, test, target: str):
-    """Reproduce train_baseline.py's LinearRegression for this target.
-
-    NaN rows dropped and features scaled because this model requires it;
-    XGBoost needs neither.
-    """
+    """Reproduce train_baseline.py's LinearRegression for this target."""
     fit_set = pd.concat([train, validation]).dropna(subset=ROLLING_FEATURE_COLUMNS)
 
     scaler = StandardScaler()
@@ -89,7 +57,6 @@ def fit_linear_baseline(train, validation, test, target: str):
 
     model = LinearRegression().fit(x_fit, fit_set[target])
     return model.predict(x_test)
-
 
 def fit_xgb(train, validation, target: str):
     model = XGBRegressor(**PARAMS)
@@ -100,7 +67,6 @@ def fit_xgb(train, validation, target: str):
         verbose=False,
     )
     return model
-
 
 def run_target(target, label, stat, combine, train, validation, test, test_comparable) -> dict:
     section(f"{label.upper()} (target: {target})")
@@ -116,7 +82,6 @@ def run_target(target, label, stat, combine, train, validation, test, test_compa
     xgb_mae, xgb_rmse = score(y_comparable, model.predict(test_comparable[FEATURE_COLUMNS]))
     full_mae, full_rmse = score(test[target], model.predict(test[FEATURE_COLUMNS]))
 
-    # Negative = XGBoost better. Same sign convention in table and verdict.
     change_pct = (xgb_mae - linear_mae) / linear_mae * 100
     improved = change_pct < -IMPROVEMENT_THRESHOLD_PCT
 
@@ -169,7 +134,6 @@ def run_target(target, label, stat, combine, train, validation, test, test_compa
         "improved": improved,
     }
 
-
 def log_run(label, target, model, train, validation, test_comparable, metrics):
     setup_mlflow(experiment_name(label))
 
@@ -195,7 +159,6 @@ def log_run(label, target, model, train, validation, test_comparable, metrics):
             input_example=sample,
         )
 
-
 def print_verdicts(results):
     section(f"VERDICTS (bar: MAE improvement over LinearRegression > {IMPROVEMENT_THRESHOLD_PCT}%)")
 
@@ -211,7 +174,6 @@ def print_verdicts(results):
 
     gains = sum(r["improved"] for r in results)
     print(f"\n{gains} of {len(results)} targets clear the bar.")
-
 
 def main():
     section("DATA PREP")
@@ -233,7 +195,6 @@ def main():
 
     print_verdicts(results)
     print(f"\nSix experiments logged: {', '.join(experiment_name(r['label']) for r in results)}")
-
 
 if __name__ == "__main__":
     main()

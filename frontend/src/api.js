@@ -1,27 +1,5 @@
-/**
- * Thin fetch wrapper around the Spring Boot API.
- *
- * No client library yet — five calls do not justify one.
- *
- * getUpcomingGames and getTeams were removed in Phase 6 along with the
- * browse flow that was their only caller. GET /api/games/upcoming and
- * GET /api/teams still exist on the backend and are still documented
- * there; nothing here calls them, and a wrapper nobody calls is a claim
- * that something does.
- */
-
-// Inlined by create-react-app at build time. Defaults to the dev-server
-// setup, so `npm start` is unchanged; the Docker build overrides it with a
-// build arg. Must always be an address the BROWSER can reach - a compose
-// service name would not resolve in the user's browser.
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8080/api';
 
-/**
- * Turn a non-2xx response into a thrown Error carrying the backend's own
- * message. Spring puts the real reason in `message` only because
- * spring.web.error.include-message=always is set; without reading it here
- * that setting would buy the frontend nothing.
- */
 async function readError(response) {
   let message = null;
 
@@ -29,8 +7,6 @@ async function readError(response) {
     const body = await response.json();
     message = body.message || body.error || null;
   } catch {
-    // A body that isn't JSON (or is empty) leaves the status as the only
-    // thing worth reporting.
   }
 
   return new Error(message || `Request failed with status ${response.status}`);
@@ -46,18 +22,10 @@ async function request(path, options) {
   return response.json();
 }
 
-/**
- * Real upcoming NBA fixtures. These are candidates to display, not
- * promises: most are further out than the inference service will predict.
- */
 export function getSchedule(daysAhead = 14) {
   return request(`/games/schedule?daysAhead=${daysAhead}`);
 }
 
-/**
- * Dataset freshness. dataAsOf is what tells the browse view which
- * fixtures are actually within reach.
- */
 export function getHealth() {
   return request('/health');
 }
@@ -70,15 +38,6 @@ export function createPrediction(payload) {
   });
 }
 
-/**
- * The six Q1 / first-half markets.
- *
- * Same payload as createPrediction, different response: markets carrying
- * confidence labels and, on the two winner markets, a conditional-
- * probability caveat. Separate endpoints rather than one, mirroring the
- * inference service's own split - a combined response would be half nulls
- * whichever way it was called.
- */
 export function createQuarterHalfPrediction(payload) {
   return request('/predictions/quarter-half', {
     method: 'POST',
@@ -87,14 +46,6 @@ export function createQuarterHalfPrediction(payload) {
   });
 }
 
-/**
- * Both teams' prop boards in one call.
- *
- * A POST rather than a GET because it creates prediction rows, like the
- * other two - it is not a lookup. Fetched lazily by the detail view: this
- * is twenty players by five stats, meaningfully heavier than the other two
- * calls combined, and plenty of sessions never open that tab.
- */
 export function getPlayerPropPredictions(payload) {
   return request('/predictions/player-props', {
     method: 'POST',

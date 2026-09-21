@@ -1,27 +1,4 @@
-"""
-Replay verification for live_quarter_half_features.py.
-
-Same bar as live_features.verify_against_training_data(): rebuild features
-for real past games and diff them against the pipeline's own rows in
-model_dataset.csv, which are what the shipped models were actually fit on.
-A mismatch here means live predictions would be computed from different
-numbers than training was, silently.
-
-THE SAMPLE IS DELIBERATELY UNEVEN, not random. Three populations, because
-they exercise different code:
-
-  1. Mid-season games across every era - the ordinary case, where an exact
-     match is the only acceptable result.
-  2. Season openers and early-season games - where the correct behaviour is
-     to RAISE, not to return a number. A function that silently produced
-     something here would be worse than one that crashed.
-  3. The games immediately following 2025-11-19 - the three un-fetchable
-     games. Their absence must propagate through the trailing window, which
-     it only does if the history frame was reindexed. This is the case a
-     naive implementation gets wrong while passing every other check.
-
-Run:  python ml-training/verify_live_quarter_half.py
-"""
+"""Replay verification for live_quarter_half_features.py."""
 
 import numpy as np
 import pandas as pd
@@ -39,13 +16,10 @@ from train_quarter_half_baseline import FEATURE_COLUMNS
 MID_SEASON_SAMPLE = 25
 TOLERANCE = 1e-9
 
-# The three games with no line score, and the date they fall on.
 MISSING_GAME_DATE = pd.Timestamp("2025-11-19")
-
 
 def section(title):
     print(f"\n{'=' * 78}\n{title}\n{'=' * 78}")
-
 
 def compare(expected_row, actual_frame) -> tuple:
     """Largest absolute difference across the 30 columns, and the worst name."""
@@ -57,7 +31,6 @@ def compare(expected_row, actual_frame) -> tuple:
         if diff > worst_diff:
             worst_name, worst_diff = column, diff
     return worst_name, worst_diff
-
 
 def main():
     section("SETUP")
@@ -74,12 +47,9 @@ def main():
     print(f"  {len(complete):,} games have all 30 features; "
           f"{len(incomplete):,} do not (these must raise)")
 
-    # ---------------------------------------------------------------- 1
     section(f"1. MID-SEASON REPLAY - {MID_SEASON_SAMPLE} games across all eras")
     print("Every one must reproduce model_dataset.csv exactly.\n")
 
-    # Spread the sample over seasons rather than sampling uniformly, so no
-    # era can be silently absent.
     per_season = max(1, MID_SEASON_SAMPLE // complete["SEASON"].nunique())
     sample = (complete.groupby("SEASON", group_keys=False)
               .apply(lambda g: g.sample(min(per_season, len(g)), random_state=42))
@@ -107,7 +77,6 @@ def main():
     print(f"  largest diff    : {worst_overall:.3e}  ({worst_where})")
     print(f"  {'PASS' if failures == 0 else 'FAIL'}")
 
-    # ---------------------------------------------------------------- 2
     section("2. EARLY SEASON - the function must RAISE, not return")
     print("A linear model cannot score a partial row, so returning anything")
     print("here would be worse than crashing.\n")
@@ -133,7 +102,6 @@ def main():
     print(f"\n  raised {raised}, wrongly returned {returned}")
     print(f"  {'PASS' if returned == 0 else 'FAIL'}")
 
-    # ---------------------------------------------------------------- 3
     section("3. THE REINDEX CASE - games after the 3 un-fetchable fixtures")
     print("The pipeline carries 2025-11-19 as NaN rows so the gap propagates.")
     print("If live features skipped them instead, windows would quietly differ")
@@ -185,7 +153,6 @@ def main():
     print(f"  live and pipeline agree on all {checked}: "
           f"{'PASS' if agree == checked else 'FAIL'}")
 
-    # ---------------------------------------------------------------- 4
     section("4. A REAL PREDICTION, END TO END")
     import joblib
     from live_quarter_half_features import MODELS_DIR
@@ -221,7 +188,6 @@ def main():
     if ok:
         print("pipeline has no answer to reproduce.")
     return 0 if ok else 1
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -1,50 +1,11 @@
-/*
- * Every value here comes from tokens.css. A hex, a px font-size or a
- * font-family string in this file is a bug.
- *
- * TWO COLUMNS, NOT THREE. Phase 4's overview column is deleted, and with it
- * the wider page it needed: at --page-max-wide the single content column
- * came out around 1336px, which strands a game row's prediction figures at
- * the far right of an ocean of whitespace. Back at --page-max the content
- * column is ~950px, which is what a row was designed for.
- */
+/* Do NOT add align-items: start. It sizes each column to its own content,
+   which leaves the sticky rail inside it nowhere to travel. */
 .predictions {
   display: grid;
   grid-template-columns: 240px 1fr;
   gap: var(--space-3);
 
-  /*
-   * ONE OFFSET FOR BOTH COLUMNS, and it fixes a 32px misalignment carried
-   * since Phase 4.
-   *
-   * The two columns each started 32px down, which looked right AT REST and
-   * was wrong the moment anything stuck. The rail kept its padding INSIDE
-   * its sticky box, so its heading landed at header + 32px; the shortcut
-   * bar sticks flush at header. Two values that happened to be equal, doing
-   * different jobs.
-   *
-   * Now the PADDING IS ON THE GRID ITEMS and the sticky children start at
-   * their own top edge, so both stick to the same line. Declared here so
-   * the two cannot drift again — including at the breakpoint below, where
-   * one number changes and both columns follow.
-   */
   --column-top: var(--space-4);
-  /*
-   * NO align-items: start HERE, AND ITS ABSENCE IS LOAD-BEARING.
-   *
-   * It was set in Phase 2 and silently broke the side columns. `start`
-   * sizes each grid item to its own content instead of stretching it to the
-   * row height, so the rail's grid item was exactly the rail's height and
-   * its sticky child had nowhere to travel. A sticky element whose
-   * containing block is its own size behaves as `static` - with no warning
-   * and no error, which is why checking the compiled CSS passed while the
-   * page was wrong.
-   *
-   * The default `stretch` makes every column the height of the tallest,
-   * which is what gives the sticky children inside them room to move. Do
-   * not re-add `start` to stop the rail "looking stretched" - the stretched
-   * box is invisible; what it holds is not.
-   */
 }
 
 .predictions-rail {
@@ -52,32 +13,11 @@
 }
 
 .predictions-content {
-  /*
-   * min-width: 0 on a grid child is not optional. A grid item's default
-   * min-width is auto, so a wide child - a long table, a game row that does
-   * not wrap - pushes the whole column past its track and the page scrolls
-   * sideways. This is the single most common cause of horizontal overflow
-   * in a layout like this.
-   */
   min-width: 0;
   padding: var(--column-top) 0 var(--space-4);
 
-  /*
-   * THE SHORTCUT BAR'S HEIGHT, DECLARED ONCE ON THE PARENT THEY SHARE.
-   *
-   * Two siblings need it: the bar sets its own height from it, and each
-   * league section offsets its scroll landing point by it. Left to fall out
-   * of padding and line-height the two came to 45px and 33px, so a clicked
-   * shortcut put its heading 12px underneath the bar. Two expressions of
-   * one number are two numbers.
-   *
-   * box-sizing: border-box is global (index.css), so this includes the
-   * bar's bottom rule.
-   */
   --chips-height: 44px;
 }
-
-/* ---- messages: empty, error, not found ------------------------------- */
 
 .predictions-message {
   max-width: var(--measure);
@@ -114,8 +54,7 @@
   font-family: var(--font-mono);
   font-size: var(--text-label);
   color: var(--ink-muted);
-  /* A backend message can be a long unbroken URL or stack line; without
-     this it becomes the widest thing on the page. */
+
   overflow-wrap: anywhere;
 }
 
@@ -125,9 +64,7 @@
   font-weight: 500;
   color: var(--ink);
   background: var(--surface);
-  /* --ink-muted (4.67:1), not --rule (1.19:1). A hairline is fine for a
-     divider, which is decorative; this border is the only thing marking
-     the button as a control, so WCAG 1.4.11 judges it at 3:1. */
+
   border: 1px solid var(--ink-muted);
   padding: var(--space-1) var(--space-3);
   cursor: pointer;
@@ -149,30 +86,14 @@
   color: var(--ink-muted);
 }
 
-/* ---- responsive ------------------------------------------------------ */
-
-/*
- * Below 1024 everything stacks and the rail becomes a horizontal strip —
- * its own stylesheet handles that half.
- *
- * There is no 1279px breakpoint any more: it existed to drop the overview
- * column, and there is no overview column.
- */
 @media (max-width: 1023px) {
   .predictions {
     grid-template-columns: 1fr;
     gap: 0;
-    /* One number, and the content column follows it. */
+
     --column-top: var(--space-3);
   }
 
-  /*
-   * ZERO HERE, because below 1024 the rail is `position: static` and takes
-   * its own padding back (SportsRail.css). The grid item's offset exists
-   * only to line a STUCK rail up with the sticky bar in the other column,
-   * and neither sticks at this width — leaving it on would simply stack
-   * two paddings and push the strip 48px down.
-   */
   .predictions-rail {
     padding-top: 0;
   }

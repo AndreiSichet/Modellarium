@@ -15,7 +15,6 @@ import com.andreisichet.basketball_predictor.service.ScheduleService;
 @RestController
 @RequestMapping("/api/games")
 public class GameController {
-
     private final GameService gameService;
     private final ScheduleService scheduleService;
 
@@ -29,11 +28,7 @@ public class GameController {
         return gameService.getUpcomingGames();
     }
 
-    /**
-     * Real NBA fixtures, straight from the schedule. These are candidates
-     * to predict, not stored games - most of them are further out than the
-     * inference service will accept.
-     */
+    /** Real NBA fixtures, straight from the schedule. */
     @GetMapping("/schedule")
     public List<ScheduledGameDto> schedule(
             @RequestParam(defaultValue = "14") int daysAhead) {

@@ -14,22 +14,12 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * One set of model outputs for one game.
- *
- * The id is generated here, unlike Team and Game: this is new data the
- * system produces, with no external identifier to reuse.
- *
- * The seven prediction fields match the inference service response exactly.
- * dataAsOf and stale are its freshness metadata, stored rather than
- * discarded so an old prediction can be recognised as one later.
- */
+/** One set of model outputs for one game. */
 @Entity
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class Prediction {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

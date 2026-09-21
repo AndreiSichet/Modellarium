@@ -1,19 +1,4 @@
-"""
-Baseline models for moneyline, spread, totals, rebounds and assists.
-
-Input:  data-pipeline/data/processed/model_dataset.csv
-Output: printed metrics only, nothing saved.
-
-Each target gets a naive baseline before an ML one, so later models have a
-bar to clear.
-
-Two choices made here rather than in the pipeline, because they are model
-requirements, not properties of the data:
-  - Rows with incomplete rolling windows are dropped; linear and logistic
-    regression can't take NaN. XGBoost later can, and doesn't drop them.
-  - Features are standardized with the scaler fit on train only. Fitting on
-    everything would leak test statistics into training.
-"""
+"""Baseline models for moneyline, spread, totals, rebounds and assists."""
 
 from pathlib import Path
 
@@ -28,8 +13,6 @@ from sklearn.metrics import (
 )
 from sklearn.preprocessing import StandardScaler
 
-# Defined in common.py because inference needs them too. Re-exported here
-# so existing imports from this module keep working.
 from common import FEATURE_COLUMNS, ROLLING_FEATURE_COLUMNS
 
 DATASET_PATH = (
@@ -40,22 +23,10 @@ DATASET_PATH = (
     / "model_dataset.csv"
 )
 
-# Held out as test. Chronological, not random: a random split would train on
-# future games to predict past ones.
 TEST_SEASON_COUNT = 2
 
 BOOLEAN_FEATURE_COLUMNS = ["HOME_IS_BACK_TO_BACK", "AWAY_IS_BACK_TO_BACK"]
 
-# Present in the dataset but deliberately not trained on. Empty right now:
-# the availability columns that used to sit here are in FEATURE_COLUMNS as
-# of the live-injury-report work, so listing them would tell the guard below
-# to ignore columns that are genuinely in use - defeating its purpose.
-# The mechanism stays for the next feature that needs to land in the dataset
-# before it lands in the model - which is exactly what the rating columns
-# below are: all 20 advanced-stat columns are present in model_dataset.csv
-# and deliberately held out of FEATURE_COLUMNS. Two experiments (the full
-# 5-metric bundle, then a PACE/TS_PCT-only subset) showed no gain over the
-# 38-feature set, so the data stays built but unused. See CLAUDE.md.
 UNUSED_FEATURE_COLUMNS = [
     f"{side}_{window}_{metric}"
     for side in ("HOME", "AWAY")
@@ -63,16 +34,6 @@ UNUSED_FEATURE_COLUMNS = [
     for metric in ("OFF_RATING", "DEF_RATING", "NET_RATING", "PACE", "TS_PCT")
 ]
 
-# The Q1/first-half rolling columns, held out for the same reason and by the
-# same mechanism. They are built, validated and merged, but no model here
-# consumes them: whether trailing quarter form earns a place in
-# FEATURE_COLUMNS is what train_quarter_half_baseline.py exists to measure,
-# and this project decides that with evidence rather than in advance.
-#
-# Held out of the SHARED list is not the same as unavailable: that script
-# reads these columns straight out of model_dataset.csv by name, which is
-# exactly why they have to be merged in even while unused here. Adding them
-# to FEATURE_COLUMNS instead would silently change all 7 shipped models.
 UNUSED_FEATURE_COLUMNS += [
     f"{side}_{window}_{metric}"
     for side in ("HOME", "AWAY")
@@ -81,8 +42,6 @@ UNUSED_FEATURE_COLUMNS += [
                    "HALF1_MARGIN", "HALF1_PTS", "HALF1_PTS_ALLOWED")
 ]
 
-# Ids and post-game outcomes. Everything else in the file must be a feature;
-# load_dataset() checks this.
 ID_COLUMNS = [
     "GAME_ID",
     "GAME_DATE",
@@ -91,8 +50,6 @@ ID_COLUMNS = [
     "AWAY_TEAM_ID",
     "AWAY_TEAM_NAME",
 ]
-# Mirrors LABEL_COLUMNS in build_final_dataset.py. These REB/AST entries are
-# raw single-game results, not the ROLL5_/ROLL10_ averages, which are features.
 LABEL_COLUMNS = [
     "HOME_WIN",
     "HOME_PTS",
@@ -107,9 +64,6 @@ LABEL_COLUMNS = [
     "AWAY_AST",
     "AST_MARGIN",
     "TOTAL_AST",
-    # Q1 and 1H markets. Labels only - no model trains on them yet, but they
-    # must be classified here or load_dataset()'s guard rejects the file for
-    # every script that shares it, this one included.
     "HOME_Q1_PTS",
     "AWAY_Q1_PTS",
     "HOME_Q1_MARGIN",
@@ -124,9 +78,6 @@ LABEL_COLUMNS = [
 
 METRIC_PRECISION = {"Accuracy": 4, "Log loss": 4, "MAE": 2, "RMSE": 2}
 
-# (target column, table label, ROLL10 stat, how to combine). The target
-# column is listed rather than derived because HOME_MARGIN doesn't follow
-# the {STAT}_MARGIN naming the others use.
 REGRESSION_TARGETS = [
     ("HOME_MARGIN", "Spread", "PTS", "diff"),
     ("TOTAL_PTS", "Totals", "PTS", "sum"),
@@ -136,30 +87,22 @@ REGRESSION_TARGETS = [
     ("TOTAL_AST", "AST total", "AST", "sum"),
 ]
 
-
 def derive_season(game_date: pd.Series) -> pd.Series:
-    """Season = year it tipped off in, August boundary.
-
-    Same rule as build_rolling_features.py.
-    """
+    """Season = year it tipped off in, August boundary."""
     return game_date.dt.year.where(game_date.dt.month >= 8, game_date.dt.year - 1)
-
 
 def elo_expected_score(rating: pd.Series, opponent_rating: pd.Series) -> pd.Series:
     """Elo win probability. Same formula as build_elo_ratings.py, no training."""
     return 1 / (1 + 10 ** ((opponent_rating - rating) / 400))
 
-
 def section(title: str) -> None:
     print(f"\n{'=' * 78}\n{title}\n{'=' * 78}")
-
 
 def load_dataset() -> pd.DataFrame:
     df = pd.read_csv(DATASET_PATH)
     df["GAME_DATE"] = pd.to_datetime(df["GAME_DATE"])
     df["SEASON"] = derive_season(df["GAME_DATE"])
 
-    # Models need numbers, not True/False.
     for col in BOOLEAN_FEATURE_COLUMNS:
         df[col] = df[col].astype(int)
 
@@ -181,7 +124,6 @@ def load_dataset() -> pd.DataFrame:
 
     return df.sort_values(["GAME_DATE", "GAME_ID"]).reset_index(drop=True)
 
-
 def drop_incomplete_windows(df: pd.DataFrame) -> pd.DataFrame:
     before = len(df)
     df = df.dropna(subset=ROLLING_FEATURE_COLUMNS).reset_index(drop=True)
@@ -198,7 +140,6 @@ def drop_incomplete_windows(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"NaN remains in the feature matrix after the drop:\n{residual}")
 
     return df
-
 
 def split_by_season(df: pd.DataFrame) -> tuple:
     seasons = sorted(df["SEASON"].unique())
@@ -224,7 +165,6 @@ def split_by_season(df: pd.DataFrame) -> tuple:
 
     return train, test, test_seasons
 
-
 def scale_features(train: pd.DataFrame, test: pd.DataFrame) -> tuple:
     scaler = StandardScaler()
     x_train = scaler.fit_transform(train[FEATURE_COLUMNS])
@@ -232,26 +172,22 @@ def scale_features(train: pd.DataFrame, test: pd.DataFrame) -> tuple:
     print(f"Standardized {len(FEATURE_COLUMNS)} features (scaler fit on train only).")
     return x_train, x_test
 
-
 def evaluate_moneyline(train, test, x_train, x_test) -> list:
     section("MONEYLINE (target: HOME_WIN)")
     y_train, y_test = train["HOME_WIN"], test["HOME_WIN"]
     results = []
 
-    # Tier 1: home team always wins.
     naive_pred = np.ones(len(y_test), dtype=int)
     naive_acc = accuracy_score(y_test, naive_pred)
     print(f"Naive (always home)  accuracy {naive_acc:.4f}  <- the test set's home-win rate")
     results.append(("Moneyline", "Naive: always home", [("Accuracy", naive_acc)]))
 
-    # Tier 2: what the Elo gap implies, untrained.
     elo_prob = elo_expected_score(test["HOME_TEAM_ELO"], test["AWAY_TEAM_ELO"])
     elo_acc = accuracy_score(y_test, (elo_prob > 0.5).astype(int))
     elo_loss = log_loss(y_test, elo_prob)
     print(f"Elo win probability  accuracy {elo_acc:.4f}  log loss {elo_loss:.4f}")
     results.append(("Moneyline", "Elo win probability", [("Accuracy", elo_acc), ("Log loss", elo_loss)]))
 
-    # Tier 3: simple ML.
     model = LogisticRegression(max_iter=1000)
     model.fit(x_train, y_train)
     proba = model.predict_proba(x_test)[:, 1]
@@ -262,15 +198,10 @@ def evaluate_moneyline(train, test, x_train, x_test) -> list:
 
     return results
 
-
 def naive_prediction(test: pd.DataFrame, stat: str, combine: str) -> pd.Series:
-    """Each team's own ROLL10 average, differenced or summed.
-
-    Varies per matchup instead of being one league-wide constant.
-    """
+    """Each team's own ROLL10 average, differenced or summed."""
     home, away = test[f"HOME_ROLL10_{stat}"], test[f"AWAY_ROLL10_{stat}"]
     return home - away if combine == "diff" else home + away
-
 
 def evaluate_regression_target(
     target: str, label: str, stat: str, combine: str, train, test, x_train, x_test
@@ -296,10 +227,8 @@ def evaluate_regression_target(
 
     return results
 
-
 def format_metric(name: str, value: float) -> str:
     return f"{name} {value:.{METRIC_PRECISION[name]}f}"
-
 
 def print_summary(results: list, test_seasons: list, test_rows: int) -> None:
     section(f"SUMMARY (test set: seasons {test_seasons[0]}-{test_seasons[-1]}, {test_rows} games)")
@@ -310,8 +239,6 @@ def print_summary(results: list, test_seasons: list, test_rows: int) -> None:
         cells += ["-"] * (2 - len(cells))
         rows.append((target, method, cells[0], cells[1]))
 
-    # Second metric column has no header: each cell names its own metric,
-    # which differs between classification and regression.
     headers = ("TARGET", "METHOD", "METRIC", "")
     widths = [max(len(str(r[i])) for r in (*rows, headers)) for i in range(4)]
 
@@ -325,7 +252,6 @@ def print_summary(results: list, test_seasons: list, test_rows: int) -> None:
             print()
         previous_target = row[0]
         print("  ".join(str(cell).ljust(w) for cell, w in zip(row, widths)).rstrip())
-
 
 def main():
     section("DATA PREP")
@@ -344,7 +270,6 @@ def main():
         )
 
     print_summary(results, test_seasons, len(test))
-
 
 if __name__ == "__main__":
     main()

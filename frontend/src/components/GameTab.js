@@ -1,18 +1,6 @@
 import { formatSpread, formatValue, formatWin } from '../predictionFormat';
 import { teamFor } from '../data/teams';
 
-/**
- * The seven team-level markets, GROUPED RATHER THAN LISTED FLAT.
- *
- * Seven numbers in one column is a readout; four groups is a page. The
- * grouping is also the honest one - outcome, totals, rebounds and assists
- * are four different questions, and rebound margin has more in common with
- * rebound total than with win probability.
- *
- * SPREAD SIGNS COME FROM predictionFormat, the same helper the game rows on
- * the previous page use. Reimplementing the flip here is exactly how the
- * list and the detail page would come to disagree about the same game.
- */
 function GameTab({ game, health }) {
   const prediction = game.prediction;
 
@@ -56,13 +44,6 @@ function GameTab({ game, health }) {
         <Metric label="Total assists" value={formatValue(prediction.totalAssists)} />
       </MarketGroup>
 
-      {/*
-        THE FRESHNESS BADGE SURVIVES THE REDESIGN. It has said the same
-        thing since v1: these numbers were computed from data that ends on
-        a date, and if that date is old the prediction is old with it.
-        Stale numbers that look fresh are the failure this whole project
-        keeps designing against.
-      */}
       {prediction.stale ? (
         <p className="market-freshness">
           <span className="stale-badge">STALE</span>
@@ -82,7 +63,6 @@ export function MarketGroup({ title, children }) {
   );
 }
 
-/** One number about the game as a whole. */
 export function Metric({ label, value, tag, note }) {
   return (
     <div className="market-row">
@@ -98,13 +78,6 @@ export function Metric({ label, value, tag, note }) {
   );
 }
 
-/**
- * One market with a value per side.
- *
- * Both sides are shown rather than the home figure alone: the away number
- * is derivable, but making the reader derive it is how a 44.9% gets read as
- * the away team's chance.
- */
 function TeamMetric({ label, homeLabel, awayLabel, homeValue, awayValue, note }) {
   return (
     <div className="market-row">
@@ -124,11 +97,6 @@ function TeamMetric({ label, homeLabel, awayLabel, homeValue, awayValue, note })
   );
 }
 
-/**
- * A game reachable through the list always has a prediction - the list is
- * built from them. This covers the case where one is reachable some other
- * way, and it explains rather than blanking.
- */
 function NoPrediction({ health }) {
   return (
     <div className="predictions-message">

@@ -4,12 +4,7 @@ import java.time.LocalDate;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-/**
- * Body sent to the Python inference service.
- *
- * Field names are snake_case there, so they are mapped explicitly rather
- * than relying on a global naming strategy that would affect every DTO.
- */
+/** Body sent to the Python inference service. */
 public record InferenceRequest(
         @JsonProperty("home_team_id") Long homeTeamId,
         @JsonProperty("away_team_id") Long awayTeamId,

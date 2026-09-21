@@ -1,27 +1,4 @@
-"""
-Small hyperparameter grid, run to test whether tuning moves anything.
-
-Input:  data-pipeline/data/processed/model_dataset.csv
-Output: one tuned MLflow run added to each target's existing experiment.
-
-XGBoost failed to beat a linear model on all seven targets, which suggested
-an information ceiling in the features rather than a modelling one. That
-conclusion decides whether to collect new features or keep tuning, so it
-gets checked rather than assumed.
-
-The grid is 2x2 (max_depth 3/6 x learning_rate 0.05/0.1) across seven
-targets. It is not a full search. It is sized so that if four configs
-spanning shallow-to-deep and slow-to-fast move nothing, a bigger sweep over
-the same features probably won't either.
-
-35 fits, not 28: each target also refits the original config (max_depth=4,
-learning_rate=0.05, not a grid point) so "delta vs original" is measured
-here rather than copied from an earlier run. Linear baselines are refit for
-the same reason.
-
-Configs are selected on validation, never test. Picking by test score would
-guarantee a good-looking number that means nothing.
-"""
+"""Small hyperparameter grid, run to test whether tuning moves anything."""
 
 from dataclasses import dataclass
 from itertools import product
@@ -47,8 +24,6 @@ from train_baseline import (
     section,
 )
 
-# Imported from the training scripts on purpose: this script compares
-# against the configs they actually use.
 from train_moneyline_xgb import EXPERIMENT_NAME as MONEYLINE_EXPERIMENT
 from train_moneyline_xgb import PARAMS as MONEYLINE_PARAMS
 from train_moneyline_xgb import TARGET as MONEYLINE_TARGET
@@ -61,26 +36,20 @@ GRID = {
     "learning_rate": [0.05, 0.1],
 }
 
-
 @dataclass(frozen=True)
 class Task:
     """One prediction target plus how to score and baseline it."""
 
-    key: str          # MLflow experiment name, e.g. "reb_margin"
-    label: str        # display name, e.g. "REB margin"
-    target: str       # y column in model_dataset.csv
+    key: str
+    label: str
+    target: str
     classification: bool
-    stat: str = ""    # ROLL10 stat for the naive baseline (regression only)
-    combine: str = ""  # "diff" or "sum" (regression only)
+    stat: str = ""
+    combine: str = ""
 
     @property
     def primary_metric(self) -> str:
-        """Metric every comparison here uses.
-
-        Log loss for moneyline, not accuracy: accuracy over 2,138 games
-        moves in ~0.05% steps, too coarse for the differences this grid is
-        looking for.
-        """
+        """Metric every comparison here uses."""
         return "log loss" if self.classification else "MAE"
 
     @property
@@ -90,7 +59,6 @@ class Task:
     @property
     def baseline_name(self) -> str:
         return "LogisticRegression" if self.classification else "LinearRegression"
-
 
 TASKS = [
     Task(
@@ -111,17 +79,11 @@ TASKS = [
     for target, label, stat, combine in REGRESSION_TARGETS
 ]
 
-
 def base_params(task: Task) -> dict:
     return MONEYLINE_PARAMS if task.classification else REGRESSION_PARAMS
 
-
 def fit_xgb(task: Task, params: dict, train, validation):
-    """Fit with early stopping against the validation season.
-
-    best_score is the eval_metric given (logloss / rmse); both are
-    lower-is-better, so selection is a plain minimum either way.
-    """
+    """Fit with early stopping against the validation season."""
     estimator = XGBClassifier if task.classification else XGBRegressor
     model = estimator(**params)
     model.fit(
@@ -131,7 +93,6 @@ def fit_xgb(task: Task, params: dict, train, validation):
         verbose=False,
     )
     return model
-
 
 def score_model(task: Task, model, split) -> tuple:
     """Return (primary, secondary) test metrics for this task type."""
@@ -144,13 +105,8 @@ def score_model(task: Task, model, split) -> tuple:
         np.sqrt(mean_squared_error(y, predictions)),
     )
 
-
 def fit_linear_family_baseline(task: Task, train, validation, test) -> tuple:
-    """Refit the linear baseline this target was originally measured against.
-
-    Fit on train+validation (2015-2023), matching train_baseline.py. NaN
-    rows dropped and features scaled because these models require it.
-    """
+    """Refit the linear baseline this target was originally measured against."""
     fit_set = pd.concat([train, validation]).dropna(subset=ROLLING_FEATURE_COLUMNS)
 
     scaler = StandardScaler()
@@ -170,13 +126,8 @@ def fit_linear_family_baseline(task: Task, train, validation, test) -> tuple:
         np.sqrt(mean_squared_error(y_test, predictions)),
     )
 
-
 def naive_scores(task: Task, test) -> tuple:
-    """Untrained baseline. Differs in kind between task types.
-
-    Moneyline's naive tier predicts a hard "home wins", which has no usable
-    log loss, so only accuracy is returned.
-    """
+    """Untrained baseline. Differs in kind between task types."""
     y = test[task.target]
     if task.classification:
         return None, accuracy_score(y, np.ones(len(y), dtype=int))
@@ -187,11 +138,9 @@ def naive_scores(task: Task, test) -> tuple:
         np.sqrt(mean_squared_error(y, predictions)),
     )
 
-
 def relative_change(new: float, reference: float) -> float:
     """Percent change in a lower-is-better metric. Negative = improvement."""
     return (new - reference) / reference * 100
-
 
 def run_grid(task: Task, train, validation):
     """Fit all four configs, best validation score first."""
@@ -211,7 +160,6 @@ def run_grid(task: Task, train, validation):
         )
     return sorted(results, key=lambda r: r["validation_score"])
 
-
 def print_grid(task: Task, grid_results, selected):
     metric = "val logloss" if task.classification else "val RMSE"
     print(f"{'max_depth':>9} {'lr':>6} {'trees':>6} {metric:>12}")
@@ -223,7 +171,6 @@ def print_grid(task: Task, grid_results, selected):
             f"{result['trees']:>6} {result['validation_score']:>12.4f}{marker}"
         )
     print("(selected on validation only - the test set is not consulted here)")
-
 
 def print_detail(task: Task, rows, baseline_primary):
     primary = task.primary_metric.upper()
@@ -243,7 +190,6 @@ def print_detail(task: Task, rows, baseline_primary):
             delta = f"{relative_change(value, baseline_primary):+.1f}%"
         print(f"{name:<{width}} {value_cell:>9} {other_cell:>9} {delta:>21}")
     print("(negative = better; lower is better for both log loss and MAE)")
-
 
 def log_tuned_run(task: Task, selected, train, validation, test_comparable, metrics):
     setup_mlflow(task.key)
@@ -280,12 +226,10 @@ def log_tuned_run(task: Task, selected, train, validation, test_comparable, metr
             input_example=sample,
         )
 
-
 def naive_label(task: Task) -> str:
     if task.classification:
         return "Naive: always home"
     return f"Naive: ROLL10 {task.stat} {task.combine}"
-
 
 def tune_task(task: Task, train, validation, test, test_comparable) -> dict:
     section(f"{task.label.upper()} (target: {task.target})")
@@ -355,7 +299,6 @@ def tune_task(task: Task, train, validation, test, test_comparable) -> dict:
         "beats_baseline": vs_baseline < 0,
     }
 
-
 def print_summary(results):
     section(f"TUNING SUMMARY (bar: >{IMPROVEMENT_THRESHOLD_PCT}% improvement over the original config)")
 
@@ -398,7 +341,6 @@ def print_summary(results):
             "safe as stated.\nA proper search on the affected targets is now worth the time."
         )
 
-
 def main():
     section("DATA PREP")
     df = load_dataset()
@@ -419,7 +361,6 @@ def main():
 
     results = [tune_task(task, train, validation, test, test_comparable) for task in TASKS]
     print_summary(results)
-
 
 if __name__ == "__main__":
     main()

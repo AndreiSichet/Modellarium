@@ -13,20 +13,9 @@ import com.andreisichet.basketball_predictor.service.PlayerPropPredictionService
 import com.andreisichet.basketball_predictor.service.PredictionService;
 import com.andreisichet.basketball_predictor.service.QuarterHalfPredictionService;
 
-/**
- * Three sibling prediction endpoints, mirroring the inference service's own
- * split rather than folding everything into one.
- *
- * The request body is identical for all three, but the responses are not:
- * seven plain numbers, six markets carrying confidence and
- * conditional-probability caveats, and two nested rosters of five
- * predictions each. One endpoint returning a union of those would be mostly
- * nulls whichever way it was called.
- */
 @RestController
 @RequestMapping("/api/predictions")
 public class PredictionController {
-
     private final PredictionService predictionService;
     private final QuarterHalfPredictionService quarterHalfPredictionService;
     private final PlayerPropPredictionService playerPropPredictionService;

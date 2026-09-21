@@ -46,6 +46,17 @@ Two of the markets carry qualifiers that travel all the way to the screen rather
 
 Direct dependencies are pinned in all three `requirements.txt` files.
 
+## Documentation
+
+**[PROJECT_INSIGHTS.md](PROJECT_INSIGHTS.md)** explains the whole system in
+detail and in plain language: how a prediction travels from raw NBA data to
+the screen, the data pipeline, the models and what was measured, the
+continuous-training pipeline, the inference service, the injury sidecar, the
+backend (database, every file, every endpoint), the frontend, how to run and
+test everything, and the problems found along the way.
+
+Start there. This README is the short version.
+
 ## Repository structure
 
 ```
@@ -64,10 +75,11 @@ basketball-predictor/
 │   └── model_evaluation.py     Shared scoring
 ├── inference-service/      FastAPI — /health, /schedule, three /predict routes
 ├── backend/                Spring Boot REST API + PostgreSQL
-│   └── backend_insights.txt    Plain-language guide to the backend
-├── frontend/               React — browse view and a two-tab detail view
+│   └── src/                   Spring Boot application
+├── frontend/               React — four routes, a seven-tab game detail page
 ├── infra/                  Terraform (not started)
 ├── .github/workflows/      ci.yml, continuous-retrain.yml
+├── PROJECT_INSIGHTS.md     How the whole system works, in detail
 └── docker-compose.yml
 ```
 

@@ -1,50 +1,4 @@
-"""
-XGBoost for the six Q1 and first-half targets, against the linear baselines
-just established in train_quarter_half_baseline.py.
-
-  input: data-pipeline/data/processed/model_dataset.csv
-
-NOTHING HERE IS RESTATED. The 30-column feature set and the six target
-definitions come from the baseline script, the season boundaries from
-common.split_three_way, and both parameter dicts from the team-level
-XGBoost scripts they were tuned on. A second copy of any of them is a drift
-bug waiting for someone to edit one and not the other.
-
-TRAINS ON EVERY ROW IT HAS A LABEL FOR, which is the point of using trees
-here. The linear baseline had to drop 1,788 rows (13.5%) whose trailing
-Q1/1H windows were incomplete, because LinearRegression cannot take NaN.
-XGBoost learns a default split direction for missing values, so it keeps
-them - the same deliberate advantage taken at team level (13,199 vs 11,465)
-and for player props (280,943 vs 225,060).
-
-SCORED TWO WAYS for that reason. The comparison table uses only test rows
-the linear model could also score, so naive, linear and XGBoost are judged
-on identical games. XGBoost's number over the full test set is printed
-separately: it is a real capability the others lack, but it is not a
-like-for-like comparison and is never presented as one.
-
-TIES ARE STILL DROPPED FROM THE TWO CLASSIFIERS, and this is the one place
-the policy needed restating rather than inheriting. XGBoost tolerating NaN
-in FEATURES says nothing about NaN in a LABEL: there is no third class for
-a binary objective to predict, and 611 tied first quarters have no true
-answer to score against. So the same rule as the linear baseline applies -
-tied rows out of training, validation and test for HOME_Q1_WIN and
-HOME_HALF1_WIN only, and the four regression targets keep them. Letting
-XGBoost handle ties differently just because it handles missing features
-differently would make the two scripts' numbers incomparable for a reason
-that has nothing to do with the models.
-
-  The three no-data games are dropped from every target for the same
-  reason: a missing label is not a trainable one, whatever the model class.
-
-WATCH THE TREE COUNTS. Early stopping converging much sooner on one target
-than its peers has meant added variance rather than added signal twice in
-this project - the advanced-stats bundle and FG3M. Q1 is the target most
-likely to show it here: twelve minutes is short enough that most of its
-outcome is variance rather than anything a trailing average can anticipate,
-and the linear baseline already put Q1 winner at 0.5796 against 1H's
-0.6343. The counts are printed together at the end for that comparison.
-"""
+"""XGBoost for the six Q1 and first-half targets, against the linear baselines"""
 
 import numpy as np
 import pandas as pd
@@ -65,47 +19,27 @@ from mlflow.models import infer_signature
 from common import setup_mlflow, split_three_way
 from train_baseline import load_dataset, naive_prediction, section
 
-# The 30 local features and the six targets - defined once, in the script
-# that established them. FEATURE_COLUMNS here is that local set, NOT
-# common.py's 38 shipped ones.
 from train_quarter_half_baseline import (
     CLASSIFICATION_TARGETS,
     FEATURE_COLUMNS,
     REGRESSION_TARGETS,
 )
 
-# The exact configs the team-level work settled on, imported so they cannot
-# drift apart. They differ only in objective/eval_metric.
 from train_regression_xgb import PARAMS as REGRESSION_PARAMS, experiment_name
 from train_moneyline_xgb import PARAMS as CLASSIFICATION_PARAMS
 
-# Same bar every regression target in this project has been held to.
 IMPROVEMENT_THRESHOLD_PCT = 3.0
-
 
 def complete_rows(df: pd.DataFrame) -> pd.DataFrame:
     """Rows a linear model could also use - no NaN anywhere in the inputs."""
     return df.dropna(subset=FEATURE_COLUMNS)
 
-
 def labelled(df: pd.DataFrame, target: str) -> pd.DataFrame:
-    """Rows with a real label.
-
-    For the four regression targets this removes only the three games with
-    no quarter data. For the two classifiers it also removes tied periods,
-    which carry NA precisely because no winner exists to predict.
-    """
+    """Rows with a real label."""
     return df.dropna(subset=[target])
 
-
 def fit_linear(train, validation, test_comparable, target, classifier=False):
-    """Reproduce the baseline script's model for this target.
-
-    train + validation is exactly the baseline's training set: its two-way
-    split held out the last two seasons, and this three-way split's train
-    and validation together are the same seasons. Rows are dropped and
-    features scaled because these models require it; XGBoost needs neither.
-    """
+    """Reproduce the baseline script's model for this target."""
     fit_set = labelled(complete_rows(pd.concat([train, validation])), target)
 
     scaler = StandardScaler()
@@ -119,7 +53,6 @@ def fit_linear(train, validation, test_comparable, target, classifier=False):
 
     model = LinearRegression().fit(x_fit, fit_set[target])
     return model.predict(x_test), None
-
 
 def run_regression(target, label, stat, combine, train, validation, test) -> dict:
     section(f"{label.upper()} (target: {target})")
@@ -180,11 +113,9 @@ def run_regression(target, label, stat, combine, train, validation, test) -> dic
             "change": change, "improved": improved, "trees": trees,
             "metric": "MAE"}
 
-
 def run_classification(target, label, period, train, validation, test) -> dict:
     section(f"{label.upper()} (target: {target})")
 
-    # labelled() is where the tie policy takes effect - see the docstring.
     fit_train = labelled(train, target)
     fit_validation = labelled(validation, target)
     test_scored = labelled(test, target)
@@ -219,8 +150,6 @@ def run_classification(target, label, period, train, validation, test) -> dict:
     full_loss = log_loss(
         y_full, model.predict_proba(test_scored[FEATURE_COLUMNS])[:, 1])
 
-    # Log loss is the verdict metric: it scores the probability, not just
-    # which side of 0.5 it fell on. Same reasoning as the moneyline work.
     change = (xgb_loss - linear_loss) / linear_loss * 100
     improved = change < -IMPROVEMENT_THRESHOLD_PCT
 
@@ -253,7 +182,6 @@ def run_classification(target, label, period, train, validation, test) -> dict:
             "change": change, "improved": improved, "trees": trees,
             "metric": "log loss"}
 
-
 def log_run(label, target, model, train, validation, test, params, metrics):
     setup_mlflow(experiment_name(label))
     with mlflow.start_run(run_name=f"xgb-{experiment_name(label)}"):
@@ -275,7 +203,6 @@ def log_run(label, target, model, train, validation, test, params, metrics):
             input_example=sample,
         )
 
-
 def print_verdicts(results):
     section(f"VERDICTS (bar: improvement over the linear model > "
             f"{IMPROVEMENT_THRESHOLD_PCT}%)")
@@ -290,7 +217,6 @@ def print_verdicts(results):
 
     cleared = sum(r["improved"] for r in results)
     print(f"\n{cleared} of {len(results)} targets clear the bar.")
-
 
 def print_tree_diagnostic(results):
     section("TREE COUNTS - is any target converging early?")
@@ -315,7 +241,6 @@ def print_tree_diagnostic(results):
         print("  NOT the target predicted - worth understanding before trusting")
         print("  either this result or the reasoning that expected Q1.")
 
-
 def main():
     section("DATA PREP")
     df = load_dataset()
@@ -335,7 +260,6 @@ def main():
 
     print_verdicts(results)
     print_tree_diagnostic(results)
-
 
 if __name__ == "__main__":
     main()

@@ -1,13 +1,4 @@
-"""
-Add trailing rolling-window features to the canonical games table.
-
-Input:  data-pipeline/data/processed/games_master.csv
-Output: data-pipeline/data/processed/games_with_rolling.csv
-
-Rolling windows are computed per team-season (so they reset at season
-boundaries, not blended across the offseason) and use shift(1) before
-rolling so a game's features only ever reflect games strictly before it.
-"""
+"""Add trailing rolling-window features to the canonical games table."""
 
 from pathlib import Path
 
@@ -20,7 +11,6 @@ OUTPUT_PATH = PROCESSED_DATA_DIR / "games_with_rolling.csv"
 TEAM_KEY = "TEAM_ID"
 WINDOWS = [5, 10]
 
-# source column -> feature name used in ROLL{n}_{name} columns
 METRICS = {
     "WIN": "WIN_PCT",
     "PTS": "PTS",
@@ -31,10 +21,8 @@ METRICS = {
     "TOV": "TOV",
 }
 
-
 def derive_season(game_date: pd.Series) -> pd.Series:
     return game_date.dt.year.where(game_date.dt.month >= 8, game_date.dt.year - 1)
-
 
 def main():
     df = pd.read_csv(INPUT_PATH)
@@ -49,6 +37,8 @@ def main():
     for window in WINDOWS:
         for source_col, feature_name in METRICS.items():
             df[f"ROLL{window}_{feature_name}"] = grouped[source_col].transform(
+                # shift(1) first: without it a game's own result enters
+                # its own features, which is leakage.
                 lambda s, w=window: s.shift(1).rolling(w).mean()
             )
 
@@ -60,7 +50,6 @@ def main():
     print(f"Saved to {OUTPUT_PATH}")
     print("\nPreview:")
     print(df.head())
-
 
 if __name__ == "__main__":
     main()

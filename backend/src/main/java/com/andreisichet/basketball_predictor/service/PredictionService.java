@@ -15,18 +15,9 @@ import com.andreisichet.basketball_predictor.model.Prediction;
 import com.andreisichet.basketball_predictor.model.Team;
 import com.andreisichet.basketball_predictor.repository.PredictionRepository;
 
-/**
- * The seven full-game models.
- *
- * The RestClient, the 4xx/5xx translation and the find-or-create rule used
- * to live here. They moved to InferenceClient and GameLookup when the
- * quarter/half and player-prop services arrived and needed identical
- * behaviour - extracting at two or three call sites rather than waiting for
- * the copies to drift.
- */
+/** The seven full-game models. */
 @Service
 public class PredictionService {
-
     private final GameLookup gameLookup;
     private final PredictionRepository predictionRepository;
     private final InferenceClient inferenceClient;
@@ -40,19 +31,14 @@ public class PredictionService {
         this.inferenceClient = inferenceClient;
     }
 
-    /**
-     * Transactional so a rejected request writes nothing. The inference call
-     * also runs before any insert, so the usual failure never reaches the
-     * database at all and rollback is only a backstop.
-     *
-     * Returns a DTO, not the entity: with open-in-view off, serializing an
-     * entity outside the session fails on its LAZY relations.
-     */
+    /** Transactional so a rejected request writes nothing. */
     @Transactional
     public GameSummaryDto predict(PredictionRequest request) {
         Team homeTeam = gameLookup.requireTeam(request.homeTeamId());
         Team awayTeam = gameLookup.requireTeam(request.awayTeamId());
 
+        // Inference BEFORE any write: a rejected request must not leave an
+        // orphan game row behind.
         InferenceResponse inference = inferenceClient.predict(
                 new InferenceRequest(
                         request.homeTeamId(), request.awayTeamId(), request.gameDate()));

@@ -14,25 +14,9 @@ import com.andreisichet.basketball_predictor.model.QuarterHalfPrediction;
 import com.andreisichet.basketball_predictor.model.Team;
 import com.andreisichet.basketball_predictor.repository.QuarterHalfPredictionRepository;
 
-/**
- * Q1 and first-half markets.
- *
- * A sibling of PredictionService, not an extension of it - the same
- * decision the Python service made for the same reason. The request shape
- * happens to match, but the responses do not: six markets with confidence
- * labels and conditional-probability caveats is a different thing from
- * seven plain numbers, and forcing them into one endpoint would mean a
- * response where half the fields are always null.
- *
- * Reuses GameLookup so all three prediction types share one games table and
- * one find-or-create rule.
- */
+/** Q1 and first-half markets. */
 @Service
 public class QuarterHalfPredictionService {
-
-    // Market names as the Python service emits them. Named constants
-    // because a typo here would surface as "no market named ..." at
-    // runtime rather than as a compile error.
     private static final String Q1_SPREAD = "q1_home_margin";
     private static final String Q1_TOTAL = "q1_total_points";
     private static final String Q1_WINNER = "q1_home_win_probability";
@@ -53,13 +37,6 @@ public class QuarterHalfPredictionService {
         this.inferenceClient = inferenceClient;
     }
 
-    /**
-     * Transactional so a rejected request writes nothing, and the inference
-     * call runs BEFORE any insert so the usual failure never reaches the
-     * database at all. Same ordering as PredictionService, and for the same
-     * reason: the original endpoint once left orphan Game rows behind for
-     * every rejected request.
-     */
     @Transactional
     public QuarterHalfSummaryDto predict(PredictionRequest request) {
         Team homeTeam = gameLookup.requireTeam(request.homeTeamId());

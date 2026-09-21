@@ -1,23 +1,4 @@
-"""
-Retrain the seven production models on the complete dataset.
-
-Input:  data-pipeline/data/processed/model_dataset.csv
-Output: ml-training/models/<target>.json, plus one MLflow run per model
-        under the "production" experiment.
-
-Model selection is finished, so the train/val/test split has done its job.
-Holding 2023-2025 back now would only mean shipping models that ignore
-three seasons of data. These train on everything.
-
-No metrics are logged: there is no holdout left to score against, and a
-number here would be read as validation of the shipped model. The selection
-numbers are in the per-target experiments alongside the runs that produced
-them.
-
-All seven use one config. Tuning beat max_depth=4 / learning_rate=0.05 on
-no target, so seven variants would add maintenance for noise. Tree counts
-still differ per target, since those come from early stopping, not tuning.
-"""
+"""Retrain the seven production models on the complete dataset."""
 
 from pathlib import Path
 
@@ -37,21 +18,6 @@ from train_regression_xgb import experiment_name
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 PRODUCTION_EXPERIMENT = "production"
 
-# Tree counts from early stopping on the 2023 validation season, under
-# max_depth=4 / learning_rate=0.05, in train_moneyline_xgb.py and
-# train_regression_xgb.py.
-#
-# Frozen here rather than read from MLflow at runtime because mlruns/ is
-# gitignored, so a live lookup couldn't rebuild these models from a fresh
-# clone. verify_tree_counts() re-checks them when MLflow is available.
-#
-# THESE ARE FEATURE-SET SPECIFIC. Measured on the 38-feature set (34 plus
-# HOME_/AWAY_ ABSENT_COUNT and WEIGHTED_ABSENT_MIN). The previous 34-feature
-# values were 118/82/133/78/46/63/141 - note how far several moved once
-# availability was added (spread 82 -> 117, ast_margin 63 -> 131). Reusing
-# counts across a feature-set change would silently under- or over-train,
-# so any edit to common.py's FEATURE_COLUMNS means rerunning both training
-# scripts and refreshing this dictionary from their early-stopping results.
 TREE_COUNTS = {
     "moneyline": 131,
     "spread": 117,
@@ -62,36 +28,23 @@ TREE_COUNTS = {
     "ast_total": 132,
 }
 
-# The config those counts were measured under. Any run with a different
-# depth or learning rate is a tuning run, not the original.
 ORIGINAL_MAX_DEPTH = 4
 ORIGINAL_LEARNING_RATE = 0.05
 
-# (experiment key, label, target column, is_classification). Built from
-# REGRESSION_TARGETS so a new target can't be silently skipped here.
 TASKS = [(MONEYLINE_EXPERIMENT, "Moneyline", MONEYLINE_TARGET, True)] + [
     (experiment_name(label), label, target, False)
     for target, label, _stat, _combine in REGRESSION_TARGETS
 ]
 
-
 def final_params(classification: bool, trees: int) -> dict:
-    """Selection config with early stopping replaced by a fixed tree count.
-
-    early_stopping_rounds needs an eval_set, and there is no holdout here.
-    n_estimators becomes the actual number of trees rather than a cap.
-    """
+    """Selection config with early stopping replaced by a fixed tree count."""
     source = MONEYLINE_PARAMS if classification else REGRESSION_PARAMS
     params = {k: v for k, v in source.items() if k != "early_stopping_rounds"}
     params["n_estimators"] = trees
     return params
 
-
 def verify_tree_counts() -> None:
-    """Check the frozen counts against the MLflow runs they came from.
-
-    Advisory only: MLflow isn't required to build the models.
-    """
+    """Check the frozen counts against the MLflow runs they came from."""
     section("TREE COUNT VERIFICATION")
     mlflow.set_tracking_uri(TRACKING_URI)
 
@@ -133,7 +86,6 @@ def verify_tree_counts() -> None:
     elif checked:
         print(f"\nAll {checked} verifiable counts match their recorded runs.")
 
-
 def train_final(label: str, target: str, classification: bool, trees: int, df):
     params = final_params(classification, trees)
     estimator = XGBClassifier if classification else XGBRegressor
@@ -141,7 +93,6 @@ def train_final(label: str, target: str, classification: bool, trees: int, df):
     model = estimator(**params)
     model.fit(df[FEATURE_COLUMNS], df[target], verbose=False)
     return model, params
-
 
 def log_production_run(key, label, target, classification, model, params, path, sample, rows):
     with mlflow.start_run(run_name=key):
@@ -165,7 +116,6 @@ def log_production_run(key, label, target, classification, model, params, path, 
             }
         )
 
-        # No metrics on purpose, see module docstring.
         predictions = model.predict_proba(sample) if classification else model.predict(sample)
         mlflow.xgboost.log_model(
             model,
@@ -174,7 +124,6 @@ def log_production_run(key, label, target, classification, model, params, path, 
             input_example=sample,
         )
         mlflow.log_artifact(str(path))
-
 
 def print_summary(rows, total_games):
     section(f"PRODUCTION MODELS (trained on all {total_games} games)")
@@ -197,7 +146,6 @@ def print_summary(rows, total_games):
     print(f"\n{len(rows)} models written to {MODELS_DIR}")
     print(f"Logged to MLflow experiment '{PRODUCTION_EXPERIMENT}' with stage=final.")
     print("No metrics logged - these models have no holdout set to score against.")
-
 
 def main():
     section("DATA PREP")
@@ -238,7 +186,6 @@ def main():
         )
 
     print_summary(summary, len(df))
-
 
 if __name__ == "__main__":
     main()

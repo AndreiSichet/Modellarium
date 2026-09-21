@@ -1,13 +1,4 @@
-"""
-Add rest-day features to the feature table.
-
-Input:  data-pipeline/data/processed/games_with_rolling.csv
-Output: data-pipeline/data/processed/games_with_features.csv — the main
-        working feature file going forward.
-
-REST_DAYS is computed across the full team history (not season-scoped) so
-it reflects real calendar gaps.
-"""
+"""Add rest-day features to the feature table."""
 
 from pathlib import Path
 
@@ -19,12 +10,7 @@ OUTPUT_PATH = PROCESSED_DATA_DIR / "games_with_features.csv"
 
 TEAM_KEY = "TEAM_ID"
 
-# Offseason gaps between a season's last game and the next season's first
-# (100+ days) are calendar-accurate but not basketball-meaningful — a team
-# isn't more "rested" from 150 days off than from 10. Cap at a week, past
-# which extra rest stops being informative.
 REST_DAYS_CAP = 7
-
 
 def main():
     df = pd.read_csv(INPUT_PATH)
@@ -35,6 +21,7 @@ def main():
     days_since_prev = df.groupby(TEAM_KEY)["GAME_DATE"].diff().dt.days
     df["REST_DAYS"] = days_since_prev.clip(upper=REST_DAYS_CAP)
 
+    # 1, not 0: games on consecutive calendar days are one day apart.
     df["IS_BACK_TO_BACK"] = df["REST_DAYS"] == 1
 
     df.to_csv(OUTPUT_PATH, index=False)
@@ -53,7 +40,6 @@ def main():
         .head(15)
         .to_string(index=False)
     )
-
 
 if __name__ == "__main__":
     main()

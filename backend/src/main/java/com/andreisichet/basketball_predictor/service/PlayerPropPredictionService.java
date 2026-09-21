@@ -18,22 +18,9 @@ import com.andreisichet.basketball_predictor.model.Team;
 import com.andreisichet.basketball_predictor.repository.PlayerPropPredictionRepository;
 import com.andreisichet.basketball_predictor.repository.PlayerRepository;
 
-/**
- * Player prop markets, both sides of a fixture in one call.
- *
- * Both rosters together because that is the real unit of use - a prop board
- * is a game's worth of players, not a team's - and because the two sides
- * share the validation, the freshness block and the Game row.
- *
- * PLAYERS ARE CREATED ON DEMAND. Unlike the fixed 30 teams, which are
- * seeded at startup, the player universe is thousands strong and mostly
- * irrelevant to any one request. A Player row appears the first time a
- * prediction actually returns that player and is reused afterwards, so the
- * table grows to exactly what has been asked for.
- */
+/** Player prop markets, both sides of a fixture in one call. */
 @Service
 public class PlayerPropPredictionService {
-
     private static final String POINTS = "PTS";
     private static final String REBOUNDS = "REB";
     private static final String ASSISTS = "AST";
@@ -56,11 +43,7 @@ public class PlayerPropPredictionService {
         this.inferenceClient = inferenceClient;
     }
 
-    /**
-     * Same discipline as the other two: inference first, writes only after.
-     * A rejected request must leave no Game, no Player and no prediction
-     * rows behind.
-     */
+    /** Same discipline as the other two: inference first, writes only after. */
     @Transactional
     public PlayerPropsResponseDto predict(PredictionRequest request) {
         Team homeTeam = gameLookup.requireTeam(request.homeTeamId());
@@ -89,20 +72,12 @@ public class PlayerPropPredictionService {
                 predictedAt);
     }
 
-    /**
-     * Persist one side's board and shape it for the response.
-     *
-     * availabilityKnown and its note travel to the DTO but are NOT written
-     * to any row: they describe the roster for this request, so storing
-     * them per player would repeat one value across ten rows and let the
-     * copies drift apart.
-     */
+    /** Persist one side's board and shape it for the response. */
     private PlayerPropsResponseDto.TeamBoard persistBoard(
             Game game,
             Team team,
             InferencePlayerPropsResponse.TeamBoard board,
             Instant predictedAt) {
-
         List<PlayerPropsResponseDto.PlayerLine> lines = new ArrayList<>();
         for (InferencePlayerPropsResponse.PlayerLine line : board.players()) {
             Player player = findOrCreatePlayer(line);
@@ -119,11 +94,7 @@ public class PlayerPropPredictionService {
                 lines);
     }
 
-    /**
-     * The Player row for this id, created if this is the first time it has
-     * been seen. The name is taken from the inference payload, which reads
-     * it from the same box-score history the models were trained on.
-     */
+    /** The Player row for this id, created if this is the first time it has been seen. */
     private Player findOrCreatePlayer(InferencePlayerPropsResponse.PlayerLine line) {
         return playerRepository.findById(line.playerId())
                 .orElseGet(() -> {
@@ -140,7 +111,6 @@ public class PlayerPropPredictionService {
             Team team,
             InferencePlayerPropsResponse.PlayerLine line,
             Instant predictedAt) {
-
         PlayerPropPrediction prediction = new PlayerPropPrediction();
         prediction.setGame(game);
         prediction.setPlayer(player);

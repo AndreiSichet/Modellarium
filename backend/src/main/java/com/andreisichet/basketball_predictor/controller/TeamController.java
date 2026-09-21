@@ -9,14 +9,10 @@ import org.springframework.web.bind.annotation.RestController;
 import com.andreisichet.basketball_predictor.dto.TeamDto;
 import com.andreisichet.basketball_predictor.repository.TeamRepository;
 
-/**
- * Calls the repository directly. There is no business logic to put in a
- * service, and Team has no lazy relations, so nothing needs a transaction.
- */
+/** Calls the repository directly. */
 @RestController
 @RequestMapping("/api/teams")
 public class TeamController {
-
     private final TeamRepository teamRepository;
 
     public TeamController(TeamRepository teamRepository) {

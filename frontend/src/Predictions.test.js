@@ -8,19 +8,8 @@ import { sportSlugFromPath } from './components/PredictionsLayout';
 
 jest.mock('./api');
 
-/**
- * Phase 5: two columns, three routes.
- *
- * WHAT THESE TESTS CAN AND CANNOT SEE, stated up front because the boundary
- * decides what is worth writing. jsdom has no layout engine, so
- * `position: sticky`, scroll offsets and "is this section in view" are
- * invisible to it - a layout bug cannot fail a test here, only in a
- * browser. What is covered is routing, scope, the cap and its sort, the
- * request count, and the scroll-spy MECHANISM through a stubbed observer.
- */
 const HEALTH = { dataAsOf: '2026-04-12', daysBehind: 161, stale: true };
 
-/** data_as_of + MAX_DAYS_AHEAD: the only date the service will score. */
 const TODAY = '2026-04-13';
 const YESTERDAY = '2026-04-12';
 
@@ -77,14 +66,7 @@ beforeEach(() => {
   createPrediction.mockResolvedValue(SUMMARY);
 });
 
-/* ---------------------------------------------------------------- pure */
-
 describe('sportSlugFromPath', () => {
-  /**
-   * The layout cannot use useParams for this: in react-router a layout
-   * route sees the params matched by its OWN path and its ancestors',
-   * never its children's. `:sport` belongs to the child.
-   */
   test('reads the sport segment, and null when there is none', () => {
     expect(sportSlugFromPath('/predictions')).toBeNull();
     expect(sportSlugFromPath('/predictions/')).toBeNull();
@@ -94,11 +76,6 @@ describe('sportSlugFromPath', () => {
   });
 });
 
-/**
- * THE CAP WITHOUT THE SORT IS THE BUG THIS EXISTS FOR. Five arbitrary games
- * labelled upcoming looks exactly like five correct ones, on any set that
- * happens to arrive already in order.
- */
 describe('soonestGames', () => {
   const dated = (gameDate, key) => ({ gameDate, key });
 
@@ -123,11 +100,6 @@ describe('soonestGames', () => {
     expect(soonestGames([dated('2026-04-12', 'x')])).toHaveLength(1);
   });
 
-  /**
-   * sort() mutates. The array is the layout's own state, shared by all
-   * three routes - sorting it in place would reorder another page as a side
-   * effect of rendering this one.
-   */
   test('byDate does not reorder the caller array', () => {
     const games = [dated('2026-04-13', 'c'), dated('2026-04-11', 'a')];
     byDate(games);
@@ -135,22 +107,13 @@ describe('soonestGames', () => {
   });
 });
 
-/* -------------------------------------------------------------- routes */
-
 describe('routing', () => {
-  /**
-   * THE CHANGE THIS PHASE TURNS ON. Phase 2 sent /predictions to
-   * /predictions/basketball; General is a real destination now, so the URL
-   * must stay put. Asserted on the rendered page AND on the location, since
-   * a redirect that happened to land somewhere similar would pass the first
-   * check alone.
-   */
   test('/predictions renders General and does not redirect', async () => {
     getSchedule.mockResolvedValue([fixture(0, TODAY)]);
     renderAt('/predictions');
 
     expect(await screen.findByRole('heading', { name: 'General', level: 1 })).toBeInTheDocument();
-    // The rail shows no sport active: General is not one.
+
     expect(screen.getByRole('link', { name: /Basketball/ })).not.toHaveClass('active');
   });
 
@@ -163,12 +126,6 @@ describe('routing', () => {
     expect(screen.getByText(/Basketball games for 2026-04-13/)).toBeInTheDocument();
   });
 
-  /**
-   * GENERAL AND UPCOMING ARE ONE COMPONENT. Two pages that merely look
-   * alike would pass every other test in this file and drift on the first
-   * edit, so this asserts the structure rather than the appearance: the
-   * same subsection ids, the same shortcut bar, the same More link.
-   */
   test('General and Upcoming render the same structure, differing only in scope', async () => {
     getSchedule.mockResolvedValue([fixture(0, TODAY), fixture(1, TODAY)]);
 
@@ -209,11 +166,6 @@ describe('routing', () => {
     expect(screen.getByRole('navigation', { name: 'Sports' })).toBeInTheDocument();
   });
 
-  /**
-   * `nba` is a real league and `tennis` is not a real sport, so the pair is
-   * not a real page. Checking only the league slug would render a
-   * basketball league under a tennis breadcrumb.
-   */
   test('a real league under the wrong sport is not found', async () => {
     renderAt('/predictions/tennis/nba');
 
@@ -228,10 +180,7 @@ describe('routing', () => {
   });
 });
 
-/* --------------------------------------------------------------- scope */
-
 describe('today, the cap, and the league page', () => {
-  /** Six today, three earlier - the spread the dev fixtures mirror. */
   const SPREAD = [
     fixture(0, TODAY),
     fixture(1, YESTERDAY),
@@ -244,12 +193,6 @@ describe('today, the cap, and the league page', () => {
     fixture(8, TODAY),
   ];
 
-  /**
-   * "TODAY" IS THE PREDICTABLE DATE, NOT new Date(). MAX_DAYS_AHEAD is 1,
-   * so the only scoreable date is data_as_of + 1. A literal today would
-   * render an empty page over a stale dataset while predictions for a real
-   * date sat one route away.
-   */
   test('General shows today only, capped at five', async () => {
     getSchedule.mockResolvedValue(SPREAD);
     const { container } = renderAt('/predictions');
@@ -268,7 +211,7 @@ describe('today, the cap, and the league page', () => {
     await screen.findByRole('heading', { name: 'NBA Predictions', level: 1 });
 
     const dates = Array.from(container.querySelectorAll('.game-row-when'), (n) => n.textContent);
-    // All nine, where General showed five - and in date order.
+
     expect(dates).toHaveLength(9);
     expect(dates).toEqual([...dates].sort());
     expect(container.querySelector('.league-shortcuts')).toBeNull();
@@ -287,15 +230,10 @@ describe('today, the cap, and the league page', () => {
       'href',
       '/predictions/basketball'
     );
-    // The last crumb is where the reader is, so it is not a link.
+
     expect(within(crumbs).queryByRole('link', { name: 'NBA' })).toBeNull();
   });
 
-  /**
-   * A ROUTE CHANGE, NOT A TAB SWITCH. Phase 4's version was a button that
-   * lifted tab state; the league is a real page now, so it is a link and
-   * the URL moves.
-   */
   test('More NBA links to the league page', async () => {
     getSchedule.mockResolvedValue([fixture(0, TODAY)]);
     renderAt('/predictions');
@@ -307,12 +245,6 @@ describe('today, the cap, and the league page', () => {
     expect(await screen.findByRole('heading', { name: 'NBA Predictions', level: 1 })).toBeInTheDocument();
   });
 
-  /**
-   * THE CHECK THAT CATCHES A SECOND FETCH. The layout is matched by all
-   * three routes, so navigating between them must not remount it. Each
-   * remount would be a fresh schedule call and a fresh POST per game - and
-   * POST /api/predictions is append-only, so those are rows, not requests.
-   */
   test('navigating between routes does not refetch', async () => {
     getSchedule.mockResolvedValue([fixture(0, TODAY), fixture(1, TODAY)]);
     renderAt('/predictions');
@@ -325,8 +257,6 @@ describe('today, the cap, and the league page', () => {
     fireEvent.click(screen.getByRole('link', { name: 'More NBA' }));
     await screen.findByRole('heading', { name: 'NBA Predictions', level: 1 });
 
-    // Scoped to the breadcrumb: the header nav has a "Predictions" link
-    // too, and an unscoped query matches both.
     const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
     fireEvent.click(within(crumbs).getByRole('link', { name: 'Predictions' }));
     await screen.findByRole('heading', { name: 'General', level: 1 });
@@ -337,8 +267,6 @@ describe('today, the cap, and the league page', () => {
   });
 });
 
-/* --------------------------------------------------------- data states */
-
 describe('data states', () => {
   test('empty: succeeded with nothing predictable, and the real dataAsOf is shown', async () => {
     getSchedule.mockResolvedValue([]);
@@ -348,11 +276,6 @@ describe('data states', () => {
     expect(screen.getByText(/Model data is current to 2026-04-12/)).toBeInTheDocument();
   });
 
-  /**
-   * "Empty" means no PREDICTABLE games, not no games. The schedule returns
-   * fixtures months out that MAX_DAYS_AHEAD refuses, and counting raw
-   * fixtures would list games nothing can score.
-   */
   test('empty: fixtures exist but none are within the cutoff', async () => {
     getSchedule.mockResolvedValue([fixture(0, '2026-10-20')]);
     renderAt('/predictions/basketball');
@@ -361,11 +284,6 @@ describe('data states', () => {
     expect(createPrediction).not.toHaveBeenCalled();
   });
 
-  /**
-   * THE DISTINCTION MOST LIKELY TO BE WRONG. A failed request falling
-   * through to the empty state would report "there are no games" when the
-   * truth is "the service did not answer" - reassuring, and false.
-   */
   test('error: a failed request is not shown as an empty schedule', async () => {
     getSchedule.mockRejectedValue(new Error('Failed to fetch'));
     renderAt('/predictions');
@@ -388,15 +306,6 @@ describe('data states', () => {
   });
 });
 
-/* ---------------------------------------------------------- scroll-spy */
-
-/**
- * jsdom implements no IntersectionObserver, so the component guards its
- * construction and falls back to the first section. This block installs a
- * stub that captures the callback, which exercises the MECHANISM without
- * any geometry. Whether the rootMargin picks the right section in a real
- * viewport is a browser check, not this one.
- */
 describe('scroll-spy', () => {
   let callback;
   let observed;
@@ -419,13 +328,6 @@ describe('scroll-spy', () => {
     delete global.IntersectionObserver;
   });
 
-  /**
-   * WHAT ONE LEAGUE CAN HONESTLY SUPPORT, and no more. With a single
-   * section the active chip is ids[0] whatever the observer reports, so
-   * "topmost in view wins" cannot be made to fail here - an assertion that
-   * cannot fail is worse than none. That property was verified instead
-   * against temporary extra leagues, and the numbers are in the report.
-   */
   test('observes every section and marks the first shortcut', async () => {
     getSchedule.mockResolvedValue([fixture(0, TODAY)]);
     const { container } = renderAt('/predictions');
@@ -439,9 +341,6 @@ describe('scroll-spy', () => {
     expect(chip).toHaveClass('league-shortcut--active');
     expect(chip).toHaveAttribute('aria-current', 'location');
 
-    // Runs on a real entry shape without throwing. act(), because it writes
-    // state: a bare callback() schedules without flushing, and an assertion
-    // after it would read the previous render.
     act(() => callback([{ target: observed[0], isIntersecting: true }]));
     expect(screen.getByRole('button', { name: 'NBA' })).toHaveClass('league-shortcut--active');
   });
@@ -452,8 +351,6 @@ describe('scroll-spy', () => {
 
     await screen.findByRole('heading', { name: 'General', level: 1 });
 
-    // jsdom has no scrollIntoView, so there is nothing to spy on until one
-    // is attached - which is exactly why the component optional-calls it.
     const section = container.querySelector('.league-section');
     section.scrollIntoView = jest.fn();
 
@@ -466,11 +363,6 @@ describe('scroll-spy', () => {
   });
 });
 
-/**
- * THE GUARD, TESTED BY ITS ABSENCE. Every test above this block already
- * runs without an IntersectionObserver; this asserts what they silently
- * depend on - the bar renders, a chip is marked, and nothing throws.
- */
 test('no IntersectionObserver: the shortcut bar still renders and marks a chip', async () => {
   expect(global.IntersectionObserver).toBeUndefined();
 
@@ -480,8 +372,6 @@ test('no IntersectionObserver: the shortcut bar still renders and marks a chip',
   await screen.findByRole('heading', { name: 'General', level: 1 });
   expect(screen.getByRole('button', { name: 'NBA' })).toHaveClass('league-shortcut--active');
 });
-
-/* ------------------------------------------------------- waitFor guard */
 
 test('the rail still lists only sports that exist', async () => {
   renderAt('/predictions');

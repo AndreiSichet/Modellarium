@@ -1,8 +1,3 @@
-/**
- * The dev-fixture path is only taken with REACT_APP_DEV_FIXTURES=1, which
- * no test sets - so a typo in these shapes would surface only in the
- * browser. This asserts they match what the components actually read.
- */
 import { devPlayerPropsFor, devPredictionFor, devQuarterHalfFor, DEV_HEALTH, DEV_SCHEDULE } from './data/devFixtures';
 import { PLAYER_STATS } from './components/DetailTabs';
 
@@ -25,11 +20,10 @@ test('dev fixtures match the fields the components read', () => {
       for (const stat of PLAYER_STATS) expect(typeof p[stat.field]).toBe('number');
     }
   }
-  // Both halves of the hybrid appear, or the model tag reads as a constant.
+
   const models = new Set(props.homeTeam.players.concat(props.awayTeam.players).map((p) => p.modelUsed));
   expect(models).toEqual(new Set(['linear','xgb']));
 
-  // The schedule and the health payload agree about what is predictable.
   const summary = devPredictionFor(DEV_SCHEDULE[0], 0);
   expect(summary.latestPrediction.dataAsOf).toBe(DEV_HEALTH.dataAsOf);
   expect(typeof summary.id).toBe('number');

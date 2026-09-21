@@ -1,15 +1,4 @@
-"""
-Add team Elo ratings to the feature table.
-
-Input:  data-pipeline/data/processed/games_with_features.csv
-Output: data-pipeline/data/processed/games_final.csv — the model-ready table.
-
-Elo is shared, sequential state (each game updates both teams' ratings),
-unlike the per-team rolling/rest features built so far. Games are
-processed in true league-wide chronological order with a plain loop —
-slower than a vectorized pandas op, but the update logic is inherently
-sequential and correctness matters more than speed here.
-"""
+"""Add team Elo ratings to the feature table."""
 
 from pathlib import Path
 
@@ -24,15 +13,10 @@ TEAM_KEY = "TEAM_ID"
 BASELINE_RATING = 1500.0
 K_FACTOR = 20
 
-# Roster turnover over the offseason means a team's rating shouldn't carry
-# over fully intact. Move each team 1/3 of the way back toward baseline at
-# the start of a new season.
 SEASON_REGRESSION_FRACTION = 1 / 3
-
 
 def expected_score(rating: float, opponent_rating: float) -> float:
     return 1 / (1 + 10 ** ((opponent_rating - rating) / 400))
-
 
 def compute_elo(df: pd.DataFrame) -> pd.DataFrame:
     ratings = {}
@@ -75,7 +59,6 @@ def compute_elo(df: pd.DataFrame) -> pd.DataFrame:
     df["OPPONENT_ELO"] = opponent_elo
     return df, ratings
 
-
 def main():
     df = pd.read_csv(INPUT_PATH)
     df["GAME_DATE"] = pd.to_datetime(df["GAME_DATE"])
@@ -103,7 +86,6 @@ def main():
         .head(15)
         .to_string(index=False)
     )
-
 
 if __name__ == "__main__":
     main()

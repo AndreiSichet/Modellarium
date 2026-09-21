@@ -18,36 +18,9 @@ import com.andreisichet.basketball_predictor.dto.InferenceRequest;
 import com.andreisichet.basketball_predictor.dto.InferenceResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceScheduledGame;
 
-/**
- * The one place that talks to the Python inference service.
- *
- * That sentence is now literally true, and it was not until this class
- * absorbed getHealth(). It arrived with three of the five calls, took
- * fetchSchedule when the schedule caching landed, and left /health behind
- * in ScheduleService with a second RestClient - so the class documented
- * itself as the single point of contact while a second one quietly existed
- * beside it. A comment that overstates is worse than no comment, because
- * the next person trusts it instead of checking.
- *
- * There is now exactly ONE RestClient instance in the backend, built once
- * against the configured base URL and shared by all five calls.
- *
- * THE STATUS MAPPING IS THE POINT, and it is deliberately not symmetric:
- *
- *   4xx from the service  -> 400 here. It rejected the input (unknown team,
- *                            date too far ahead, history too short). The
- *                            caller sent something wrong, so this must not
- *                            become a 500.
- *   5xx from the service  -> 502. It was reachable and broke on its own.
- *   unreachable           -> 503. The request was fine; we were not.
- *
- * The service's own message is always forwarded. spring.web.error
- * .include-message=always is what lets the frontend read it, so discarding
- * it here would make that setting pointless.
- */
+/** The one place that talks to the Python inference service. */
 @Component
 public class InferenceClient {
-
     private static final ParameterizedTypeReference<List<InferenceScheduledGame>> SCHEDULE_TYPE =
             new ParameterizedTypeReference<>() {
             };
@@ -75,14 +48,7 @@ public class InferenceClient {
         return post("/predict/player-props", body, InferencePlayerPropsResponse.class);
     }
 
-    /**
-     * Upcoming regular-season fixtures, straight from nba_api.
-     *
-     * Read on a timer by ScheduleSyncService, not per request. A 5xx here
-     * usually means the NBA API failed rather than the inference service,
-     * which is why it maps to 502 like the others: reachable, but broken on
-     * its own.
-     */
+    /** Upcoming regular-season fixtures, straight from nba_api. */
     public List<InferenceScheduledGame> fetchSchedule(int daysAhead) {
         try {
             List<InferenceScheduledGame> fixtures = client.get()
@@ -99,22 +65,7 @@ public class InferenceClient {
         }
     }
 
-    /**
-     * How fresh the underlying pipeline data is.
-     *
-     * Called live on every browse request and never cached: data_as_of
-     * tracks the pipeline's own data, so a cached copy would have the
-     * client deciding which fixtures are predictable from an out-of-date
-     * cutoff - wrong at exactly the moment it matters most, the first
-     * request after a pipeline rerun.
-     *
-     * NOTE, because this is a real behaviour change: while this lived in
-     * ScheduleService it caught RestClientException only, so a 500 from the
-     * inference service surfaced as 503 "unreachable". It now follows the
-     * same mapping as every other call, and a 5xx becomes 502. That is the
-     * more accurate answer - reachable but broken is not the same as
-     * absent - and it makes all five calls behave identically.
-     */
+    /** How fresh the underlying pipeline data is. */
     public InferenceHealth getHealth() {
         try {
             return client.get()
@@ -142,13 +93,7 @@ public class InferenceClient {
         }
     }
 
-    /**
-     * The service answered, but with a failure. 4xx stays 4xx so a caller
-     * error is not reported as ours; anything else is 502.
-     *
-     * Extracted at the point there would otherwise have been three
-     * identical copies - the same reason this class exists at all.
-     */
+    /** The service answered, but with a failure. */
     private ResponseStatusException rejected(String context, RestClientResponseException error) {
         HttpStatus status = error.getStatusCode().is4xxClientError()
                 ? HttpStatus.BAD_REQUEST
@@ -157,7 +102,7 @@ public class InferenceClient {
                 status, context + ": " + error.getResponseBodyAsString());
     }
 
-    /** Nothing answered at all. The request was fine; the dependency is not. */
+    /** Nothing answered at all. */
     private ResponseStatusException unreachable(RestClientException error) {
         return new ResponseStatusException(
                 HttpStatus.SERVICE_UNAVAILABLE,

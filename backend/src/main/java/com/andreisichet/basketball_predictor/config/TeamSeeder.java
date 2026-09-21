@@ -10,28 +10,9 @@ import org.springframework.stereotype.Component;
 import com.andreisichet.basketball_predictor.model.Team;
 import com.andreisichet.basketball_predictor.repository.TeamRepository;
 
-/**
- * Fills the team table on a database that has none.
- *
- * This is a permanent part of startup, not a one-off script: under
- * docker-compose a fresh postgres_data volume comes up empty, and without
- * these rows /api/teams returns nothing and every prediction fails with
- * "unknown team id". It has to work on every cold start, not just the first
- * one anybody happened to run by hand.
- *
- * The 30 rows are hardcoded rather than read from the pipeline CSVs. They
- * are static, tiny, and the CSVs are gitignored and deliberately absent from
- * the backend image - reading them would couple this container to data it
- * has no other reason to carry. Verified identical to the distinct
- * TEAM_ID/TEAM_NAME/TEAM_ABBREVIATION triples in data-pipeline/data/raw/.
- *
- * Uses TeamRepository rather than a data.sql script so the column names come
- * from the Team entity and cannot drift out of sync with it, and so no
- * separate defer-datasource-initialization flag has to be remembered.
- */
+/** Fills the team table on a database that has none. */
 @Component
 public class TeamSeeder implements CommandLineRunner {
-
     private static final Logger log = LoggerFactory.getLogger(TeamSeeder.class);
 
     private final TeamRepository teamRepository;
@@ -42,8 +23,6 @@ public class TeamSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        // Guard on count, not on a "has run" marker: the question is whether
-        // the table is populated, which is also true after a normal restart.
         long existing = teamRepository.count();
         if (existing > 0) {
             log.debug("Team table already has {} rows; skipping seed.", existing);

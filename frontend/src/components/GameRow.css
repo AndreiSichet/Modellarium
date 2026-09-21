@@ -4,10 +4,6 @@
   list-style: none;
 }
 
-/*
- * Four tracks, three rows: a heading strip, then home, then away. The total
- * occupies the fourth column across the two team rows via grid-row: span 2.
- */
 .game-row-grid {
   display: grid;
   grid-template-columns: 1fr 72px 72px 72px;
@@ -39,8 +35,7 @@
   font-family: var(--font-display);
   font-size: var(--text-small);
   color: var(--ink);
-  /* A long name (Portland Trail Blazers, Minnesota Timberwolves) must
-     truncate rather than widen the track and push the page sideways. */
+
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -51,7 +46,7 @@
   font-size: var(--text-small);
   color: var(--ink);
   text-align: center;
-  /* Digits line up between the home and away lines. */
+
   font-variant-numeric: tabular-nums;
 }
 
@@ -87,9 +82,7 @@
   font-weight: 500;
   color: var(--ink);
   text-decoration: none;
-  /* Same reasoning as the retry button: this border is what makes the
-     link read as a control, so it is judged at 3:1 rather than as a
-     decorative hairline. */
+
   border: 1px solid var(--ink-muted);
   padding: var(--space-1) var(--space-3);
 }
@@ -103,14 +96,6 @@
   outline-offset: 2px;
 }
 
-/*
- * Below 1024 the columns COMPRESS BY DROPPING, not by shrinking. Squeezing
- * three numeric columns into a narrow screen makes all three illegible;
- * dropping the least essential keeps the rest readable.
- *
- * Total goes first — it is the one number not about either team. Below 640
- * only the win percentage survives, which is the headline figure.
- */
 @media (max-width: 1023px) {
   .game-row-grid {
     grid-template-columns: 1fr 72px 72px;
@@ -127,8 +112,6 @@
     grid-template-columns: 1fr 72px;
   }
 
-  /* The spread column: its heading is the second .game-row-heading, and
-     the cells are the first .game-row-cell of each team line. */
   .game-row-heading:nth-child(2),
   .game-row-team + .game-row-cell {
     display: none;

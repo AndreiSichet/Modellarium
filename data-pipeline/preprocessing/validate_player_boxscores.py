@@ -1,26 +1,4 @@
-"""
-Read-only quality gate for the player box scores in
-data-pipeline/data/raw/player_boxscores/.
-
-Structural checks (shape, ids, duplicates, participation consistency) plus
-one cross-validation that is worth more than all of them together: each
-team's players' PTS summed from the box score must equal that team's actual
-final PTS in games_final.csv. That compares a brand-new data domain against
-an independent source already trusted and used in production for months.
-A team's individual scoring has no legitimate way to sum to anything other
-than its real final score, so any mismatch is a genuine defect - reported
-by GAME_ID, team and margin, never averaged away.
-
-Does not modify or write anything.
-
-Every read is dtype=str with keep_default_na=False, for two reasons: it
-keeps zero-padded GAME_IDs intact, and it preserves the distinction between
-an empty MIN ("") and a genuinely absent value. A default read turns both
-into NaN and would quietly hide the participation check this file exists
-to perform.
-
-Run:  python data-pipeline/preprocessing/validate_player_boxscores.py
-"""
+"""Read-only quality gate for the player box scores in"""
 
 import sys
 from collections import Counter
@@ -28,8 +6,6 @@ from pathlib import Path
 
 import pandas as pd
 
-# Import the schema and the participation rule rather than restating them,
-# so this cannot drift from the script that writes the files.
 INGESTION_DIR = Path(__file__).resolve().parents[1] / "ingestion"
 sys.path.insert(0, str(INGESTION_DIR))
 from fetch_player_boxscores import (  # noqa: E402
@@ -44,20 +20,16 @@ EXPECTED_TEAMS_PER_GAME = 2
 MIN_PLAUSIBLE_ROWS = 15
 MAX_PLAUSIBLE_ROWS = 40
 
-# Counting stats that must be present exactly when the player appeared.
 COUNTING_STATS = ["PTS", "REB", "AST", "FGA", "MIN"]
 
 EXAMPLES_TO_PRINT = 5
 
-
 def read_lossless(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, dtype=str, keep_default_na=False)
-
 
 def load_expected_game_ids() -> set:
     games = pd.read_csv(GAMES_FINAL_PATH, usecols=["GAME_ID"])
     return {str(gid).zfill(10) for gid in games["GAME_ID"].unique()}
-
 
 def load_team_points() -> dict:
     """(game_id, team_id) -> final PTS, from the already-trusted table."""
@@ -67,12 +39,10 @@ def load_team_points() -> dict:
         for row in games.itertuples()
     }
 
-
 def check_structure(game_id: str, frame: pd.DataFrame, issues: dict):
     """Per-file structural invariants."""
     if list(frame.columns) != TARGET_COLUMNS:
         issues["bad_columns"].append(game_id)
-        # Everything below indexes by column name; bail out for this file.
         return False
 
     if not (frame["GAME_ID"] == game_id).all():
@@ -89,13 +59,8 @@ def check_structure(game_id: str, frame: pd.DataFrame, issues: dict):
 
     return True
 
-
 def check_participation(game_id: str, frame: pd.DataFrame, issues: dict):
-    """MIN and the counting stats must agree about whether a player played.
-
-    A row with minutes but no points column, or no minutes but a populated
-    stat line, would mean the empty-string handling missed something.
-    """
+    """MIN and the counting stats must agree about whether a player played."""
     played = has_played(frame["MIN"])
 
     for stat in COUNTING_STATS:
@@ -106,7 +71,6 @@ def check_participation(game_id: str, frame: pd.DataFrame, issues: dict):
                 f"{game_id} ({stat}, {len(mismatched)} row(s))"
             )
             break
-
 
 def check_points_against_games_final(
     game_id: str, frame: pd.DataFrame, team_points: dict, issues: dict
@@ -126,7 +90,6 @@ def check_points_against_games_final(
                 f"{game_id} team {team_id}: box score {team_total:.0f} "
                 f"vs games_final {expected:.0f} (diff {team_total - expected:+.0f})"
             )
-
 
 def main():
     if not OUTPUT_DIR.exists():
@@ -232,7 +195,6 @@ def main():
     print("PASS" if total_failures == 0 else f"FAIL - {total_failures:,} issue(s)")
     print("=" * 68)
     return 0 if total_failures == 0 else 1
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

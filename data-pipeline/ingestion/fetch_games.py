@@ -1,9 +1,4 @@
-"""
-Pull raw game data from nba_api's LeagueGameFinder, one season at a time,
-and save each season to its own untouched CSV in data-pipeline/data/raw/.
-
-No cleaning/filtering/transforming here — that belongs in a later script.
-"""
+"""Pull raw game data from nba_api's LeagueGameFinder, one season at a time,"""
 
 import time
 from pathlib import Path
@@ -18,16 +13,13 @@ SEASONS = [
 DELAY_SECONDS = 1
 RAW_DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "raw"
 
-
 def fetch_season(season: str):
-    # Regular season only: playoff/preseason/All-Star games behave
-    # differently (rest patterns, elimination pressure, exhibition rosters)
-    # and would just add noise to a regular-season prediction model.
     finder = leaguegamefinder.LeagueGameFinder(
+        # Without season_type_nullable the pull mixes in preseason,
+        # playoff, All-Star and NBA Cup games.
         season_nullable=season, season_type_nullable="Regular Season"
     )
     return finder.get_data_frames()[0]
-
 
 def main():
     RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -57,7 +49,6 @@ def main():
     print(f"\nDone. {successes}/{len(SEASONS)} seasons saved.")
     if failures:
         print(f"Failed seasons: {', '.join(failures)}")
-
 
 if __name__ == "__main__":
     main()

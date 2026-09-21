@@ -1,62 +1,4 @@
-"""
-Retrain the six Q1 / first-half models on the complete dataset and ship them.
-
-  input:  data-pipeline/data/processed/model_dataset.csv
-  output: ml-training/models_quarter_half/<key>.joblib
-          ml-training/models_quarter_half/manifest.json
-          one MLflow run per model under "production_quarter_half"
-
-Same shape as finalize_models.py - selection is over, so the holdout has
-done its job and holding seasons back now would only ship models that ignore
-them. No metrics are logged: there is nothing left to score against, and a
-number here would be misread as validation of the shipped model.
-
-THESE ARE LINEAR MODELS, NOT XGBOOST, and that is the finding rather than a
-shortcut. train_quarter_half_xgb.py trained trees on 1,266 more rows per
-target and lost on all six, by +0.2% to +0.9%. When a more expressive model
-class with strictly more data cannot match a linear one, shipping the linear
-one is what the evidence says. Three practical consequences follow, and each
-changes something about this script:
-
-  1. A SCALER IS PART OF THE MODEL. XGBoost needed none; these are
-     meaningless without one. So each artifact is a Pipeline holding the
-     fitted StandardScaler and the estimator together. Saving them as two
-     files would let them drift apart, which is the same class of mistake as
-     restating a constant instead of importing it.
-
-  2. THEY CANNOT TAKE NaN. XGBoost trains on all 13,199 games; these train
-     on the 11,411 with complete rolling windows. At serving time a fixture
-     whose trailing Q1/1H window is incomplete - early in a season - CANNOT
-     BE SCORED AT ALL, rather than scored worse. The caller has to handle
-     that, the same way MAX_DAYS_AHEAD is handled: refuse and say why.
-
-  3. THE TWO WINNER MODELS ARE CONDITIONAL ON A DECIDED PERIOD. They are
-     trained only on games where the period had a winner, because 611 tied
-     first quarters have no binary label. So a predicted probability means
-     "P(home leads | the period is not tied)". A sportsbook pushes a tied
-     period, so this matches the real market - but it is not the same
-     quantity as the full-game moneyline, and must not be displayed as if
-     it were.
-
-WRITTEN TO models_quarter_half/, DELIBERATELY NOT models/. The inference
-service globs models/*.json and refuses to boot unless the stems match its
-seven-entry MODEL_REGISTRY exactly. Adding files there would break the
-running app on startup - the guard doing its job, at the worst moment. A
-separate directory keeps the shipped contract untouched until the serving
-work deliberately extends it.
-
-Q1_WINNER SHIPS, LABELLED WEAK RATHER THAN OMITTED. At 0.5796 accuracy
-against a 0.5184 naive it is the weakest of the six, and close enough to a
-coin flip that presenting it beside 1H winner's 0.6343 without qualification
-would misrepresent it. It is still genuinely better than chance: a constant
-base-rate predictor scores 0.6925 log loss and this scores 0.6670, a 3.7%
-gain. So it is shipped with confidence="low" in the manifest - a field the
-API and frontend can read, not a comment they cannot. Same principle as the
-stale badge and the disabled-with-reason schedule cards: visible and
-honestly weak beats hidden.
-
-Run:  python ml-training/finalize_quarter_half_models.py
-"""
+"""Retrain the six Q1 / first-half models on the complete dataset and ship them."""
 
 import json
 from pathlib import Path
@@ -82,13 +24,6 @@ MODELS_DIR = Path(__file__).resolve().parent / "models_quarter_half"
 MANIFEST_PATH = MODELS_DIR / "manifest.json"
 PRODUCTION_EXPERIMENT = "production_quarter_half"
 
-# Measured on the 2024-2025 test set by train_quarter_half_baseline.py, and
-# frozen here for the same reason finalize_models.py freezes tree counts:
-# mlruns/ is gitignored, so a fresh clone cannot look them up. They describe
-# the SELECTION run, never these models - these have no holdout.
-#
-# naive is the beaten baseline: ROLL10 diff/sum for regression, always-home
-# for classification.
 SELECTION_METRICS = {
     "q1_spread": {"metric": "MAE", "naive": 7.03, "model": 6.61},
     "q1_total": {"metric": "MAE", "naive": 6.88, "model": 6.58},
@@ -100,8 +35,6 @@ SELECTION_METRICS = {
                   "log_loss": 0.6462},
 }
 
-# How much of a prediction to believe, as a field rather than a footnote.
-# Only q1_winner is "low"; see the module docstring for the decision.
 CONFIDENCE = {
     "q1_spread": "medium",
     "q1_total": "medium",
@@ -118,8 +51,6 @@ CONFIDENCE_NOTES = {
                "this set is strong; none beat a linear fit."),
 }
 
-# (key, label, target, is_classification), built from the same lists the
-# baseline and XGBoost scripts use so a target cannot be silently skipped.
 TASKS = [
     (experiment_name(label), label, target, False)
     for target, label, _stat, _combine in REGRESSION_TARGETS
@@ -128,16 +59,9 @@ TASKS = [
     for target, label, _period in CLASSIFICATION_TARGETS
 ]
 
-
 def training_rows(df, target: str):
-    """Rows this model can actually learn from.
-
-    Two filters, both forced by the model class rather than chosen:
-    complete features because linear models reject NaN inputs, and a present
-    label because a tied period has no binary answer. See the docstring.
-    """
+    """Rows this model can actually learn from."""
     return df.dropna(subset=FEATURE_COLUMNS).dropna(subset=[target])
-
 
 def build_pipeline(classification: bool) -> Pipeline:
     """Scaler and estimator as one artifact - see docstring point 1."""
@@ -145,14 +69,12 @@ def build_pipeline(classification: bool) -> Pipeline:
                  else LinearRegression())
     return Pipeline([("scaler", StandardScaler()), ("model", estimator)])
 
-
 def train_final(target: str, classification: bool, df):
     rows = training_rows(df, target)
     pipeline = build_pipeline(classification)
     y = rows[target].astype(int) if classification else rows[target]
     pipeline.fit(rows[FEATURE_COLUMNS], y)
     return pipeline, len(rows)
-
 
 def log_production_run(key, label, target, classification, pipeline, path,
                        sample, rows):
@@ -176,7 +98,6 @@ def log_production_run(key, label, target, classification, pipeline, path,
             "confidence": CONFIDENCE[key],
         })
 
-        # No metrics on purpose, see module docstring.
         predictions = (pipeline.predict_proba(sample) if classification
                        else pipeline.predict(sample))
         mlflow.sklearn.log_model(
@@ -186,13 +107,8 @@ def log_production_run(key, label, target, classification, pipeline, path,
         )
         mlflow.log_artifact(str(path))
 
-
 def write_manifest(entries, total_rows):
-    """Everything a serving layer needs, without importing this package.
-
-    The confidence field is the point: it travels with the model instead of
-    living in a docstring the API cannot read.
-    """
+    """Everything a serving layer needs, without importing this package."""
     manifest = {
         "feature_columns": FEATURE_COLUMNS,
         "n_features": len(FEATURE_COLUMNS),
@@ -203,7 +119,6 @@ def write_manifest(entries, total_rows):
     }
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print(f"\nManifest written to {MANIFEST_PATH}")
-
 
 def print_summary(entries, total_games):
     section("PRODUCTION MODELS (Q1 / first half)")
@@ -231,7 +146,6 @@ def print_summary(entries, total_games):
         if names:
             print(f"  {tier:<8}{', '.join(names)}")
             print(f"          {CONFIDENCE_NOTES[tier]}")
-
 
 def main():
     section("DATA PREP")
@@ -275,7 +189,6 @@ def main():
 
     write_manifest(entries, len(df))
     print_summary(entries, len(df))
-
 
 if __name__ == "__main__":
     main()

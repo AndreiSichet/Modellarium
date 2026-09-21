@@ -1,10 +1,4 @@
-"""
-Read-only quality gate for the raw game data in data-pipeline/data/raw/.
-
-Loads every games_<season>.csv, checks it against a handful of invariants,
-and prints a per-season summary plus a final overall pass/fail line. Does
-not modify or write anything.
-"""
+"""Read-only quality gate for the raw game data in data-pipeline/data/raw/."""
 
 import re
 from pathlib import Path
@@ -18,7 +12,6 @@ VALID_WL_VALUES = {"W", "L"}
 
 SEASON_FILE_RE = re.compile(r"games_(\d{4}-\d{2})\.csv$")
 
-
 def find_season_files():
     files = sorted(RAW_DATA_DIR.glob("games_*.csv"))
     seasons = []
@@ -28,14 +21,12 @@ def find_season_files():
             seasons.append((match.group(1), f))
     return seasons
 
-
 def season_date_bounds(season: str):
     start_year = int(season[:4])
     end_year = start_year + 1
     lower = pd.Timestamp(f"{start_year}-09-01")
     upper = pd.Timestamp(f"{end_year}-08-31")
     return lower, upper
-
 
 def validate_file(season: str, path: Path, reference_columns):
     issues = []
@@ -108,7 +99,6 @@ def validate_file(season: str, path: Path, reference_columns):
 
     return passed, list(df.columns)
 
-
 def main():
     season_files = find_season_files()
 
@@ -132,7 +122,6 @@ def main():
         print(f"Failed seasons: {', '.join(failed)}")
     else:
         print(f"All {len(results)} seasons passed validation.")
-
 
 if __name__ == "__main__":
     main()

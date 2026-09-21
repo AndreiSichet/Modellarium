@@ -1,51 +1,4 @@
-"""
-XGBoost for the five player-prop targets, against the baselines already
-established in train_player_baseline.py.
-
-  input: data-pipeline/data/processed/player_dataset.csv  (280,943 rows)
-
-THE BAR IS HARDER HERE THAN IT WAS AT TEAM LEVEL, and that is worth saying
-before any number appears. At team level, LinearRegression beat its naive
-baselines by double-digit percentages, so XGBoost had a wide corridor to
-compete in. Here naive and linear sit within about 1% of each other on
-every target - a player's own trailing average is already close to the
-whole story. Clearing the same >3-5% MAE bar against that is a much
-steeper ask, and a 1% win should be read as noise, not progress.
-
-TRAINS ON EVERY ROW, unlike the baseline. LinearRegression cannot take NaN,
-so the baselines dropped every player-game without a complete rolling
-window. XGBoost learns a default split direction for missing values, so it
-trains on all 280,943 rows - roughly 55,000 more than the baselines saw.
-Same deliberate choice as team-level training on all 13,199 games rather
-than the filtered 11,465. The run prints the difference, so the larger
-training set reads as intentional rather than as an oversight.
-
-SCORED TWO WAYS, for the same reason. The three-way table is scored only on
-test rows the baselines could also score, so naive, linear and XGBoost are
-compared on identical games. XGBoost's number over the full test set is
-reported separately - it is a genuine capability the others do not have,
-but it is not a like-for-like comparison and is never presented as one.
-
-BASELINES ARE RECOMPUTED HERE, not copied from the other script's output.
-That makes the table internally consistent and doubles as a drift check:
-if these numbers disagree with train_player_baseline.py's, something moved
-between the two runs.
-
-CONFIG IS REUSED, NOT RE-TUNED. max_depth=4 / learning_rate=0.05 comes
-straight from the team-level work, where a 2x2 sweep across seven targets
-improved nothing meaningfully. Re-running a sweep here would cost hours to
-most likely rediscover that. If a player target shows real promise, tuning
-it then is the cheap, evidence-led order.
-
-WATCH FG3M SEPARATELY. It is the one target where LinearRegression came out
-*worse* than the naive rolling average, and the hypothesis is that the five
-team-context features are close to noise for a specific player's three-point
-volume. If early stopping also converges unusually fast there, that is the
-same "tree count collapse means added variance, not added signal" signature
-the rejected advanced-stats experiment produced - independent, mechanism-
-level support rather than the same bad number twice. Its feature importance
-is printed in full for that reason.
-"""
+"""XGBoost for the five player-prop targets, against the baselines already"""
 
 import sys
 from pathlib import Path
@@ -58,7 +11,6 @@ from xgboost import XGBRegressor
 
 from common import setup_mlflow, split_three_way
 
-# Column groups and the leakage guard come from the scripts that own them.
 PIPELINE_DIR = Path(__file__).resolve().parents[1] / "data-pipeline" / "preprocessing"
 sys.path.insert(0, str(PIPELINE_DIR))
 from build_player_dataset import (  # noqa: E402
@@ -74,7 +26,6 @@ from train_player_baseline import (  # noqa: E402
     check_no_leakage,
 )
 
-# Same starting point as every team-level XGBoost run here.
 PARAMS = {
     "n_estimators": 2000,
     "learning_rate": 0.05,
@@ -86,37 +37,25 @@ PARAMS = {
     "random_state": 42,
 }
 
-# The bar every regression target in this project has been held to.
 IMPROVEMENT_BAR_PCT = 3.0
 
-# Printed in full rather than top-N, because the hypothesis is about which
-# features are *not* contributing.
 FLAG_TARGET = "FG3M"
-
 
 def section(title: str) -> None:
     print(f"\n{'=' * 78}\n{title}\n{'=' * 78}")
-
 
 def load_dataset() -> pd.DataFrame:
     df = pd.read_csv(DATASET_PATH)
     df["GAME_DATE"] = pd.to_datetime(df["GAME_DATE"])
     return df
 
-
 def complete_rows(df: pd.DataFrame) -> pd.DataFrame:
     """Rows a linear model could also use - no NaN anywhere in the inputs."""
     return df.dropna(subset=FEATURE_COLUMNS)
 
-
 def fit_baselines(train: pd.DataFrame, validation: pd.DataFrame,
                   test_comparable: pd.DataFrame, target: str) -> tuple:
-    """Naive and LinearRegression on exactly the rows the baseline used.
-
-    Train and validation are combined: the baseline script had no
-    validation split, so its training set was everything before the test
-    seasons. Matching that is what makes the comparison honest.
-    """
+    """Naive and LinearRegression on exactly the rows the baseline used."""
     fit_set = complete_rows(pd.concat([train, validation]))
 
     scaler = StandardScaler()
@@ -130,7 +69,6 @@ def fit_baselines(train: pd.DataFrame, validation: pd.DataFrame,
                                 test_comparable[f"ROLL10_{target}"])
     linear = mean_absolute_error(test_comparable[target], model.predict(test_x))
     return naive, linear
-
 
 def train_target(target: str, train: pd.DataFrame, validation: pd.DataFrame,
                  test: pd.DataFrame, test_comparable: pd.DataFrame) -> dict:
@@ -191,7 +129,6 @@ def train_target(target: str, train: pd.DataFrame, validation: pd.DataFrame,
                 [c for c in importance.index if c in TEAM_CONTEXT_COLUMNS]
             ].sum())}
 
-
 def log_run(target, trees, naive, linear, xgb_comparable, xgb_full, change):
     import mlflow
 
@@ -207,7 +144,6 @@ def log_run(target, trees, naive, linear, xgb_comparable, xgb_full, change):
             "mae_change_pct_vs_linear": change,
             "best_iteration": trees,
         })
-
 
 def main():
     check_no_leakage()
@@ -250,7 +186,6 @@ def main():
         flag = "  <-- the flagged target" if row["target"] == FLAG_TARGET else ""
         print(f"  {TARGET_LABELS[row['target']]:<16}{row['trees']:>5} trees   "
               f"team-context gain {row['context_share']:5.1f}%{flag}")
-
 
 if __name__ == "__main__":
     main()

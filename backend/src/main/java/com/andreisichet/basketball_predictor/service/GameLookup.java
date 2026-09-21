@@ -11,22 +11,9 @@ import com.andreisichet.basketball_predictor.model.Team;
 import com.andreisichet.basketball_predictor.repository.GameRepository;
 import com.andreisichet.basketball_predictor.repository.TeamRepository;
 
-/**
- * Team resolution and find-or-create for a Game.
- *
- * Extracted alongside InferenceClient and for the same reason: three
- * prediction services now need identical behaviour here, and three copies
- * of "find the game or make one" is how the same fixture ends up with three
- * rows in the games table.
- *
- * ONE GAME PER MATCHUP PER DATE, whichever markets are being priced. The
- * full-game, quarter/half and player-prop endpoints all resolve to the same
- * Game row, because they describe the same fixture. Predictions are
- * append-only and immutable; the Game they hang off is reused.
- */
+/** Team resolution and find-or-create for a Game. */
 @Component
 public class GameLookup {
-
     private final TeamRepository teamRepository;
     private final GameRepository gameRepository;
 
@@ -45,14 +32,7 @@ public class GameLookup {
                         HttpStatus.BAD_REQUEST, "Unknown team id: " + teamId));
     }
 
-    /**
-     * The existing Game for this matchup and date, or a new one.
-     *
-     * Callers must run this AFTER the inference call, never before. That
-     * ordering is not stylistic: creating the row first left an orphan Game
-     * behind for every rejected request, which is how BOS-vs-BOS rows once
-     * appeared in the database.
-     */
+    /** The existing Game for this matchup and date, or a new one. */
     public Game findOrCreateGame(Team homeTeam, Team awayTeam, LocalDate gameDate) {
         return gameRepository.findByHomeTeamAndAwayTeamAndGameDate(homeTeam, awayTeam, gameDate)
                 .orElseGet(() -> {

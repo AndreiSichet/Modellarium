@@ -1,16 +1,9 @@
-/*
- * Every value here comes from tokens.css. If a hex, a px font-size or a
- * font-family string appears in this file, that is a bug.
- */
-
 .shell-header {
   position: sticky;
   top: 0;
   z-index: 10;
   background: var(--cream);
-  /* A hairline rule, never a shadow. The reference design separates bands
-     of content with 1px lines and whitespace, and a shadow here reads as a
-     different design language immediately. */
+
   border-bottom: 1px solid var(--rule);
 }
 
@@ -24,8 +17,6 @@
   justify-content: space-between;
   gap: var(--space-4);
 }
-
-/* ---- wordmark -------------------------------------------------------- */
 
 .wordmark {
   display: flex;
@@ -50,8 +41,6 @@
   letter-spacing: 0.02em;
 }
 
-/* ---- nav ------------------------------------------------------------- */
-
 .shell-nav {
   display: flex;
   align-items: center;
@@ -65,8 +54,7 @@
   font-weight: 500;
   color: var(--ink-muted);
   text-decoration: none;
-  /* Vertical padding rather than margin, so the underline below sits clear
-     of the text baseline without nudging the header's height. */
+
   padding: var(--space-1) 0;
 }
 
@@ -78,8 +66,6 @@
   color: var(--ink);
 }
 
-/* The active underline is a pseudo-element rather than a border-bottom:
-   a border would shift the link by a pixel when it activates. */
 .shell-nav-link.active::after {
   content: '';
   position: absolute;
@@ -97,21 +83,12 @@
   border-radius: 2px;
 }
 
-/* ---- body -------------------------------------------------------------
-   A width container only. The <main> landmark lives in each route — see
-   the comment in AppShell.js. */
-
 .shell-body {
   max-width: var(--page-max);
   margin: 0 auto;
   padding: 0 var(--space-4);
 }
 
-/* ---- responsive ------------------------------------------------------ */
-
-/* Below 768px the header keeps its shape — logo and wordmark left, two
-   links right — and only loses padding. Two links do not need a hamburger,
-   and collapsing them behind one would add a state to manage for nothing. */
 @media (max-width: 767px) {
   .shell-header-inner {
     padding: 0 var(--space-2);

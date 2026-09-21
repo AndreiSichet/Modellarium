@@ -1,46 +1,4 @@
-"""
-Read-only quality gate for the team advanced stats in
-data-pipeline/data/raw/team_advanced_stats/.
-
-Structural checks plus three independent consistency checks, in ascending
-order of how much they prove:
-
-  1. PACE agrees between the two teams in a game. Possessions are shared -
-     every possession belongs to exactly one team - so both rows describe
-     the same number. Internal to one file.
-  2. netRating == offensiveRating - defensiveRating. Also internal, but
-     across three separately-reported columns.
-  3. **The centrepiece: PTS reconstructed from the rating.** Offensive
-     rating is points per 100 possessions, so
-     offensiveRating * possessions / 100 must reproduce that team's actual
-     final score in games_final.csv - a table trusted in production for
-     months. This is the direct parallel to the player box scores' PTS-sum
-     check, and it is the only one of the three that validates this data
-     against an independent source rather than against itself.
-
-Checks 1 and 2 were confirmed by hand on two sample games during the
-endpoint investigation (PACE differing by 0.0000, netRating matching
-exactly). Running them across all 13,199 is what turns two samples into a
-property of the dataset.
-
-TOLERANCE. Check 3 will not be exact: the endpoint reports offensiveRating
-rounded to one decimal, and possessions is itself a derived quantity, so a
-game with ~100 possessions inherits roughly +/- 0.05 * 100 / 100 points of
-slack from the rounding alone. PTS_TOLERANCE starts at 2.0 and the run
-prints the full distribution of differences, so the threshold can be tuned
-to what the data actually does rather than to a guess.
-
-SCHEMA IS DERIVED, NOT HARDCODED. nba_api declares 29 TeamStats columns
-while the live response carries 30, so a hardcoded list would encode
-whichever number happened to be right on the day. Instead the first file
-read defines the canonical order and every other file is checked against
-it - which tests the invariant that actually matters (all files agree)
-rather than a constant that could drift.
-
-Does not modify or write anything.
-
-Run:  python data-pipeline/preprocessing/validate_team_advanced_stats.py
-"""
+"""Read-only quality gate for the team advanced stats in"""
 
 import sys
 from pathlib import Path
@@ -57,8 +15,6 @@ from fetch_team_advanced_stats import (  # noqa: E402
 
 GAMES_FINAL_PATH = Path(__file__).resolve().parents[1] / "data" / "processed" / "games_final.csv"
 
-# Both derived quantities are reported rounded, so exact equality is not
-# expected. See the tolerance note in the module docstring.
 PACE_TOLERANCE = 0.05
 NET_RATING_TOLERANCE = 0.15
 PTS_TOLERANCE = 2.0
@@ -66,11 +22,9 @@ PTS_TOLERANCE = 2.0
 EXAMPLES_TO_PRINT = 5
 PROGRESS_EVERY = 2500
 
-
 def load_expected_game_ids() -> set:
     games = pd.read_csv(GAMES_FINAL_PATH, usecols=["GAME_ID"])
     return {str(gid).zfill(10) for gid in games["GAME_ID"].unique()}
-
 
 def load_team_facts() -> dict:
     """(game_id, team_id) -> real final PTS, from the already-trusted table."""
@@ -79,7 +33,6 @@ def load_team_facts() -> dict:
         (str(row.GAME_ID).zfill(10), int(row.TEAM_ID)): float(row.PTS)
         for row in games.itertuples()
     }
-
 
 def check_structure(game_id, frame, canonical_columns, issues):
     """Per-file structural invariants. Returns False if further checks are moot."""
@@ -99,7 +52,6 @@ def check_structure(game_id, frame, canonical_columns, issues):
 
     return True
 
-
 def check_pace(game_id, frame, issues):
     """Possessions are shared, so both teams must report the same pace."""
     values = pd.to_numeric(frame["pace"], errors="coerce")
@@ -112,7 +64,6 @@ def check_pace(game_id, frame, issues):
         issues["pace_mismatch"].append(
             f"{game_id}: {values.tolist()} differ by {spread:.4f}"
         )
-
 
 def check_net_rating(game_id, frame, issues):
     """netRating must equal offensiveRating - defensiveRating."""
@@ -130,13 +81,8 @@ def check_net_rating(game_id, frame, issues):
             f"{game_id}: off-def vs net differ by {difference:.4f}"
         )
 
-
 def check_points(game_id, frame, team_points, issues, differences):
-    """The centrepiece: rebuild PTS from the rating and compare to reality.
-
-    offensiveRating is points per 100 possessions, so
-    rating * possessions / 100 must be that team's actual final score.
-    """
+    """The centrepiece: rebuild PTS from the rating and compare to reality."""
     for row in frame.itertuples():
         team_id = int(row.teamId)
         actual = team_points.get((game_id, team_id))
@@ -161,7 +107,6 @@ def check_points(game_id, frame, team_points, issues, differences):
                 f"/ 100 = {implied:.2f} vs actual {actual:.0f} (diff {difference:+.2f})"
             )
 
-
 def describe(differences):
     """The distribution the tolerance should actually be set from."""
     if not differences:
@@ -179,7 +124,6 @@ def describe(differences):
     for threshold in (0.5, 1.0, 2.0, 5.0):
         share = (absolute > threshold).mean() * 100
         print(f"  beyond +/-{threshold:<4}    : {share:6.3f}%")
-
 
 def main():
     if not OUTPUT_DIR.exists():
@@ -279,7 +223,6 @@ def main():
     print("PASS" if total_failures == 0 else f"FAIL - {total_failures:,} issue(s)")
     print("=" * 70)
     return 0 if total_failures == 0 else 1
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

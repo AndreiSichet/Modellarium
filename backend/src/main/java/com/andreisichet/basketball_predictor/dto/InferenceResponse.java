@@ -4,18 +4,12 @@ import java.time.LocalDate;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-/**
- * Response from the Python inference service.
- *
- * Only the fields used here are declared; Spring Boot's Jackson ignores the
- * rest (the service also echoes back the team ids and game date).
- */
+/** Response from the Python inference service. */
 public record InferenceResponse(
         @JsonProperty("data_as_of") LocalDate dataAsOf,
         boolean stale,
         @JsonProperty("days_behind") int daysBehind,
         Predictions predictions) {
-
     public record Predictions(
             @JsonProperty("home_win_probability") double homeWinProbability,
             @JsonProperty("home_margin") double homeMargin,

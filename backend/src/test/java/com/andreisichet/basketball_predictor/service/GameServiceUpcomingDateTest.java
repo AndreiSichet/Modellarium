@@ -17,30 +17,12 @@ import com.andreisichet.basketball_predictor.model.Team;
 import com.andreisichet.basketball_predictor.repository.GameRepository;
 import com.andreisichet.basketball_predictor.repository.TeamRepository;
 
-/**
- * "Upcoming" must mean today or later, not merely "not marked played".
- *
- * WHY THIS IS A TEST AND NOT A ONE-OFF CHECK. Nothing in this system ever
- * sets played = true. That was a harmless footnote while the games table
- * held only fixtures somebody had asked about, and it became a real defect
- * the moment ScheduleSyncService started caching hundreds of them: every
- * cached fixture ages into the past and, without a date bound, stays in the
- * "upcoming" list permanently. The list would grow monotonically and never
- * shed anything.
- *
- * The scenario asserted here is exactly that one - a real fixture whose
- * date has passed but which was never marked played. It is the case a
- * manual check would confirm once and then stop watching.
- */
+/** "Upcoming" must mean today or later, not merely "not marked played". */
 @SpringBootTest
 @TestPropertySource(properties = {
-        // 29 February in a non-leap year: a valid cron that never fires.
-        // The schedule sync must not run during this test and quietly
-        // insert hundreds of fixtures alongside the fixture under test.
         "schedule.sync.cron=0 0 0 29 2 ?",
 })
 class GameServiceUpcomingDateTest {
-
     @Autowired
     private GameService gameService;
 
@@ -54,9 +36,6 @@ class GameServiceUpcomingDateTest {
 
     @AfterEach
     void removeInsertedGame() {
-        // This test writes to the same database the application uses, so
-        // it cleans up after itself rather than leaving a permanent
-        // past-dated row behind for the next reader to puzzle over.
         if (inserted != null) {
             gameRepository.delete(inserted);
             inserted = null;
@@ -76,7 +55,7 @@ class GameServiceUpcomingDateTest {
         inserted.setHomeTeam(teams.get(0));
         inserted.setAwayTeam(teams.get(1));
         inserted.setGameDate(yesterday);
-        inserted.setPlayed(false);            // the whole point: never flipped
+        inserted.setPlayed(false);
         inserted = gameRepository.save(inserted);
 
         List<GameSummaryDto> upcoming = gameService.getUpcomingGames();
@@ -93,10 +72,6 @@ class GameServiceUpcomingDateTest {
 
     @Test
     void aFixtureLaterTodayIsStillUpcoming() {
-        // The boundary is inclusive: a game played tonight has not happened
-        // yet, and excluding it would be a different bug in the other
-        // direction. Worth pinning, because "greater than" and "greater
-        // than or equal" are one keyword apart in the method name.
         List<Team> teams = teamRepository.findAll();
 
         inserted = new Game();

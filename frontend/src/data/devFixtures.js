@@ -1,57 +1,5 @@
-/**
- * Development fixtures, off unless REACT_APP_DEV_FIXTURES=1.
- *
- * WHY THEY EXIST. Today is 20 September 2026, the season opens 20 October,
- * `data_as_of` is 12 April and MAX_DAYS_AHEAD is 1 - so nothing in the real
- * schedule is predictable and the list is empty for at least another month.
- * Building a game list nobody can look at is not workable.
- *
- * AN ENV VAR, NOT A QUERY PARAMETER OR A BOOLEAN TO FLIP BACK. A query
- * parameter is reachable in production by anyone who types it; a hardcoded
- * flag is reachable by anyone who forgets. create-react-app inlines
- * REACT_APP_* at build time, so a production bundle built without it cannot
- * take this path at all.
- *
- * THE SHAPES ARE THE BACKEND'S, NOT THE INFERENCE SERVICE'S - and that is
- * worth stating because it is easy to take from the wrong place. The Java
- * fixtures in backend/src/test/resources/fixtures/ are captured
- * inference-service responses and are snake_case: `home_team_id`,
- * `home_win_probability`. The frontend never sees those. It talks to the
- * backend, which returns camelCase records:
- *
- *   getSchedule()       -> ScheduledGameDto
- *                          { homeTeamId, homeTeamAbbr, homeTeamName,
- *                            awayTeamId, awayTeamAbbr, awayTeamName,
- *                            gameDate }
- *   createPrediction()  -> GameSummaryDto
- *                          { id, homeTeamAbbreviation, awayTeamAbbreviation,
- *                            gameDate, played, latestPrediction: {...} }
- *
- * Both shapes below are copied from those record declarations and match the
- * fixture already used by App.test.js, which CLAUDE.md records as having
- * been diffed against real responses rather than trusted.
- */
 export const DEV_FIXTURES_ON = process.env.REACT_APP_DEV_FIXTURES === '1';
 
-/**
- * Shaped exactly like ScheduledGameDto.
- *
- * NINE GAMES ACROSS THREE DATES, DELIBERATELY OUT OF ORDER, and the spread
- * is what makes two behaviours visible rather than merely present:
- *
- *   SIX on 2026-04-13, which is "today" - data_as_of plus MAX_DAYS_AHEAD.
- *   General and Upcoming cap a league at five, so one of those six has to
- *   be dropped, and it is only the right one if the sort ran before the cap.
- *
- *   THREE on earlier dates. Those never appear on General or Upcoming,
- *   which show today only, but the league page shows everything predictable
- *   - so it lists nine where General lists five. Without them the two pages
- *   would look identical and neither cap nor scope would be observable.
- *
- * EVERY DATE IS AT OR BEFORE 2026-04-13. A later one is filtered out as
- * unpredictable before it reaches any list, so the spread has to fit inside
- * that window.
- */
 export const DEV_SCHEDULE = [
   {
     homeTeamId: 1610612749,
@@ -72,7 +20,6 @@ export const DEV_SCHEDULE = [
     gameDate: '2026-04-13',
   },
   {
-    // The long-name case: both sides run past a narrow column.
     homeTeamId: 1610612757,
     homeTeamAbbr: 'POR',
     homeTeamName: 'Portland Trail Blazers',
@@ -100,8 +47,6 @@ export const DEV_SCHEDULE = [
     gameDate: '2026-04-13',
   },
   {
-    // A deliberately unknown id, so the neutral '?' badge is visible in
-    // dev rather than only provable in a test.
     homeTeamId: 1610612999,
     homeTeamAbbr: 'XXX',
     homeTeamName: 'Relocated Franchise',
@@ -139,22 +84,8 @@ export const DEV_SCHEDULE = [
   },
 ];
 
-/**
- * The freshness payload, in the shape GET /api/health returns. Held here
- * rather than inline in the layout so that the fixture date and the
- * schedule dates above cannot drift apart - every game's predictability is
- * decided from this one value.
- */
 export const DEV_HEALTH = { dataAsOf: '2026-04-12', stale: true, daysBehind: 161 };
 
-/**
- * Shaped exactly like GameSummaryDto, keyed by home team so a fixture
- * prediction can be matched to its fixture game.
- *
- * The spread of values is deliberate: near coin-flips, lopsided games, and
- * several in between, so the layout is exercised honestly rather than
- * against numbers that all render the same width.
- */
 const PREDICTIONS = {
   1610612738: { homeWinProbability: 0.5745, homeMargin: 1.4149, totalPoints: 232.9323 },
   1610612757: { homeWinProbability: 0.4985, homeMargin: -0.0412, totalPoints: 218.4471 },
@@ -188,18 +119,6 @@ export function devPredictionFor(game, index) {
   };
 }
 
-/**
- * QuarterHalfSummaryDto, as POST /api/predictions/quarter-half returns it.
- *
- * NESTED UNDER `prediction`, where GameSummaryDto uses `latestPrediction`.
- * That asymmetry is real and is in the Java records; a fixture that tidied
- * it away would hide a shape the detail page has to unwrap.
- *
- * The two confidence values differ ON PURPOSE. q1_winner really does ship
- * as "low" - it scores 0.5796 against a 0.5184 always-home baseline - and a
- * fixture giving both markets the same label would let a per-market tag
- * regress into a page-level one without failing anything.
- */
 export function devQuarterHalfFor(gameDate) {
   return {
     gameId: 4,
@@ -225,18 +144,6 @@ export function devQuarterHalfFor(gameDate) {
   };
 }
 
-/**
- * The player-props board, both teams, five stats each.
- *
- * availabilityKnown IS FALSE, AND THE NOTE IS THE REAL ONE. That is not a
- * placeholder: it is false on every response the service returns today,
- * because the injury-report path is packaged but the NBA publishes nothing
- * between seasons. The note says the absence of a report is not a clean
- * bill of health, and the page renders it verbatim.
- *
- * Both modelUsed values appear, because the hybrid routes per player and a
- * fixture with one value would let the tag regress into a constant.
- */
 function devLine(playerId, playerName, modelUsed, points, rebounds, assists, threes) {
   return {
     playerId,

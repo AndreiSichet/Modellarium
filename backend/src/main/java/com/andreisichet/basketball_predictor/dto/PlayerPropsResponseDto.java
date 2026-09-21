@@ -16,19 +16,7 @@ public record PlayerPropsResponseDto(
         boolean stale,
         int daysBehind,
         Instant predictedAt) {
-
-    /**
-     * One side's board.
-     *
-     * availabilityNote IS ALWAYS PRESENT, in both states. Today it always
-     * carries the unknown-availability caveat, because the container cannot
-     * fetch the injury report - but the field is deliberately modelled as
-     * "what is known about availability", not as "the warning". Once the
-     * October packaging work lands, availabilityKnown becomes true and this
-     * carries the confirmed case instead. A field that only exists while
-     * something is broken gets deleted the moment it is fixed, and then the
-     * good news has nowhere to go.
-     */
+    /** One side's board. */
     public record TeamBoard(
             Long teamId,
             String teamAbbreviation,
@@ -37,14 +25,7 @@ public record PlayerPropsResponseDto(
             List<PlayerLine> players) {
     }
 
-    /**
-     * One player's five predictions.
-     *
-     * modelUsed is exposed rather than inferred: the hybrid routes complete
-     * rolling histories to a linear model and everything else to XGBoost,
-     * and which one answered is a real property of the number. Same
-     * transparency standard as the stale badge and the confidence label.
-     */
+    /** One player's five predictions. */
     public record PlayerLine(
             Long playerId,
             String playerName,
@@ -54,7 +35,6 @@ public record PlayerPropsResponseDto(
             double predictedThreesMade,
             double predictedPra,
             String modelUsed) {
-
         public static PlayerLine from(PlayerPropPrediction saved) {
             return new PlayerLine(
                     saved.getPlayer().getId(),

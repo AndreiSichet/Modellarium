@@ -13,22 +13,12 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * One game, upcoming or completed.
- *
- * The id is generated because the app creates games for matchups that have
- * no official id yet. nbaGameId holds the real GAME_ID once schedule
- * integration exists, and is null until then.
- *
- * played is false for a scheduled game and flips to true once the pipeline
- * picks up the result.
- */
+/** One game, upcoming or completed. */
 @Entity
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class Game {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

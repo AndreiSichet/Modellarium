@@ -1,25 +1,4 @@
-"""
-Verification for live_player_features.py, to the same standard as the
-quarter/half replay.
-
-Four checks, each aimed at a different way this could be quietly wrong:
-
-  1. Stratified historical replay - computed features must match
-     player_dataset.csv exactly, across eras and across both routing
-     populations. This is the "does the arithmetic agree with training"
-     check.
-  2. A REAL roster exclusion, using the live injury report for the
-     2026-03-14 BKN/PHI fixture. A player known to be Out that night must
-     not appear in the returned roster. Needs network + Java; skipped with
-     a loud note if either is unavailable, never silently passed.
-  3. The no-report path must return the FULL roster with
-     AVAILABILITY_KNOWN False - not a shorter roster, and not a silent
-     claim that everyone is fit.
-  4. Routing tags must match what the manifest dictates, checked on a
-     deliberately complete player and a deliberately incomplete one.
-
-Run:  python ml-training/verify_live_player_features.py
-"""
+"""Verification for live_player_features.py, to the same standard as the"""
 
 import sys
 from pathlib import Path
@@ -46,10 +25,8 @@ TOLERANCE = 1e-9
 REPLAY_GAMES = 12
 BKN_PHI_DATE = pd.Timestamp("2026-03-14")
 
-
 def section(title):
     print(f"\n{'=' * 78}\n{title}\n{'=' * 78}")
-
 
 def main():
     section("SETUP")
@@ -62,7 +39,6 @@ def main():
           f"{len(games_final):,} | player_dataset {len(dataset):,}")
     print(f"  routing decides on {len(decide_on)} columns")
 
-    # ------------------------------------------------------------------ 1
     section(f"1. HISTORICAL REPLAY - {REPLAY_GAMES} team-games across eras")
     print("Computed features must equal player_dataset.csv exactly, for every")
     print("player the pipeline has a row for.\n")
@@ -116,8 +92,6 @@ def main():
     print(f"  {'PASS' if worst_diff <= TOLERANCE else 'FAIL'}")
     replay_ok = worst_diff <= TOLERANCE
 
-    # ------------------------------------------------------------------ 4
-    # Run before check 2 because it needs no network.
     section("4. ROUTING TAGS MATCH THE MANIFEST")
     sample_date = picks.iloc[-1]["GAME_DATE"]
     sample_team = int(picks.iloc[-1]["TEAM_ID"])
@@ -149,23 +123,12 @@ def main():
               f"{int(r[decide_on].isna().sum())} of 12 missing -> {r['ROUTE']}")
     print(f"  tags disagreeing with the manifest rule: {disagreements}")
 
-    # Zero disagreements is the bar. A MIXED roster deliberately is NOT:
-    # the corrected roster definition requires a non-NaN ROLL10_MIN at the
-    # player's last in-season appearance, which means he already has 11+
-    # appearances, which means all 12 rolling features are present at
-    # game_date. So every rostered player routes to linear, structurally.
-    # That is a consequence of the roster rule, not a routing failure, and
-    # the routing mechanism itself was proven independently twice
-    # (finalize_player_models.py's Bogut/Kobe checks).
     routing_ok = disagreements == 0
     print(f"  {'PASS' if routing_ok else 'FAIL'}")
     if incomplete.empty:
         print("  NOTE: no xgb-routed player on this roster, and that is")
         print("  structural - see the comment in this check. Spot-checked below.")
 
-    # The cheap extra reassurance: take a genuinely incomplete row straight
-    # from the training table, confirm it routes to xgb and that the xgb
-    # model returns a sane number for it.
     import joblib
     from live_player_features import MODELS_DIR
     incomplete_rows = dataset[dataset[decide_on].isna().any(axis=1)]
@@ -184,7 +147,6 @@ def main():
           f"{'plausible' if sane else 'IMPLAUSIBLE'}")
     routing_ok = routing_ok and probe_route == "xgb" and sane
 
-    # ------------------------------------------------------------------ 3
     section("3. NO REPORT -> FULL ROSTER, FLAGGED UNKNOWN")
     from live_player_features import season_of as _season_of
     roster_size = len(current_roster(history, sample_team, sample_date,
@@ -203,7 +165,6 @@ def main():
     print(f"  {'PASS' if full and flags_unknown else 'FAIL'}")
     unknown_ok = full and flags_unknown
 
-    # ------------------------------------------------------------------ 2
     section("2. REAL ROSTER EXCLUSION - the 2026-03-14 injury report")
     print("NEEDS injury-service RUNNING. The report fetch moved into that")
     print("sidecar - the only part of this path that needs a Java runtime -")
@@ -280,7 +241,6 @@ def main():
         print(f"  {name:<24}{label}")
     hard = [replay_ok, unknown_ok, routing_ok]
     return 0 if all(hard) and exclusion_ok is not False else 1
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

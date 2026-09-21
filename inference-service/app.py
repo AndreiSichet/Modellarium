@@ -1,26 +1,4 @@
-"""
-Prediction API for the seven basketball models.
-
-Run with:  uvicorn app:app --port 8000    (from inference-service/)
-
-The games table and all seven models load once at startup. A request then
-only builds the feature row (width follows common.FEATURE_COLUMNS) and
-runs seven predictions.
-
-Every response includes data_as_of and stale. The service can only see
-games already in games_final.csv, so if the pipeline hasn't run, results
-are silently computed from old history - no error, just worse numbers.
-That's invisible to callers unless the response says so.
-
-Feature building lives in ml-training/live_features.py, not here, so there
-is one implementation with a verification harness rather than a copy.
-
-/schedule is the odd one out: it reaches the live NBA API rather than the
-local dataset, so it is the only endpoint that can fail for reasons that
-have nothing to do with this service. It returns fixtures, never
-predictions - most of what it returns is not predictable (see
-MAX_DAYS_AHEAD), and deciding that is the caller's job.
-"""
+"""Prediction API for the seven basketball models."""
 
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -35,8 +13,6 @@ from nba_api.stats.endpoints import scheduleleaguev2
 from pydantic import BaseModel, ConfigDict, Field
 from xgboost import XGBClassifier, XGBRegressor
 
-# ml-training is a sibling folder, not an installed package, so it goes on
-# sys.path. Same tradeoff live_features.py makes to reach the pipeline.
 ML_TRAINING_DIR = Path(__file__).resolve().parents[1] / "ml-training"
 if str(ML_TRAINING_DIR) not in sys.path:
     sys.path.insert(0, str(ML_TRAINING_DIR))
@@ -53,7 +29,6 @@ from live_quarter_half_features import (  # noqa: E402
     load_quarter_half_history,
 )
 from live_player_features import (  # noqa: E402
-    # The 17 player-prop inputs, distinct from common.FEATURE_COLUMNS's 38.
     FEATURE_COLUMNS as FEATURE_COLUMNS_PLAYER,
     describe as describe_roster,
     get_live_player_features,
@@ -64,35 +39,19 @@ MODELS_DIR = ML_TRAINING_DIR / "models"
 QH_MODELS_DIR = ML_TRAINING_DIR / "models_quarter_half"
 PP_MODELS_DIR = ML_TRAINING_DIR / "models_player_props"
 
-# Responses are flagged stale past this. Two days, not one, because the
-# pipeline running slightly late is normal.
 STALE_AFTER_DAYS = 2
 
-# How far ahead a prediction may be requested. REST_DAYS is measured from
-# the last game in the data, so for a fixture further out - with unplayed
-# games in between - the gap would be measured against the wrong game.
 MAX_DAYS_AHEAD = 1
 
-# Schedule lookahead when the caller doesn't say. Unrelated to
-# MAX_DAYS_AHEAD: this is how far to *list*, not how far to predict.
 SCHEDULE_DAYS_AHEAD_DEFAULT = 14
 SCHEDULE_TIMEOUT_SECONDS = 45
 
-# 3rd digit of the zero-padded 10-digit game id: 1=preseason, 2=regular,
-# 3=All-Star, 4=playoffs, 5=play-in, 6=NBA Cup final. The models only ever
-# saw regular-season games (the training pull is filtered the same way), so
-# listing anything else would offer fixtures they have no business scoring.
 REGULAR_SEASON_GAME_ID_DIGIT = "2"
 
-# gameStatus 1=scheduled, 2=live, 3=final. Only 1 is unplayed.
 GAME_STATUS_SCHEDULED = 1
 
-# The schedule changes rarely and the upstream call costs seconds, so a
-# button press does not need to hit nba_api every time. fetch_games.py is
-# deliberately gentle with this API for the same reason.
 SCHEDULE_CACHE_TTL_SECONDS = 6 * 60 * 60
 
-# What this service serves. (model file stem, response field, is_classification)
 MODEL_REGISTRY = [
     ("moneyline", "home_win_probability", True),
     ("spread", "home_margin", False),
@@ -103,10 +62,6 @@ MODEL_REGISTRY = [
     ("ast_total", "total_assists", False),
 ]
 
-# The six Q1/first-half models. A SEPARATE registry with its own strict
-# check, not an extension of the one above: these are joblib Pipelines
-# rather than XGBoost .json files, and folding them together would mean
-# relaxing the check that has already caught a real problem once.
 QH_MODEL_REGISTRY = [
     ("q1_spread", "q1_home_margin", False),
     ("q1_total", "q1_total_points", False),
@@ -116,38 +71,22 @@ QH_MODEL_REGISTRY = [
     ("1h_winner", "half1_home_win_probability", True),
 ]
 
-# REQUIRED on the two winner markets, never optional. These models were
-# trained only on periods that had a winner, because a tied quarter has no
-# binary label. The number is therefore P(home leads | not tied) - which a
-# sportsbook would push - and is NOT comparable to the full-game moneyline.
-# Shipping the probability without this string attached would invite
-# exactly that comparison.
 CONDITIONAL_INTERPRETATION = "P(home leads | not tied)"
 
-# Five targets, two artifacts each. Counted as ten because that is what is
-# on disk and what the registry check compares against.
 PP_TARGETS = ["PTS", "REB", "AST", "FG3M", "PRA"]
 PP_ROUTES = ["linear", "xgb"]
 
-# How many players per team a prop board actually wants. The feature module
-# returns everyone with usable history - over a hundred for a long-running
-# franchise - because deciding who is worth showing is a presentation
-# question, not a feature-engineering one. The frame arrives sorted by
-# ROLL10_MIN descending, so this is a head().
 PLAYER_PROPS_PER_TEAM = 10
-
 
 class ScheduledGame(BaseModel):
     home_team_id: int
     away_team_id: int
     game_date: date
 
-
 class PredictionRequest(BaseModel):
     home_team_id: int = Field(..., description="NBA team id of the home side")
     away_team_id: int = Field(..., description="NBA team id of the away side")
     game_date: date = Field(..., description="Tip-off date, YYYY-MM-DD")
-
 
 class Predictions(BaseModel):
     home_win_probability: float
@@ -158,7 +97,6 @@ class Predictions(BaseModel):
     assist_margin: float
     total_assists: float
 
-
 class PredictionResponse(BaseModel):
     home_team_id: int
     away_team_id: int
@@ -168,20 +106,13 @@ class PredictionResponse(BaseModel):
     days_behind: int
     predictions: Predictions
 
-
 class QuarterHalfPrediction(BaseModel):
-    """One Q1/1H market.
-
-    interpretation is present only on the two winner markets, where the
-    number means something narrower than it looks. Absent elsewhere rather
-    than an empty string, so a client can test for it.
-    """
+    """One Q1/1H market."""
 
     market: str
     value: float
     confidence: str
     interpretation: str | None = None
-
 
 class QuarterHalfResponse(BaseModel):
     home_team_id: int
@@ -192,11 +123,7 @@ class QuarterHalfResponse(BaseModel):
     days_behind: int
     predictions: list[QuarterHalfPrediction]
 
-
 class PlayerPrediction(BaseModel):
-    # "model_used" collides with pydantic's protected model_ namespace.
-    # The API contract wins: the field name says exactly what it holds, and
-    # renaming it to satisfy a library default would be the wrong trade.
     model_config = ConfigDict(protected_namespaces=())
 
     player_id: int
@@ -204,17 +131,12 @@ class PlayerPrediction(BaseModel):
     model_used: str
     predictions: dict[str, float]
 
-
 class TeamPlayerProps(BaseModel):
     team_id: int
     is_home: bool
     availability_known: bool
-    # Populated only when availability_known is False, carrying the exact
-    # wording live_player_features.describe() produces rather than a second
-    # phrasing of the same caveat.
     availability_note: str | None = None
     players: list[PlayerPrediction]
-
 
 class PlayerPropsResponse(BaseModel):
     home_team_id: int
@@ -225,7 +147,6 @@ class PlayerPropsResponse(BaseModel):
     days_behind: int
     teams: list[TeamPlayerProps]
 
-
 class ServiceState:
     """Everything loaded once at startup and shared across requests."""
 
@@ -234,36 +155,24 @@ class ServiceState:
     known_team_ids: set
     data_as_of: pd.Timestamp
 
-    # Quarter/half: six Pipelines plus the history frame they score from.
     qh_models: dict
     qh_confidence: dict
     qh_history_df: pd.DataFrame
 
-    # Player props: ten artifacts, the routing rule, and the 59 MB history.
     pp_models: dict
     pp_routing_columns: list
     player_history_df: pd.DataFrame
 
-
 state = ServiceState()
 
-# (season, fetched_at, dataframe) for the last schedule pulled.
 _schedule_cache: dict = {}
 
-
 def load_models() -> dict:
-    """Load all seven models as sklearn-API estimators.
-
-    XGBClassifier/XGBRegressor rather than raw Booster, to keep
-    predict()/predict_proba() and their feature-name validation. The
-    booster API would accept a mis-ordered feature vector without complaint.
-    """
+    """Load all seven models as sklearn-API estimators."""
     on_disk = {path.stem for path in MODELS_DIR.glob("*.json")}
     expected = {key for key, _field, _clf in MODEL_REGISTRY}
 
     if on_disk != expected:
-        # Fail at startup rather than let a model go unserved because
-        # someone added a file and not a registry entry.
         raise RuntimeError(
             f"models/ does not match the registry.\n"
             f"  missing from disk: {sorted(expected - on_disk) or 'none'}\n"
@@ -277,20 +186,8 @@ def load_models() -> dict:
         models[key] = model
     return models
 
-
 def load_quarter_half_models() -> tuple:
-    """The six Q1/1H Pipelines, plus each one's declared confidence.
-
-    Its own strict registry check, deliberately mirroring load_models()
-    rather than sharing it. Same failure mode being guarded against - a
-    file added without a registry entry, or the reverse - but a different
-    directory and a different artifact type, and a combined check would
-    have to be loose enough to accept both.
-
-    Confidence is read from the shipped manifest, never hardcoded here: it
-    is a property of how the model scored, and the manifest is where that
-    was recorded.
-    """
+    """The six Q1/1H Pipelines, plus each one's declared confidence."""
     on_disk = {path.stem for path in QH_MODELS_DIR.glob("*.joblib")}
     expected = {key for key, _field, _clf in QH_MODEL_REGISTRY}
 
@@ -322,16 +219,8 @@ def load_quarter_half_models() -> tuple:
               for key, _field, _clf in QH_MODEL_REGISTRY}
     return models, confidence
 
-
 def load_player_prop_models() -> tuple:
-    """The ten player-prop artifacts and the routing rule that picks between.
-
-    Two artifacts per target, so the registry check counts ten files: five
-    <target>_linear.joblib and five <target>_xgb.json. The routing columns
-    come from the manifest, not from this file - the whole point of putting
-    them there was that the serving layer reads the rule rather than
-    carrying a second copy that could drift.
-    """
+    """The ten player-prop artifacts and the routing rule that picks between."""
     expected = {f"{t.lower()}_{route}" for t in PP_TARGETS for route in PP_ROUTES}
     on_disk = ({path.stem for path in PP_MODELS_DIR.glob("*.joblib")}
                | {path.stem for path in PP_MODELS_DIR.glob("*.json")
@@ -363,7 +252,6 @@ def load_player_prop_models() -> tuple:
         models[(target, "xgb")] = booster
     return models, routing_columns
 
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     state.games_final_df = load_games_final()
@@ -371,16 +259,9 @@ async def lifespan(_app: FastAPI):
     state.known_team_ids = set(state.games_final_df["TEAM_ID"].unique())
     state.models = load_models()
 
-    # Derived once here rather than per request: the pairing and reindex
-    # cost seconds, and every quarter/half prediction needs the same frame.
     state.qh_history_df = load_quarter_half_history()
     state.qh_models, state.qh_confidence = load_quarter_half_models()
 
-    # THE BIG ONE. player_boxscores_with_rolling.csv is ~59 MB on disk and
-    # materially more in memory - by far the largest thing this service
-    # holds, and a real step up in the container's footprint. It is loaded
-    # narrowed to the columns the feature module reads, but it is still the
-    # reason this image is no longer small.
     state.player_history_df = load_player_history()
     state.pp_models, state.pp_routing_columns = load_player_prop_models()
 
@@ -400,7 +281,6 @@ async def lifespan(_app: FastAPI):
     )
     yield
 
-
 app = FastAPI(
     title="Basketball prediction service",
     description="Seven XGBoost models over engineered pre-game features.",
@@ -408,25 +288,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-
 def freshness() -> tuple:
     """How far behind the underlying data is, as of right now."""
     days_behind = (pd.Timestamp(datetime.now().date()) - state.data_as_of).days
     return days_behind, days_behind > STALE_AFTER_DAYS
 
-
 @app.get("/health")
 def health():
-    """Liveness plus freshness, so monitoring can alert on stale data.
-
-    models_loaded is BROKEN OUT BY FAMILY, not summed. A single 23 would
-    still be 23 if one family loaded twice and another not at all; three
-    named counts say which one is wrong. Same reason /predict reports
-    data_as_of rather than just a boolean.
-
-    NOTE: this changed shape from an int. .github/workflows/ci.yml asserts
-    on it, and was updated in the same commit.
-    """
+    """Liveness plus freshness, so monitoring can alert on stale data."""
     days_behind, stale = freshness()
     return {
         "status": "ok",
@@ -440,14 +309,8 @@ def health():
         "stale": stale,
     }
 
-
 def validate_matchup(request: "PredictionRequest") -> pd.Timestamp:
-    """Checks every prediction endpoint must make. Returns the parsed date.
-
-    Extracted when the third endpoint arrived rather than copied a second
-    time - three divergent copies of the MAX_DAYS_AHEAD rule is exactly how
-    one endpoint quietly starts accepting dates the others reject.
-    """
+    """Checks every prediction endpoint must make. Returns the parsed date."""
     game_date = pd.Timestamp(request.game_date)
 
     if request.home_team_id == request.away_team_id:
@@ -477,17 +340,10 @@ def validate_matchup(request: "PredictionRequest") -> pd.Timestamp:
 
     return game_date
 
-
 def season_string(today: date) -> str:
-    """Season as ScheduleLeagueV2 wants it: "2026-27".
-
-    season_of wraps the pipeline's derive_season, so the August boundary
-    that decides which season a date belongs to stays defined in exactly
-    one place. Only the formatting is new.
-    """
+    """Season as ScheduleLeagueV2 wants it: "2026-27"."""
     start_year = season_of(pd.Timestamp(today))
     return f"{start_year}-{str(start_year + 1)[2:]}"
-
 
 def fetch_schedule_frame(season: str) -> pd.DataFrame:
     """The season's full schedule, cached briefly."""
@@ -502,8 +358,6 @@ def fetch_schedule_frame(season: str) -> pd.DataFrame:
             season=season, league_id="00", timeout=SCHEDULE_TIMEOUT_SECONDS
         ).get_data_frames()[0]
     except Exception as error:
-        # Anything from a DNS failure to nba_api handing back HTML instead
-        # of JSON. The request was fine; the upstream was not.
         raise HTTPException(
             502, f"Could not reach the NBA schedule API for season {season}: {error}"
         ) from error
@@ -511,28 +365,17 @@ def fetch_schedule_frame(season: str) -> pd.DataFrame:
     _schedule_cache[season] = {"fetched_at": datetime.now(), "frame": frame}
     return frame
 
-
 @app.get("/schedule", response_model=list[ScheduledGame])
 def schedule(
     days_ahead: int = Query(SCHEDULE_DAYS_AHEAD_DEFAULT, ge=1, le=365),
 ):
-    """Upcoming regular-season fixtures, as candidates to display.
-
-    Says nothing about whether any of them can actually be predicted -
-    /predict enforces MAX_DAYS_AHEAD and will reject most of these. An
-    offseason gap or an unreleased schedule is an empty list, not an error:
-    "nothing scheduled" is an answer, not a failure.
-    """
+    """Upcoming regular-season fixtures, as candidates to display."""
     today = pd.Timestamp(datetime.now().date())
     frame = fetch_schedule_frame(season_string(today.date()))
 
     if frame.empty:
         return []
 
-    # Derive before filtering, never after. .assign() of a Series onto a
-    # zero-row frame reindexes the frame back up to the Series' index
-    # (pandas 2.3), so filtering first would turn "nothing scheduled" into
-    # a full frame of NaN - and the offseason is exactly when that happens.
     frame = frame.assign(
         parsed_date=pd.to_datetime(frame["gameDate"], format="%m/%d/%Y %H:%M:%S"),
         padded_game_id=frame["gameId"].astype(str).str.zfill(10),
@@ -554,7 +397,6 @@ def schedule(
         )
         for row in upcoming.itertuples()
     ]
-
 
 @app.post("/predict", response_model=PredictionResponse)
 def predict(request: PredictionRequest):
@@ -591,17 +433,9 @@ def predict(request: PredictionRequest):
         predictions=Predictions(**results),
     )
 
-
 @app.post("/predict/quarter-half", response_model=QuarterHalfResponse)
 def predict_quarter_half(request: PredictionRequest):
-    """Six Q1 / first-half markets for one fixture.
-
-    Fails differently from /predict, and the difference is the model class.
-    These are linear pipelines: they cannot consume a NaN at all, so a team
-    without a complete trailing window is unscoreable rather than scoreable
-    with degraded input. That surfaces as a 400 with the reason, not a 500
-    from inside sklearn's input validation.
-    """
+    """Six Q1 / first-half markets for one fixture."""
     game_date = validate_matchup(request)
 
     try:
@@ -630,7 +464,6 @@ def predict_quarter_half(request: PredictionRequest):
                 market=field,
                 value=float(value),
                 confidence=state.qh_confidence[key],
-                # Required on the winners, omitted on the rest.
                 interpretation=CONDITIONAL_INTERPRETATION if classification else None,
             )
         )
@@ -646,18 +479,8 @@ def predict_quarter_half(request: PredictionRequest):
         predictions=predictions,
     )
 
-
 def player_props_for_team(team_id: int, opponent_id: int, game_date, is_home: bool):
-    """Top-N players for one side, each scored by the model its row routes to.
-
-    ROSTER AVAILABILITY IS DEFERRED, exactly as team-level availability is.
-    injury_report=None is passed deliberately: the container has neither the
-    injury-fetching code nor a Java runtime for it, the same packaging gap
-    already documented for the 38-feature models. So every row comes back
-    availability_known=False and nobody is excluded - which is reported, not
-    silently presented as a clean roster. Both capabilities unblock together
-    when that packaging decision is made.
-    """
+    """Top-N players for one side, each scored by the model its row routes to."""
     roster = get_live_player_features(
         team_id,
         opponent_id,
@@ -674,13 +497,10 @@ def player_props_for_team(team_id: int, opponent_id: int, game_date, is_home: bo
     )
     note = None if availability_known else describe_roster(roster)
 
-    # Arrives sorted by ROLL10_MIN descending, so this is the busiest N.
     roster = roster.head(PLAYER_PROPS_PER_TEAM)
 
     players = []
     if not roster.empty:
-        # Batched by route rather than one call per player: five targets by
-        # two routes is ten predict() calls per team, against fifty.
         scores = {}
         for route in PP_ROUTES:
             block = roster[roster["ROUTE"] == route]
@@ -710,15 +530,9 @@ def player_props_for_team(team_id: int, opponent_id: int, game_date, is_home: bo
         players=players,
     )
 
-
 @app.post("/predict/player-props", response_model=PlayerPropsResponse)
 def predict_player_props(request: PredictionRequest):
-    """Both teams' prop boards for one fixture, in one call.
-
-    Both sides together because that is the real unit of use - a prop board
-    is a game's worth of players, not a team's - and because the two share
-    the validation, the freshness block and the loaded history frames.
-    """
+    """Both teams' prop boards for one fixture, in one call."""
     game_date = validate_matchup(request)
 
     try:
