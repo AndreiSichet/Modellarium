@@ -11,6 +11,7 @@ from sklearn.metrics import (
 )
 from xgboost import XGBClassifier, XGBRegressor
 
+from calibration import brier_score, expected_calibration_error
 from common import FEATURE_COLUMNS
 from train_baseline import REGRESSION_TARGETS
 from train_moneyline_xgb import TARGET as MONEYLINE_TARGET
@@ -41,10 +42,14 @@ def evaluate(model, frame, target: str, classification: bool) -> dict:
     y = frame[target]
 
     if classification:
-        proba = model.predict_proba(x)[:, 1]
+        # float64: an isotonic-style flat segment wobbles by an ULP in float32
+        # and lands in the wrong calibration bin. See measure_calibration.
+        proba = model.predict_proba(x)[:, 1].astype(np.float64)
         return {
             "log_loss": float(log_loss(y, proba)),
             "accuracy": float(accuracy_score(y, model.predict(x))),
+            "brier": brier_score(y, proba),
+            "ece": expected_calibration_error(y, proba),
         }
 
     predictions = model.predict(x)

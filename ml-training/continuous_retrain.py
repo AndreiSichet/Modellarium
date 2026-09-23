@@ -164,10 +164,51 @@ def run_gate(train, validation, test, production_dir: Path,
             "change_pct": change_pct, "passed": passed,
             "candidate_trees": int(candidate.best_iteration),
             "production_trees": trees,
+            "candidate_metrics": candidate_metrics,
+            "production_metrics": incumbent_metrics,
             "model": candidate,
         })
 
     return results
+
+ECE_WARN_MULTIPLE = 2.0
+
+def calibration_note(results) -> None:
+    """Report calibration. It informs the verdict; it does not decide it.
+
+    Brier and ECE are shown, not gated on. The gate's tolerance is 2%, a number
+    chosen against observed month-to-month movement in log loss and MAE; there
+    is no equivalent observation for ECE, because no real retrain has run yet.
+    A threshold invented now would be a guess wearing a number's clothes, and
+    the failure mode is the expensive direction - refusing a good candidate.
+
+    So this warns and lets the log-loss verdict stand. Revisit once several
+    real retrains have recorded ECE, and set the bar from that spread.
+    """
+    classified = [r for r in results if r["classification"]]
+    if not classified:
+        return
+
+    print()
+    for r in classified:
+        c, p = r["candidate_metrics"], r["production_metrics"]
+        if p["ece"] > 0 and c["ece"] > p["ece"] * ECE_WARN_MULTIPLE:
+            state = ("PASSED on log loss" if r["passed"]
+                     else "already FAILED on log loss")
+            print(f"  WARNING: {r['label']} {state}, and its ECE is "
+                  f"{c['ece'] / p['ece']:.1f}x production's "
+                  f"({c['ece']:.4f} against {p['ece']:.4f}).")
+            if r["passed"]:
+                print("  The ranking held up but the probabilities did not.")
+                print("  Look at the reliability curve before merging -")
+                print("  measure_calibration.py prints it.")
+            else:
+                print("  Both are worse, so this adds to the refusal rather")
+                print("  than complicating it.")
+        else:
+            print(f"  Calibration: {r['label']} ECE {c['ece']:.4f} against "
+                  f"production's {p['ece']:.4f} - no warning.")
+    print(f"  ECE is not a gate criterion yet; see calibration_note.")
 
 def print_table(results, tolerance_pct: float) -> None:
     section(f"PROMOTION GATE (a candidate may be up to {tolerance_pct:.1f}% worse)")
@@ -177,15 +218,27 @@ def print_table(results, tolerance_pct: float) -> None:
 
     width = max(len(r["label"]) for r in results)
     print(f"{'TARGET':<{width}}  {'METRIC':<9}{'PRODUCTION':>11}{'CANDIDATE':>11}"
-          f"{'CHANGE':>9}{'TREES c/p':>11}   {'VERDICT':<18}{'shipped as-is':>14}")
-    print("-" * (width + 78))
+          f"{'CHANGE':>9}{'TREES c/p':>11}{'BRIER c/p':>19}{'ECE c/p':>17}"
+          f"   {'VERDICT':<18}{'shipped as-is':>14}")
+    print("-" * (width + 114))
     for r in results:
         metric = "log loss" if r["classification"] else "MAE"
         verdict = "pass" if r["passed"] else "FAIL - regressed"
         trees = f"{r['candidate_trees']}/{r['production_trees']}"
+        if r["classification"]:
+            c, p = r["candidate_metrics"], r["production_metrics"]
+            brier = f"{c['brier']:.4f}/{p['brier']:.4f}"
+            ece = f"{c['ece']:.4f}/{p['ece']:.4f}"
+        else:
+            # Calibration is a property of a probability. A regression target
+            # has no such column, and a dash says so rather than a zero.
+            brier = ece = "-"
         print(f"{r['label']:<{width}}  {metric:<9}{r['production']:>11.4f}"
               f"{r['candidate']:>11.4f}{r['change_pct']:>+8.2f}%{trees:>11}"
+              f"{brier:>19}{ece:>17}"
               f"   {verdict:<18}{r['shipped_as_is']:>14.4f}")
+
+    calibration_note(results)
 
     print("\n(negative change = the candidate is better)")
     print("'shipped as-is' scores the deployed weights directly on this window,")
