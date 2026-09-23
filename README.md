@@ -93,7 +93,6 @@ docker compose up --build
 
 Four services: `postgres`, `inference-service`, `backend`, `frontend`. The app is at `http://localhost:3000`.
 
-To run the pieces separately, see the per-service notes in `CLAUDE.md`.
 
 ## Rebuilding the data and models
 
