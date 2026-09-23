@@ -39,7 +39,7 @@ Two of the markets carry qualifiers that travel all the way to the screen rather
 | Model serving | FastAPI, uvicorn |
 | Backend | Java 21 (target) on JDK 25, Spring Boot 4.1, PostgreSQL 17 |
 | Frontend | React 19 (create-react-app), plain CSS |
-| Containerisation | Docker + Compose, all four services |
+| Containerisation | Docker + Compose, all five services |
 | CI | GitHub Actions — four parallel jobs |
 | Continuous retraining | GitHub Actions on a self-hosted Windows runner, weekly |
 | Not yet built | Cloud deployment, CD |
@@ -53,7 +53,9 @@ detail and in plain language: how a prediction travels from raw NBA data to
 the screen, the data pipeline, the models and what was measured, the
 continuous-training pipeline, the inference service, the injury sidecar, the
 backend (database, every file, every endpoint), the frontend, how to run and
-test everything, and the problems found along the way.
+test everything, the problems found along the way, and **the six accuracy
+experiments that were run and rejected** — what each one tried, what it found,
+and why the failures are not all the same kind of failure.
 
 Start there. This README is the short version.
 
@@ -73,6 +75,8 @@ basketball-predictor/
 │   ├── models_player_props/    10 artifacts + routing manifest
 │   ├── continuous_retrain.py   Scheduled retrain with a promotion gate
 │   └── model_evaluation.py     Shared scoring
+├── injury-service/         FastAPI — turns the injury-report PDF into JSON
+│                           (the only service carrying a Java runtime)
 ├── inference-service/      FastAPI — /health, /schedule, three /predict routes
 ├── backend/                Spring Boot REST API + PostgreSQL
 │   └── src/                   Spring Boot application
@@ -91,7 +95,8 @@ Everything, in one command:
 docker compose up --build
 ```
 
-Four services: `postgres`, `inference-service`, `backend`, `frontend`. The app is at `http://localhost:3000`.
+Five services: `postgres`, `injury-service`, `inference-service`, `backend`,
+`frontend`. The app is at `http://localhost:3000`.
 
 
 ## Rebuilding the data and models
@@ -112,7 +117,7 @@ Working end to end, locally and under Docker Compose.
 - [x] Inference service — three prediction endpoints, health and schedule
 - [x] Backend — Spring Boot, PostgreSQL persistence, cached fixture sync
 - [x] Frontend — browse and detail views over all three prediction families
-- [x] Docker and Compose — all four services
+- [x] Docker and Compose — all five services
 - [x] CI — four parallel jobs, all green
 - [x] Continuous retraining with a promotion gate
 - [ ] Cloud deployment

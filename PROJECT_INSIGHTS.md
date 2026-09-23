@@ -52,8 +52,9 @@ requirement.
 16. [Testing everything](#16-testing-everything)
 17. [Problems found and fixed](#17-problems-found-and-fixed)
 18. [Design decisions and why](#18-design-decisions-and-why)
-19. [Known limitations and what comes next](#19-known-limitations-and-what-comes-next)
-20. [Quick reference](#20-quick-reference)
+19. [The accuracy experiments — six ideas tried, six rejected](#19-the-accuracy-experiments--six-ideas-tried-six-rejected)
+20. [Known limitations and what comes next](#20-known-limitations-and-what-comes-next)
+21. [Quick reference](#21-quick-reference)
 
 ---
 
@@ -747,6 +748,11 @@ identical settings reproduced the gain; and the feature-importance breakdown
 shows availability accounting for 15.8% of the model's total decision weight,
 with "how many home players are out" the **third most important feature
 overall**.
+
+> **Five more experiments were run after these two, and all five were
+> rejected. They are in [Chapter 19](#19-the-accuracy-experiments--six-ideas-tried-six-rejected),
+> along with the diagnostic that finally made it possible to say which
+> rejections were informative and which were not.**
 
 **Advanced pace and efficiency statistics: did not work**, and the reason is
 interesting. Adding all five metrics made margin prediction *worse*. The
@@ -2467,7 +2473,296 @@ moved to finding new information instead.
 
 ---
 
-## 19. Known limitations and what comes next
+## 19. The accuracy experiments — six ideas tried, six rejected
+
+Chapter 5 described the ceiling: three completely different kinds of model all
+land in the same accuracy band, so the limit is what the features know rather
+than how cleverly they are combined. The obvious response is to go looking for
+new information.
+
+Six attempts have now been made. **All six were rejected**, and this chapter is
+the record of what each one was, what it found, and — the part that took longest
+to learn — **why the six failures are not all the same kind of failure.**
+
+Two of them worked in the sense that mattered most: they cost a few hours and
+prevented a few weeks.
+
+### 19.1 The short version
+
+| # | Idea | Result | Kind of failure |
+|---|---|---|---|
+| 1 | Advanced pace and efficiency stats | worse, then flat | model already had it |
+| 2 | Calibration of the win probabilities | already good; nothing to fix | not a failure — a measurement |
+| 3 | Win probability derived from the margin model | tie | model already had it |
+| 4 | Weighting absences by player quality | nothing | information was genuinely new |
+| 5 | Shot location and shot quality | tie, then stopped | information was genuinely new |
+| 6 | Travel, time zones and schedule density | tie | **both, and it could tell which** |
+
+Numbers 1 and 3 failed because the information was already in the model under
+another name. Numbers 4, 5 and 6 failed **despite the information being
+genuinely new**, which is the more significant result — it says the ceiling is
+not a matter of feature coverage.
+
+### 19.2 Is the model's confidence trustworthy? (Calibration)
+
+Before adding anything, a different question: when the model says a team has a
+70% chance of winning, do those teams actually win about 70% of the time?
+
+This had never been measured. Accuracy and log loss were the only scores on
+record, and neither answers it. The question came from a review of published
+NBA prediction research, where one paper found that selecting bets on
+**calibration** rather than accuracy turned a 35% loss into a 35% gain — a
+result entirely about whether a probability means what it says.
+
+**The answer: the probabilities are already good.**
+
+| Measure | Value | |
+|---|---|---|
+| Brier score | **0.2063** | better than the 0.221–0.225 published range for honestly-evaluated NBA models |
+| Of the loss, how much is bad calibration | **2.3%** | |
+| Of the loss, how much is inability to separate winners from losers | **97.7%** | |
+
+That second split is the useful part. A prediction can be wrong two ways: the
+probabilities can be systematically miscalibrated, or the model can simply fail
+to tell good teams from bad ones. **Almost all of the loss is the second kind.**
+
+Two standard techniques for fixing calibration after the fact were tried. One
+improved the score by 0.2% while making calibration slightly *worse*; the other
+was worse on everything. **Neither was adopted**, and the decomposition above
+explains why there was never much to win.
+
+There is still a real pattern in what miscalibration remains: the model is
+**underconfident at the extremes**. Where it says 17% it should say 8%; where it
+says 84% it should say 90%. Its probabilities sit a little too close to 50/50.
+That shape is exactly what a calibrator should be able to exploit — and it
+could not, because the games at those extremes are too few to learn from.
+
+**One trap worth recording**, because it recurs throughout this chapter: the
+first attempt scored the *shipped* model and got 0.7217 accuracy — far better
+than its honest 0.6698. The shipped models are deliberately trained on every
+game with nothing held back, so the test games are inside their training data.
+They were being graded on their own homework. Every experiment below therefore
+trains a fresh model on the historical portion only.
+
+### 19.3 Could the margin model predict the winner better? (Derived probability)
+
+Since calibration was ruled out, only **discrimination** was left worth chasing —
+telling winners from losers more sharply.
+
+There is one place the project visibly throws information away. The win/loss
+model is trained on a single bit: did the home team win. A two-point win and a
+thirty-point win are identical to it. The margin model sees the full number on
+the same fixture. If that extra detail survives being converted back into a
+probability, the converted version should discriminate better.
+
+This is also how bookmakers actually work — the spread is priced first and the
+moneyline is derived from it, not the other way round.
+
+**It does not.** The converted probability ranks fixtures very slightly *worse*,
+and a resampling test says even that difference is noise.
+
+The cleanest measure here is one that cannot be gamed. The conversion from
+margin to probability is a smoothly increasing function, so it cannot reorder
+anything — whatever scale is chosen, the *ranking* of fixtures is identical.
+That means a measure of pure ranking quality answers the question by itself,
+and **no choice of scale could rescue a ranking loss.** There was none to
+rescue: 0.7343 against the classifier's 0.7364, with a confidence interval
+spanning zero.
+
+**The number that nearly fooled us.** The converted version wins **15 more
+games** on raw accuracy. That looks like a finding and is not:
+
+- A paired statistical test on the 207 games where the two disagree gives 96
+  against 111 — well inside chance.
+- Every version of the conversion scores **identically** on accuracy, whatever
+  scale is used, because converting a margin to a probability crosses the 50%
+  line exactly when the margin crosses zero. **Accuracy only ever tests the
+  sign of the predicted margin**, and is blind to everything else the method
+  does.
+
+Reporting those 15 games as a win would have been reporting a coin flip.
+
+### 19.4 Does it matter *which* players are missing? (Player impact)
+
+The availability features count how many players are out and weight each
+absence by that player's recent **minutes**. Minutes are a proxy for a coach's
+trust, not for contribution — so a superstar and a rotation player missing the
+same 32 minutes currently count identically.
+
+**This was the best-founded of the six**, because the model has no
+representation of player quality anywhere: team averages describe outcomes, and
+the rating system is team-level by construction. The gap was real.
+
+Three replacements were tried: recent scoring production, production per minute,
+and a crude "how much better is the team with this player than without" measure.
+
+**None of them did anything.** The best moved margin prediction by 0.26% — and a
+resampling test puts that inside noise, so it is not even a small real gain that
+missed the bar.
+
+**What that says is more interesting than the null itself.** Minutes are a
+coach's revealed judgement of who matters, accumulated over a season. Cruder
+than production as a measure of quality, but evidently not worse for the
+question actually being asked — which is not "how good is this player" but
+"how much does this team lose without him".
+
+The likeliest remaining explanation is the *shape* of the feature rather than
+the weight: all three variants **add up** a number across a team's absentees,
+and adding up can make one missing superstar and three missing bench players
+look the same. Testing that needs a different feature, not a different weight.
+
+### 19.5 Were those shots good shots? (Shot location)
+
+This was the one idea carrying genuinely new information, and it is worth being
+precise about why.
+
+A box score records that a team made 42 of 90 shots. It does not record whether
+those were open layups or contested long jumpers. So the team's recent scoring
+average cannot tell a team that is genuinely good from a team that has been
+shooting unsustainably well. Shot location fills that gap directly.
+
+**Two things were done before committing to it**, and both were deliberate
+choices to spend a little to avoid spending a lot.
+
+**First, a ten-minute feasibility probe.** The data comes from an endpoint the
+NBA is known to restrict, and public reports said older seasons are served more
+reliably than recent ones — which would bite precisely on the two seasons used
+for testing. Five games were requested, one from each of five seasons spanning
+the whole range. All five returned complete data.
+
+The probe's real design point: **an empty response and a genuine "no data" look
+identical**, so the shot counts were cross-checked against the number of shots
+each team is independently known to have taken. All five matched exactly.
+
+**Second, a five-season subset instead of all eleven.** Two hours of downloading
+rather than four, on the reasoning that if the idea has nothing on five seasons
+it will have nothing on eleven.
+
+**Result: nothing.** The two-feature version changed margin prediction by
++0.09% with an interval spanning zero. The four-feature version was **reliably
+worse** — 0.77% worse with an interval excluding zero, which is not a null but a
+genuine regression from adding correlated columns.
+
+**One measurement made this comparison honest, and it is easy to skip.** A model
+trained on five seasons is worse than one trained on eleven, regardless of any
+new feature. Comparing against the eleven-season number would have shown shot
+features "losing" **2.69%** before they did anything at all. Both sides were
+therefore trained on the identical five seasons, and that baseline was computed
+and written down *before* any variant was scored.
+
+**What it would take to revisit this.** Not more seasons — the measurement says
+the signal is not there. The plausible gap is that zone-level conversion rates
+are too coarse: every three-pointer from the same area is treated alike, when an
+open catch-and-shoot and a contested step-back are not. Separating those needs
+defender distance and shot-clock data, which this source does not carry. That is
+a different data source, not a longer download of this one.
+
+### 19.6 Does the schedule grind teams down? (Travel and density)
+
+The model knows **how long since the last game**. It does not know:
+
+- how far the team flew to get here
+- whether they crossed time zones, and in which direction
+- how long they have been away from home
+- **how many games they have played this week**, as opposed to when the last one
+  was
+
+The last point is the sharpest. "One day of rest" is identical whether it is the
+second game of a road trip or the fourth game in six nights.
+
+Eight features were built from arena coordinates and time zones — no new
+downloading at all, since the schedule was already on hand.
+
+**Result: three ties.** Density alone, travel alone, and all eight together all
+land within half a percent of the baseline with every interval spanning zero.
+Unlike the shot-quality experiment, the widest version was *not* reliably worse,
+so this is a clean null rather than a dilution result.
+
+**But this experiment did something the previous five could not: it said what
+kind of null it was.**
+
+Before scoring anything, each new feature was correlated against the one the
+model already had — days since the last game:
+
+| New feature | Correlation with rest | What that means |
+|---|---|---|
+| Distance travelled | +0.115 | genuinely new |
+| Time zones crossed | −0.003 | genuinely new |
+| Games into a road trip | −0.084 | genuinely new |
+| **Games in the last 7 days** | **−0.652** | substantially overlapping |
+
+**These two halves are not equally informative.**
+
+- Travel, time zones and road-trip length are genuinely new information. Their
+  null is **strong evidence**: the model was handed something it did not have
+  and could not use it. Distance flown does not move NBA outcomes at a scale
+  this model can detect.
+- Games-in-seven-days is **weaker evidence**. The hypothesis was that density
+  and recency are different quantities. At −0.65 that is partly wrong at the
+  premise — density overlaps rest substantially without being a mere restatement
+  of it. Its null does not establish that density is useless, only that whatever
+  it adds is not usable.
+
+**That diagnostic is the one thing from these six experiments most worth
+reusing.** Run it before scoring, and a null becomes classifiable rather than
+arguable.
+
+### 19.7 What makes these results trustworthy
+
+Every experiment above follows the same discipline, and each rule exists because
+something went wrong without it.
+
+**The baseline is re-earned every time.** Each experiment retrains the standard
+model from scratch and checks it reproduces the recorded numbers exactly before
+any comparison is reported. If it does not, the script refuses to print a
+comparison at all. Without this, a comparison could be against a subtly
+different model and look perfectly reasonable.
+
+**Small differences get a confidence interval.** Three of these experiments
+produced a headline number under 1%, and in every case a resampling test showed
+it spanned zero. Two of them would have been written up as findings without it.
+
+**Guards are tested by breaking things deliberately.** A check that has never
+been shown to fail has not been shown to work. So a feature claimed to use only
+past games is verified twice: corrupting *future* games must not change it, and
+corrupting *past* games **must**. Without that second half, a feature that reads
+no data at all passes the first test perfectly — which has happened here twice.
+
+**Vacuous passes are reported as such.** During the shot-quality work two checks
+could not run at all on the sample available, because every game in it came from
+one season. They printed "NOT RUN — unexercised, not verified" rather than a
+green tick, and were exercised properly later.
+
+**Guards catching their own author.** The travel experiment's own check rejected
+its first two probes. Both times the *check* was right and the probe was wrong:
+"games into a road trip" cannot respond at a home game, and "time zones crossed"
+cannot when two consecutive venues share a zone. Neither is a defect; the fix
+was to test each feature where its test can mean something.
+
+### 19.8 What six rejections actually establish
+
+Not that the model is finished, and not that nothing will ever help. Something
+narrower and more useful:
+
+**The ceiling is not about feature coverage.** Three of the six added genuinely
+new information — player quality, shot location, travel — and none of it moved
+the result. The limit is not that the model is missing a column.
+
+The one candidate never tested is **market odds**, and it is categorically
+different from everything above. Every rejected idea was derived from game data
+this project already holds — a different view of the same box scores. A betting
+line is not that. It is an aggregate of what thousands of other people think,
+including information no box score contains: who is tired, who is carrying a
+knock, what the crowd will be like. It is the only remaining input that is not a
+rearrangement of what is already here.
+
+That is also why it is the honest test of the whole project. Predicting outcomes
+accurately is one thing; predicting them better than the market already does is
+the only measure that would mean the model knows something the world does not.
+
+---
+
+## 20. Known limitations and what comes next
 
 These are understood and accepted, not oversights.
 
@@ -2559,6 +2854,11 @@ These are understood and accepted, not oversights.
 2. **Market odds** — both to measure genuine edge against the market and to use
    the market's own line as an input. Historical coverage from most providers
    only goes back to about 2019, so full eleven-season coverage will not exist.
+   **Chapter 19 raised this from "next on the list" to "the only candidate
+   left":** six ideas have now been tested and rejected, and every one of them
+   was a different view of game data the project already holds. A betting line
+   is the only remaining input that is not a rearrangement of what is already
+   here.
 3. **Cloud deployment**, and deployment on merge. The last two unfinished items
    from the original definition of done.
 4. **Drift monitoring across a season** — the remaining half of real
@@ -2567,7 +2867,7 @@ These are understood and accepted, not oversights.
 
 ---
 
-## 20. Quick reference
+## 21. Quick reference
 
 ### Start everything
 
