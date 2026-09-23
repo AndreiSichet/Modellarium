@@ -24,6 +24,18 @@ METRICS = {
 def derive_season(game_date: pd.Series) -> pd.Series:
     return game_date.dt.year.where(game_date.dt.month >= 8, game_date.dt.year - 1)
 
+def trailing_mean(grouped, column: str, window: int) -> pd.Series:
+    """The project's one lag convention, in one place.
+
+    Extracted so other feature builders import it rather than restating the
+    expression - a second implementation is where an off-by-one leak enters.
+    """
+    return grouped[column].transform(
+        # shift(1) first: without it a game's own result enters
+        # its own features, which is leakage.
+        lambda s, w=window: s.shift(1).rolling(w).mean()
+    )
+
 def main():
     df = pd.read_csv(INPUT_PATH)
     df["GAME_DATE"] = pd.to_datetime(df["GAME_DATE"])
@@ -36,10 +48,8 @@ def main():
     grouped = df.groupby([TEAM_KEY, "SEASON"])
     for window in WINDOWS:
         for source_col, feature_name in METRICS.items():
-            df[f"ROLL{window}_{feature_name}"] = grouped[source_col].transform(
-                # shift(1) first: without it a game's own result enters
-                # its own features, which is leakage.
-                lambda s, w=window: s.shift(1).rolling(w).mean()
+            df[f"ROLL{window}_{feature_name}"] = trailing_mean(
+                grouped, source_col, window
             )
 
     df = df.drop(columns=["WIN"])
