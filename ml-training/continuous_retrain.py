@@ -19,6 +19,12 @@ from train_regression_xgb import PARAMS as REGRESSION_PARAMS
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PIPELINE = PROJECT_ROOT / "data-pipeline"
+
+# Imported rather than restated, so the season the summary compares against is
+# the same one the fetcher actually uses.
+if str(PIPELINE / "ingestion") not in sys.path:
+    sys.path.insert(0, str(PIPELINE / "ingestion"))
+from fetch_games import current_season_start_year, season_label  # noqa: E402
 GAMES_FINAL = PIPELINE / "data" / "processed" / "games_final.csv"
 
 PRODUCTION_DIR = Path(__file__).resolve().parent / "models"
@@ -58,11 +64,39 @@ def snapshot(path: Path) -> dict:
     """Enough of games_final.csv to tell whether anything new arrived."""
     if not path.exists():
         return {"rows": 0, "latest": None}
-    frame = pd.read_csv(path, usecols=["GAME_ID", "GAME_DATE"])
+    frame = pd.read_csv(path, usecols=["GAME_ID", "GAME_DATE", "SEASON"])
     return {
         "rows": len(frame),
         "latest": str(pd.to_datetime(frame["GAME_DATE"]).max().date()),
+        "season": int(frame["SEASON"].max()),
     }
+
+def report_season_coverage(after: dict) -> None:
+    """Say whether the data covers the season the calendar says is underway.
+
+    OPERATOR-FACING, not correctness. Without it a quiet week and a season the
+    fetcher is not looking at produce byte-identical output - "nothing worth
+    retraining on" - and the second stays invisible for months. The fetcher's
+    season list used to be hardcoded, which is exactly how that happens.
+    """
+    calendar_season = current_season_start_year()
+    data_season = after.get("season")
+    if data_season is None:
+        return
+
+    print(f"\n  newest season in {GAMES_FINAL.name}: {season_label(data_season)}")
+    print(f"  season underway by the calendar : {season_label(calendar_season)}")
+
+    if data_season >= calendar_season:
+        print("  -> the data covers the current season. A genuinely quiet week.")
+        return
+
+    print(f"  -> THE DATA IS {calendar_season - data_season} SEASON(S) BEHIND "
+          "THE CALENDAR.")
+    print("     Either that season has not tipped off yet (legitimate in early")
+    print("     October), or the pipeline is not fetching it. Check")
+    print("     fetch_games.seasons_through() before reading this as quiet.")
+
 
 def read_trained_through(directory: Path):
     """What data the models in this directory were trained on, or None."""
@@ -287,6 +321,7 @@ def main():
             print("  Skipping. Pass --force to retrain anyway; the marker is "
                   "written\n  alongside any candidates produced, so this "
                   "resolves itself after one run.")
+            report_season_coverage(after)
             return EXIT_OK
         print("  --force given: continuing.")
     else:
@@ -300,6 +335,7 @@ def main():
             print(f"\n  Fewer than {args.min_new_games} new games. Nothing worth "
                   f"retraining on.")
             print("  Pass --force to retrain anyway.")
+            report_season_coverage(after)
             return EXIT_OK
         if new_games < args.min_new_games:
             print(f"\n  Below the {args.min_new_games}-game threshold, but "
