@@ -53,6 +53,27 @@
 			<artifactId>postgresql</artifactId>
 			<scope>runtime</scope>
 		</dependency>
+
+		<!-- Flyway owns the schema; Hibernate only validates against it.
+		     THREE artifacts, and the first is the one that is easy to miss.
+		     Spring Boot 4 moved each integration's auto-configuration into its
+		     own module, so flyway-core on its own is a SILENT NO-OP: the app
+		     boots green, no migration runs and no history table appears. Same
+		     split that made spring-boot-starter-restclient necessary.
+		     flyway-database-postgresql is Flyway's own separation, required
+		     for Postgres from Flyway 10 onwards. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-flyway</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-database-postgresql</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa-test</artifactId>
