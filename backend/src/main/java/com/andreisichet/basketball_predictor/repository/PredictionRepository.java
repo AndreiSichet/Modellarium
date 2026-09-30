@@ -1,6 +1,5 @@
 package com.andreisichet.basketball_predictor.repository;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,7 +12,4 @@ public interface PredictionRepository extends JpaRepository<Prediction, Long> {
 
     /** Most recent prediction for a game, since a game accumulates them. */
     Optional<Prediction> findTopByGameIdOrderByPredictedAtDesc(Long gameId);
-
-    /** Every prediction for a batch of games, newest first. */
-    List<Prediction> findByGameIdInOrderByPredictedAtDesc(Collection<Long> gameIds);
 }
