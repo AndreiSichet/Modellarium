@@ -1,6 +1,7 @@
 """Retrain the seven team-level models on current data, and refuse to promote"""
 
 import argparse
+import io
 import json
 import subprocess
 import sys
@@ -26,6 +27,8 @@ if str(PIPELINE / "ingestion") not in sys.path:
     sys.path.insert(0, str(PIPELINE / "ingestion"))
 from fetch_games import current_season_start_year, season_label  # noqa: E402
 GAMES_FINAL = PIPELINE / "data" / "processed" / "games_final.csv"
+# The same file as git knows it, for reading the COMMITTED version.
+GAMES_FINAL_IN_REPO = "data-pipeline/data/processed/games_final.csv"
 
 PRODUCTION_DIR = Path(__file__).resolve().parent / "models"
 CANDIDATE_DIR = Path(__file__).resolve().parent / "models_candidate"
@@ -60,16 +63,82 @@ EXIT_OK = 0
 EXIT_REFUSED = 1
 EXIT_ERROR = 2
 
-def snapshot(path: Path) -> dict:
-    """Enough of games_final.csv to tell whether anything new arrived."""
-    if not path.exists():
-        return {"rows": 0, "latest": None}
-    frame = pd.read_csv(path, usecols=["GAME_ID", "GAME_DATE", "SEASON"])
+def summarise(source) -> dict:
+    """The one reader. `source` is anything pandas.read_csv accepts."""
+    frame = pd.read_csv(source, usecols=["GAME_ID", "GAME_DATE", "SEASON"])
     return {
         "rows": len(frame),
         "latest": str(pd.to_datetime(frame["GAME_DATE"]).max().date()),
         "season": int(frame["SEASON"].max()),
     }
+
+def snapshot(path: Path) -> dict:
+    """Enough of games_final.csv to tell whether anything new arrived."""
+    if not path.exists():
+        return {"rows": 0, "latest": None}
+    return summarise(path)
+
+def committed_snapshot():
+    """The same summary for the COMMITTED file, never the working tree.
+
+    `git show HEAD:<path>` deliberately: reading the working-tree file a second
+    time would compare it against itself and report agreement forever, which is
+    the one way this check could look correct while measuring nothing.
+
+    Returns None if the committed version cannot be read - no git, no commit,
+    or a file that is not a readable CSV. Reported, never fatal.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "show", f"HEAD:{GAMES_FINAL_IN_REPO}"],
+            cwd=PROJECT_ROOT, capture_output=True, check=True)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    if not result.stdout.strip():
+        return None
+    try:
+        return summarise(io.BytesIO(result.stdout))
+    except (ValueError, KeyError):
+        return None
+
+def report_refresh_disposition(after: dict, refreshed: bool) -> None:
+    """Say what the rebuild produced, and what became of it.
+
+    The job rebuilds games_final.csv BEFORE the new-data check, but the
+    workflow's `git add` for it sits inside the promoted-only step. So on any
+    skip the refreshed data is built on the runner and dropped.
+
+    OPERATOR-FACING. The discard is the designed behaviour; the problem is that
+    it reads identically to a week where the refresh found nothing. Deliberately
+    not a failure and not a ::warning:: - a warning that fires most weeks is one
+    people stop reading.
+    """
+    served = committed_snapshot()
+    built = "rebuilt by this run" if refreshed else "working tree (not rebuilt)"
+
+    print(f"\n  {built:<26}: {after['rows']:,} team-game rows, "
+          f"latest {after['latest']}")
+
+    if served is None:
+        print("  committed (what is served): could not be read via "
+              "`git show HEAD:`.")
+        print("  -> cannot say whether this run produced anything new.")
+        return
+
+    print(f"  {'committed (served)':<26}: {served['rows']:,} team-game rows, "
+          f"latest {served['latest']}")
+
+    gained = after["rows"] - served["rows"]
+    if gained <= 0 and after["latest"] == served["latest"]:
+        print("  -> identical. Nothing new was found, so nothing is being "
+              "discarded.")
+        return
+
+    print(f"  -> THIS RUN BUILT {gained:,} ROW(S) THAT ARE BEING DISCARDED.")
+    print("     games_final.csv is committed only on a promotion, so on a skip")
+    print("     the rebuild stays on the runner and never reaches the served")
+    print("     image. Advancing served data is a manual pipeline run plus an")
+    print("     image rebuild.")
 
 def report_season_coverage(after: dict) -> None:
     """Say whether the data covers the season the calendar says is underway.
@@ -321,6 +390,7 @@ def main():
             print("  Skipping. Pass --force to retrain anyway; the marker is "
                   "written\n  alongside any candidates produced, so this "
                   "resolves itself after one run.")
+            report_refresh_disposition(after, not args.skip_refresh)
             report_season_coverage(after)
             return EXIT_OK
         print("  --force given: continuing.")
@@ -335,6 +405,7 @@ def main():
             print(f"\n  Fewer than {args.min_new_games} new games. Nothing worth "
                   f"retraining on.")
             print("  Pass --force to retrain anyway.")
+            report_refresh_disposition(after, not args.skip_refresh)
             report_season_coverage(after)
             return EXIT_OK
         if new_games < args.min_new_games:
@@ -362,6 +433,7 @@ def main():
         print("All seven ship together - they share a feature set and a")
         print("dataset, so promoting a subset would leave the served models")
         print("trained on different data as each other.")
+        report_refresh_disposition(after, not args.skip_refresh)
         return EXIT_REFUSED
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
