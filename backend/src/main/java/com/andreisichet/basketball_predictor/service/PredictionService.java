@@ -3,7 +3,7 @@ package com.andreisichet.basketball_predictor.service;
 import java.time.Instant;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.andreisichet.basketball_predictor.dto.GameSummaryDto;
 import com.andreisichet.basketball_predictor.dto.InferenceRequest;
@@ -21,18 +21,33 @@ public class PredictionService {
     private final GameLookup gameLookup;
     private final PredictionRepository predictionRepository;
     private final InferenceClient inferenceClient;
+    private final TransactionTemplate transactionTemplate;
 
     public PredictionService(
             GameLookup gameLookup,
             PredictionRepository predictionRepository,
-            InferenceClient inferenceClient) {
+            InferenceClient inferenceClient,
+            TransactionTemplate transactionTemplate) {
         this.gameLookup = gameLookup;
         this.predictionRepository = predictionRepository;
         this.inferenceClient = inferenceClient;
+        this.transactionTemplate = transactionTemplate;
     }
 
-    /** Transactional so a rejected request writes nothing. */
-    @Transactional
+    /**
+     * The inference call runs OUTSIDE any transaction, and the writes inside a
+     * short one.
+     *
+     * Ordering is load-bearing and unchanged: inference first, so a request the
+     * service rejects leaves no orphan Game row. What changed is that a pooled
+     * database connection is no longer held across the HTTP round trip - which
+     * costs nothing locally and costs a connection per concurrent request once
+     * the inference service is remote, slow, or timing out.
+     *
+     * TransactionTemplate rather than an extracted @Transactional method: that
+     * annotation is proxy-based, so calling it on `this` would bypass the proxy
+     * and silently run with no transaction at all.
+     */
     public GameSummaryDto predict(PredictionRequest request) {
         Team homeTeam = gameLookup.requireTeam(request.homeTeamId());
         Team awayTeam = gameLookup.requireTeam(request.awayTeamId());
@@ -43,16 +58,20 @@ public class PredictionService {
                 new InferenceRequest(
                         request.homeTeamId(), request.awayTeamId(), request.gameDate()));
 
-        Game game = gameLookup.findOrCreateGame(homeTeam, awayTeam, request.gameDate());
-        Prediction prediction = predictionRepository.save(toPrediction(game, inference));
+        return transactionTemplate.execute(status -> {
+            Game game = gameLookup.findOrCreateGame(
+                    homeTeam, awayTeam, request.gameDate());
+            Prediction prediction =
+                    predictionRepository.save(toPrediction(game, inference));
 
-        return new GameSummaryDto(
-                game.getId(),
-                homeTeam.getAbbreviation(),
-                awayTeam.getAbbreviation(),
-                game.getGameDate(),
-                game.isPlayed(),
-                PredictionDto.from(prediction));
+            return new GameSummaryDto(
+                    game.getId(),
+                    homeTeam.getAbbreviation(),
+                    awayTeam.getAbbreviation(),
+                    game.getGameDate(),
+                    game.isPlayed(),
+                    PredictionDto.from(prediction));
+        });
     }
 
     private Prediction toPrediction(Game game, InferenceResponse inference) {

@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.andreisichet.basketball_predictor.dto.InferencePlayerPropsResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceRequest;
@@ -31,20 +31,35 @@ public class PlayerPropPredictionService {
     private final PlayerRepository playerRepository;
     private final PlayerPropPredictionRepository predictionRepository;
     private final InferenceClient inferenceClient;
+    private final TransactionTemplate transactionTemplate;
 
     public PlayerPropPredictionService(
             GameLookup gameLookup,
             PlayerRepository playerRepository,
             PlayerPropPredictionRepository predictionRepository,
-            InferenceClient inferenceClient) {
+            InferenceClient inferenceClient,
+            TransactionTemplate transactionTemplate) {
         this.gameLookup = gameLookup;
         this.playerRepository = playerRepository;
         this.predictionRepository = predictionRepository;
         this.inferenceClient = inferenceClient;
+        this.transactionTemplate = transactionTemplate;
     }
 
-    /** Same discipline as the other two: inference first, writes only after. */
-    @Transactional
+    /**
+     * The inference call runs OUTSIDE any transaction, and the writes inside a
+     * short one.
+     *
+     * Ordering is load-bearing and unchanged: inference first, so a request the
+     * service rejects leaves no orphan Game row. What changed is that a pooled
+     * database connection is no longer held across the HTTP round trip - which
+     * costs nothing locally and costs a connection per concurrent request once
+     * the inference service is remote, slow, or timing out.
+     *
+     * TransactionTemplate rather than an extracted @Transactional method: that
+     * annotation is proxy-based, so calling it on `this` would bypass the proxy
+     * and silently run with no transaction at all.
+     */
     public PlayerPropsResponseDto predict(PredictionRequest request) {
         Team homeTeam = gameLookup.requireTeam(request.homeTeamId());
         Team awayTeam = gameLookup.requireTeam(request.awayTeamId());
@@ -53,23 +68,26 @@ public class PlayerPropPredictionService {
                 new InferenceRequest(
                         request.homeTeamId(), request.awayTeamId(), request.gameDate()));
 
-        Game game = gameLookup.findOrCreateGame(homeTeam, awayTeam, request.gameDate());
-        Instant predictedAt = Instant.now();
+        return transactionTemplate.execute(status -> {
+            Game game = gameLookup.findOrCreateGame(
+                    homeTeam, awayTeam, request.gameDate());
+            Instant predictedAt = Instant.now();
 
-        PlayerPropsResponseDto.TeamBoard home =
-                persistBoard(game, homeTeam, inference.board(true), predictedAt);
-        PlayerPropsResponseDto.TeamBoard away =
-                persistBoard(game, awayTeam, inference.board(false), predictedAt);
+            PlayerPropsResponseDto.TeamBoard home =
+                    persistBoard(game, homeTeam, inference.board(true), predictedAt);
+            PlayerPropsResponseDto.TeamBoard away =
+                    persistBoard(game, awayTeam, inference.board(false), predictedAt);
 
-        return new PlayerPropsResponseDto(
-                game.getId(),
-                game.getGameDate(),
-                home,
-                away,
-                inference.dataAsOf(),
-                inference.stale(),
-                inference.daysBehind(),
-                predictedAt);
+            return new PlayerPropsResponseDto(
+                    game.getId(),
+                    game.getGameDate(),
+                    home,
+                    away,
+                    inference.dataAsOf(),
+                    inference.stale(),
+                    inference.daysBehind(),
+                    predictedAt);
+        });
     }
 
     /** Persist one side's board and shape it for the response. */
