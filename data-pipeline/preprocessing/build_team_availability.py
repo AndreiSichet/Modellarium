@@ -27,21 +27,41 @@ def load_players() -> pd.DataFrame:
     print(f"Loaded {len(players):,} player-rows from {INPUT_PATH.name}")
     return players
 
+def absence_weights(players: pd.DataFrame, weight_column: str = ROLLING_COLUMN) -> pd.Series:
+    """Per-player absence weight: the rolling column where absent, else 0.
+
+    An unknown role weighs 0 rather than NaN, which is a real and measured
+    deflation early in a season - see the ROLL10_MIN warm-up in CLAUDE.md.
+    """
+    return players[weight_column].where(players["IS_ABSENT"]).fillna(0.0)
+
+
+def reduce_absence_weights(players: pd.DataFrame, weights: pd.Series,
+                           how="sum") -> pd.DataFrame:
+    """Collapse per-absence weights into one number per team-game.
+
+    The reduction is a parameter because the aggregation study varies it while
+    the pipeline always sums. Extracted rather than forked so the two cannot
+    drift apart - the same reason trailing_mean() is shared.
+    """
+    frame = players[GROUP_KEYS].assign(ABSENT_WEIGHT=weights)
+    return frame.groupby(GROUP_KEYS, as_index=False).agg(
+        WEIGHTED=("ABSENT_WEIGHT", how))
+
+
 def build_team_availability(players: pd.DataFrame) -> pd.DataFrame:
     """Collapse player rows into one row per team-game."""
     players["IS_ABSENT"] = players["MIN_NUMERIC"].isna()
+    players["ABSENT_WEIGHT"] = absence_weights(players)
 
-    players["ABSENT_WEIGHT"] = (
-        players[ROLLING_COLUMN].where(players["IS_ABSENT"]).fillna(0.0)
-    )
-
-    availability = (
+    counts = (
         players.groupby(GROUP_KEYS, as_index=False)
-        .agg(
-            ABSENT_COUNT=("IS_ABSENT", "sum"),
-            WEIGHTED_ABSENT_MIN=("ABSENT_WEIGHT", "sum"),
-        )
+        .agg(ABSENT_COUNT=("IS_ABSENT", "sum"))
     )
+    weighted = reduce_absence_weights(players, players["ABSENT_WEIGHT"], how="sum")
+
+    availability = counts.merge(weighted, on=GROUP_KEYS, validate="one_to_one")
+    availability = availability.rename(columns={"WEIGHTED": "WEIGHTED_ABSENT_MIN"})
     availability["ABSENT_COUNT"] = availability["ABSENT_COUNT"].astype(int)
 
     return availability
