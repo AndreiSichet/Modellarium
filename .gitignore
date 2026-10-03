@@ -75,3 +75,11 @@ frontend/build/
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
+
+# WNBA pipeline data, ignored the same way the NBA's raw data is. The
+# processed table is NOT committed yet, deliberately: nothing reads it until
+# serving exists (phase 4). Committing a file nothing consumes is the reverse
+# of the problem CLAUDE.md s4's standing rule records - and when it IS added
+# to a COPY list, run `git check-ignore -v` in the same change.
+data-pipeline/data/wnba/raw/*
+data-pipeline/data/wnba/processed/*
