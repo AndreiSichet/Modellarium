@@ -6,7 +6,7 @@ import { DEV_FIXTURES_ON, devPlayerPropsFor, devQuarterHalfFor } from '../data/d
 import { findLeague } from '../data/leagues';
 import { teamFor } from '../data/teams';
 import Breadcrumb from './Breadcrumb';
-import DetailTabs, { PLAYER_STATS, TABS, isPlayerTab, panelId, tabId } from './DetailTabs';
+import DetailTabs, { PLAYER_STATS, isPlayerTab, panelId, tabId, tabsFor } from './DetailTabs';
 import GameTab from './GameTab';
 import PlayerStatTab from './PlayerStatTab';
 import QuarterHalfTab from './QuarterHalfTab';
@@ -23,7 +23,12 @@ function GameDetailPage() {
 
   const game = games.find((entry) => String(entry.gameId) === String(gameId));
 
-  const [tab, setTab] = useState(TABS[0].id);
+  // Only the tabs this league serves. The WNBA gets one, and one tab is not a
+  // tablist - see the render below.
+  const tabs = tabsFor(league);
+  const hasTablist = tabs.length > 1;
+
+  const [tab, setTab] = useState(tabs[0].id);
   const [quarterHalf, setQuarterHalf] = useState({ status: 'loading', data: null, error: null });
   const [playerProps, setPlayerProps] = useState({ status: 'idle', data: null, error: null });
 
@@ -59,9 +64,15 @@ function GameDetailPage() {
     }
   }, [homeTeamId, awayTeamId, gameDate]);
 
+  // Gated on the league actually having the market. Without the gate a WNBA
+  // detail page would fire a quarter/half request on arrival, and the Python
+  // side would reject the team ids - a failed request for a market this
+  // league never claimed to have.
+  const hasQuarterHalf = Boolean(league?.markets?.quarterHalf);
+
   useEffect(() => {
-    if (hasGame) loadQuarterHalf();
-  }, [hasGame, loadQuarterHalf]);
+    if (hasGame && hasQuarterHalf) loadQuarterHalf();
+  }, [hasGame, hasQuarterHalf, loadQuarterHalf]);
 
   useEffect(() => {
     if (hasGame && isPlayerTab(tab) && playerProps.status === 'idle') {
@@ -88,19 +99,27 @@ function GameDetailPage() {
 
       <GameHeader game={game} />
 
-      <DetailTabs active={tab} onSelect={setTab} />
+      {hasTablist ? (
+        <DetailTabs active={tab} onSelect={setTab} tabs={tabs} />
+      ) : null}
 
+      {/* The panel carries tab semantics only when there IS a tablist. A
+          role="tabpanel" with aria-labelledby pointing at a tab that was
+          never rendered is a dangling reference, and a tablist of one is a
+          control that does nothing. */}
       <div
         className="detail-panel"
-        role="tabpanel"
-        id={panelId(tab)}
-
-        aria-labelledby={tabId(tab)}
-
-        tabIndex={0}
+        {...(hasTablist
+          ? {
+              role: 'tabpanel',
+              id: panelId(tab),
+              'aria-labelledby': tabId(tab),
+              tabIndex: 0,
+            }
+          : {})}
       >
         {tab === 'game' ? (
-          <GameTab game={game} health={health} />
+          <GameTab game={game} health={health} league={league} />
         ) : tab === 'quarters' ? (
           <QuarterHalfTab state={quarterHalf} onRetry={loadQuarterHalf} health={health} />
         ) : (

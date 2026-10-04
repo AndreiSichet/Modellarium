@@ -1,10 +1,12 @@
 import { formatSpread, formatValue, formatWin } from '../predictionFormat';
 import { teamFor } from '../data/teams';
+import { dataAsOfFor } from '../dates';
 
-function GameTab({ game, health }) {
+function GameTab({ game, health, league }) {
   const prediction = game.prediction;
+  const markets = league?.markets ?? {};
 
-  if (!prediction) return <NoPrediction health={health} />;
+  if (!prediction) return <NoPrediction health={health} league={league} />;
 
   const home = teamFor(game.homeTeamId);
   const away = teamFor(game.awayTeamId);
@@ -34,15 +36,21 @@ function GameTab({ game, health }) {
         <Metric label="Total points" value={formatValue(prediction.totalPoints)} />
       </MarketGroup>
 
-      <MarketGroup title="Rebounds">
-        <Metric label="Rebound margin" value={formatValue(prediction.reboundMargin)} />
-        <Metric label="Total rebounds" value={formatValue(prediction.totalRebounds)} />
-      </MarketGroup>
+      {/* Only the groups this league serves. The WNBA has no rebound or
+          assist markets, and an empty group is a heading over nothing. */}
+      {markets.rebounds ? (
+        <MarketGroup title="Rebounds">
+          <Metric label="Rebound margin" value={formatValue(prediction.reboundMargin)} />
+          <Metric label="Total rebounds" value={formatValue(prediction.totalRebounds)} />
+        </MarketGroup>
+      ) : null}
 
-      <MarketGroup title="Assists">
-        <Metric label="Assist margin" value={formatValue(prediction.assistMargin)} />
-        <Metric label="Total assists" value={formatValue(prediction.totalAssists)} />
-      </MarketGroup>
+      {markets.assists ? (
+        <MarketGroup title="Assists">
+          <Metric label="Assist margin" value={formatValue(prediction.assistMargin)} />
+          <Metric label="Total assists" value={formatValue(prediction.totalAssists)} />
+        </MarketGroup>
+      ) : null}
 
       {prediction.stale ? (
         <p className="market-freshness">
@@ -97,18 +105,26 @@ function TeamMetric({ label, homeLabel, awayLabel, homeValue, awayValue, note })
   );
 }
 
-function NoPrediction({ health }) {
+function NoPrediction({ health, league }) {
+  // The explanation and the cutoff both come from the league. The sentence
+  // that used to be here named a ten-game warm-up, which is a property of
+  // within-season rolling windows and false of the WNBA's carried ones.
+  const dataAsOf = dataAsOfFor(health, league);
+
   return (
     <div className="predictions-message">
       <h2 className="predictions-message-title">No prediction for this game</h2>
-      <p className="predictions-message-body">
-        Predictions need recent form to work from, so they become available
-        once each team has played enough games for that form to be computed —
-        around ten games into a season.
-      </p>
-      {health?.dataAsOf ? (
+
+      {(league?.seasonNote ?? []).map((line) => (
+        <p className="predictions-message-body" key={line}>
+          {line}
+        </p>
+      ))}
+
+      {dataAsOf ? (
         <p className="predictions-message-meta">
-          Model data is current to {health.dataAsOf}.
+          {league ? `${league.label} model` : 'Model'} data is current to{' '}
+          {dataAsOf}.
         </p>
       ) : null}
     </div>

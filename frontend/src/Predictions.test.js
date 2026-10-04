@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter } from 'react-router-dom';
 
 import App from './App';
-import { createPrediction, getHealth, getSchedule } from './api';
+import { createPredictionFor, getHealth, getSchedule } from './api';
 import { byDate, soonestGames } from './components/GamesPage';
 import { sportSlugFromPath } from './components/PredictionsLayout';
 
@@ -13,13 +13,13 @@ const HEALTH = { dataAsOf: '2026-04-12', daysBehind: 161, stale: true };
 const TODAY = '2026-04-13';
 const YESTERDAY = '2026-04-12';
 
+// The NORMALISED shape createPredictionFor returns, not the raw DTO. The raw
+// per-league DTO shapes are pinned separately, against a mocked fetch, in
+// api.test.js - mocking the api module here would otherwise leave the wire
+// shape unpinned anywhere.
 const SUMMARY = {
-  id: 4,
-  homeTeamAbbreviation: 'ATL',
-  awayTeamAbbreviation: 'BOS',
-  gameDate: TODAY,
-  played: false,
-  latestPrediction: {
+  gameId: 4,
+  prediction: {
     homeWinProbability: 0.5745,
     homeMargin: 1.4149,
     totalPoints: 232.9323,
@@ -63,7 +63,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   getSchedule.mockResolvedValue([]);
   getHealth.mockResolvedValue(HEALTH);
-  createPrediction.mockResolvedValue(SUMMARY);
+  createPredictionFor.mockResolvedValue(SUMMARY);
 });
 
 describe('sportSlugFromPath', () => {
@@ -123,7 +123,13 @@ describe('routing', () => {
 
     expect(await screen.findByRole('heading', { name: 'Upcoming', level: 1 })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Basketball/ })).toHaveClass('active');
-    expect(screen.getByText(/Basketball games for 2026-04-13/)).toBeInTheDocument();
+    expect(screen.getByText(/Basketball games/)).toBeInTheDocument();
+
+    // The date moved from the page header into each section, because the two
+    // leagues' data ends on different days and one date in the header would
+    // be wrong for one of them.
+    const nba = document.getElementById('league-basketball-nba');
+    expect(nba.querySelector('.league-section-date')).toHaveTextContent('2026-04-13');
   });
 
   test('General and Upcoming render the same structure, differing only in scope', async () => {
@@ -146,7 +152,14 @@ describe('routing', () => {
     const upcomingShape = shapeOf(upcoming);
 
     expect(generalShape).toEqual(upcomingShape);
-    expect(generalShape.sections).toEqual(['league-basketball-nba']);
+
+    // Both leagues get a section on both pages. The WNBA has no games for
+    // seven months, and a section is what keeps its page reachable from
+    // anywhere other than a typed URL.
+    expect(generalShape.sections).toEqual([
+      'league-basketball-nba',
+      'league-basketball-wnba',
+    ]);
   });
 
   test('an unknown sport renders inline with the rail, and costs no request', async () => {
@@ -155,7 +168,7 @@ describe('routing', () => {
     expect(screen.getByRole('heading', { name: 'No such sport', level: 1 })).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Sports' })).toBeInTheDocument();
     expect(getSchedule).not.toHaveBeenCalled();
-    expect(createPrediction).not.toHaveBeenCalled();
+    expect(createPredictionFor).not.toHaveBeenCalled();
   });
 
   test('an unknown league renders inline with the rail', async () => {
@@ -252,7 +265,7 @@ describe('today, the cap, and the league page', () => {
     await screen.findByRole('heading', { name: 'General', level: 1 });
     expect(getSchedule).toHaveBeenCalledTimes(1);
     expect(getHealth).toHaveBeenCalledTimes(1);
-    expect(createPrediction).toHaveBeenCalledTimes(2);
+    expect(createPredictionFor).toHaveBeenCalledTimes(2);
 
     fireEvent.click(screen.getByRole('link', { name: 'More NBA' }));
     await screen.findByRole('heading', { name: 'NBA Predictions', level: 1 });
@@ -263,7 +276,7 @@ describe('today, the cap, and the league page', () => {
 
     expect(getSchedule).toHaveBeenCalledTimes(1);
     expect(getHealth).toHaveBeenCalledTimes(1);
-    expect(createPrediction).toHaveBeenCalledTimes(2);
+    expect(createPredictionFor).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -281,7 +294,7 @@ describe('data states', () => {
     renderAt('/predictions/basketball');
 
     expect(await screen.findByRole('heading', { name: 'No predictions yet' })).toBeInTheDocument();
-    expect(createPrediction).not.toHaveBeenCalled();
+    expect(createPredictionFor).not.toHaveBeenCalled();
   });
 
   test('error: a failed request is not shown as an empty schedule', async () => {

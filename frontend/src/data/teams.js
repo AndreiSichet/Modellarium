@@ -31,6 +31,33 @@ export const TEAMS = {
   1610612764: { abbr: 'WAS', name: 'Washington Wizards', primary: '#002B5C', secondary: '#E31837' },
   1610612765: { abbr: 'DET', name: 'Detroit Pistons', primary: '#C8102E', secondary: '#1D42BA' },
   1610612766: { abbr: 'CHA', name: 'Charlotte Hornets', primary: '#1D1160', secondary: '#00788C' },
+
+  // WNBA. KEYED BY TEAM_ID LIKE EVERYTHING ELSE, AND THAT IS LOAD-BEARING
+  // HERE RATHER THAN TIDY: eight of these abbreviations also belong to an NBA
+  // team - ATL, CHI, DAL, IND, MIN, PHX, TOR, WAS - so any lookup that
+  // resolved a team by abbreviation would render the Atlanta Dream in the
+  // Hawks' colours and say nothing about it. The id ranges do not overlap
+  // (1611661313-1611661332 against 1610612737-1610612766).
+  1611661313: { abbr: 'NYL', name: 'New York Liberty', primary: '#6ECEB2', secondary: '#000000' },
+  1611661317: { abbr: 'PHX', name: 'Phoenix Mercury', primary: '#201747', secondary: '#E56020' },
+  1611661319: { abbr: 'LVA', name: 'Las Vegas Aces', primary: '#000000', secondary: '#A7A8AA' },
+  1611661320: { abbr: 'LAS', name: 'Los Angeles Sparks', primary: '#552583', secondary: '#FDB927' },
+  1611661321: { abbr: 'DAL', name: 'Dallas Wings', primary: '#002B5C', secondary: '#C4D600' },
+  1611661322: { abbr: 'WAS', name: 'Washington Mystics', primary: '#002B5C', secondary: '#E31837' },
+  1611661323: { abbr: 'CON', name: 'Connecticut Sun', primary: '#0A2240', secondary: '#DC4405' },
+  1611661324: { abbr: 'MIN', name: 'Minnesota Lynx', primary: '#0C2340', secondary: '#78BE20' },
+  1611661325: { abbr: 'IND', name: 'Indiana Fever', primary: '#002D62', secondary: '#E03A3E' },
+  1611661328: { abbr: 'SEA', name: 'Seattle Storm', primary: '#2C5234', secondary: '#FEE11A' },
+  1611661329: { abbr: 'CHI', name: 'Chicago Sky', primary: '#418FDE', secondary: '#FDD023' },
+  1611661330: { abbr: 'ATL', name: 'Atlanta Dream', primary: '#C8102E', secondary: '#418FDE' },
+  1611661331: { abbr: 'GSV', name: 'Golden State Valkyries', primary: '#582C83', secondary: '#FFFFFF' },
+
+  // The two 2026 expansion franchises. Their identities are new and these
+  // values are PROVISIONAL rather than confirmed against a published brand
+  // guide - the badge is cosmetic, but a guessed colour should be labelled as
+  // one rather than sitting beside thirteen verified ones unmarked.
+  1611661327: { abbr: 'PDX', name: 'Portland Fire', primary: '#C8102E', secondary: '#000000' },
+  1611661332: { abbr: 'TOR', name: 'Toronto Tempo', primary: '#000000', secondary: '#E4002B' },
 };
 
 export const UNKNOWN_TEAM = {

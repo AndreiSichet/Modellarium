@@ -1681,6 +1681,7 @@ rolling window produced each market, and the moneyline's caveat verbatim.
     "spreadWindow": "CARRY5",
     "totalsWindow": "CARRY10",
     "moneylineCaveat": "Elo alone scored 0.6046 on test against this model's 0.6130 ...",
+    // sent, but not displayed - see chapter 20
     "dataAsOf": "2026-09-24",
     "stale": true,
     "daysBehind": 9,
@@ -3122,19 +3123,32 @@ All three genuinely beat their baselines. But two honest caveats come with
 them, and both are recorded on the model files themselves rather than buried
 here.
 
-**Elo alone beat the moneyline model.** On those same two test seasons, the
-bare Elo formula — one number per team, no machine learning at all — scored
-0.6046 against the model's 0.6130. The model had beaten Elo during model
-selection and lost to it on the final test.
+**Elo alone scored better than the moneyline model — but not reliably so.**
+On those same two test seasons, the bare Elo formula — one number per team, no
+machine learning at all — scored 0.6046 against the model's 0.6130. The model
+had beaten Elo during model selection and come out behind it on the final
+test.
 
-This was deliberately **not** acted on. Changing the choice of model because
-of what the test seasons said would turn the test into another round of model
-selection, which is precisely what holding seasons back is meant to prevent.
-So it is reported, attached to the model file, and flagged as the first thing
-to look at if the moneyline market is ever revisited. **The app sends that
-caveat to the client in every response**, for the same reason the NBA's
-weakest market ships labelled "low confidence": a prediction without its
-caveat misleads.
+That gap was recorded, and for a while it was also shown to readers on the
+WNBA game page. **Then it was measured properly, and the measurement said not
+to.** Putting a confidence interval on the difference gives a range from
+−0.006 to +0.022 — a range that includes zero, meaning the apparent gap is
+within what 589 games of chance could produce. There is no reliable
+difference, so there is nothing for a reader to be warned about.
+
+The lesson is worth separating from the result. The project's rule is that a
+prediction must never be shown without its caveat, because caveats get
+dropped for looking cluttered. This one was not dropped for looking
+cluttered; it was dropped because nobody had checked whether it described
+anything real, and once checked, it did not. A note that says less than it
+appears to is its own kind of misleading.
+
+The model choice was **not** changed either, for a different and stricter
+reason: changing it because of what the test seasons said would turn the test
+into another round of model selection, which is exactly what holding seasons
+back is meant to prevent. So the note stays on the model file as the first
+thing to re-examine if the moneyline market is ever revisited, and the server
+still sends it — it simply is not displayed.
 
 **Totals barely beats its baseline** — 3.8%, against spread's 14.6%. It is a
 real improvement and a thin one.
@@ -3210,12 +3224,51 @@ only and have never seen a playoff game, so those 17 are filtered out rather
 than offered. Without that filter the app would confidently price 17 games of
 a kind it knows nothing about.
 
+### It is in the interface, and three things there needed care
+
+The WNBA has its own pages, its own game detail view and its own entry in the
+league list. Most of that was configuration — the app was built with a league
+list rather than an assumption of one league — but three parts genuinely
+differed, and each would have produced a page that looks right and says
+something wrong.
+
+**Predictability is worked out per league.** The two leagues' data ends on
+different dates, so the app asks each league for its own cutoff. Using the
+NBA's for a WNBA game would mark WNBA fixtures as predictable whenever NBA
+data was fresh, and the page would then ask for predictions the server
+refuses. A league the server says nothing about is treated as having no
+predictable date at all, rather than borrowing the other league's.
+
+**The "no games yet" message is written per league, because the reason
+differs.** The NBA's message explains that predictions arrive about ten games
+into a season, which is true of how its form is measured. It is **not** true
+of the WNBA, whose models carry the previous season's form forward — there is
+no warm-up to wait through. Reusing the NBA's sentence would have put an
+incorrect explanation in front of readers about the exact thing that was
+measured. The WNBA message says the 2026 season is over, that predictions
+resume when the 2027 season begins, that no date is given because the
+schedule is not published, and that its data does not refresh on its own.
+
+**The WNBA game page has no tab bar.** It serves three markets and all three
+fit on one page, so there is nothing to switch between. A tab bar with one tab
+is a control that does nothing, so there isn't one — and none of the
+invisible markup that goes with tabs is left behind either.
+
 ### What is missing
 
-**The browser does not know the WNBA exists.** All three markets work over
-HTTP, and none of them appear anywhere in the web interface. That is the next
-piece of work, not an oversight — the serving layer was finished first so the
-interface has something real to display.
+**Nothing here was checked in a real browser.** The tests run against a
+simulated page with no layout engine, so they can prove what the page says and
+which elements exist, but not how anything looks or scrolls.
+
+**The two newest teams' colours are provisional.** Portland and Toronto joined
+in 2026 and their brand colours are marked in the code as unconfirmed rather
+than presented as fact.
+
+**WNBA data does not refresh on its own.** The NBA has a weekly job that
+fetches new results and retrains; the WNBA has none. Its data is fixed into
+the deployed image, so when the 2027 season starts the app will keep serving
+2026 data — correctly reporting an old cutoff — until someone runs the
+pipeline by hand. The interface is written so as not to promise otherwise.
 
 ---
 

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 import App from './App';
-import { createPrediction, createQuarterHalfPrediction, getHealth, getPlayerPropPredictions, getSchedule } from './api';
+import { createPredictionFor, createQuarterHalfPrediction, getHealth, getPlayerPropPredictions, getSchedule } from './api';
 
 jest.mock('./api');
 
@@ -19,10 +19,13 @@ const FIXTURE = {
   gameDate: TODAY,
 };
 
+// The NORMALISED shape createPredictionFor returns, not the raw DTO. The raw
+// per-league DTO shapes are pinned separately, against a mocked fetch, in
+// api.test.js - mocking the api module here would otherwise leave the wire
+// shape unpinned anywhere.
 const SUMMARY = {
-  id: 4,
-  gameDate: TODAY,
-  latestPrediction: {
+  gameId: 4,
+  prediction: {
     homeWinProbability: 0.5745,
     homeMargin: 1.4149,
     totalPoints: 232.9,
@@ -39,7 +42,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   getSchedule.mockResolvedValue([FIXTURE]);
   getHealth.mockResolvedValue(HEALTH);
-  createPrediction.mockResolvedValue(SUMMARY);
+  createPredictionFor.mockResolvedValue(SUMMARY);
   createQuarterHalfPrediction.mockResolvedValue({ prediction: {} });
   getPlayerPropPredictions.mockResolvedValue({ homeTeam: null, awayTeam: null });
 });

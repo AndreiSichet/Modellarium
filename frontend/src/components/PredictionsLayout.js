@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 
-import { createPrediction, getHealth, getSchedule } from '../api';
+import { createPredictionFor, getHealth, getSchedule, normalisePredictionBody } from '../api';
 import { DEV_FIXTURES_ON, DEV_HEALTH, DEV_SCHEDULE, devPredictionFor } from '../data/devFixtures';
-import { latestPredictableDate } from '../dates';
+import { leagueBySlug } from '../data/leagues';
+import { predictableDateFor } from '../dates';
 import SportsRail, { findSport } from './SportsRail';
 import './PredictionsLayout.css';
 
@@ -35,16 +36,25 @@ function PredictionsLayout() {
 
       setHealth(freshness);
 
-      const cutoff = latestPredictableDate(freshness?.dataAsOf);
-      const predictable = cutoff
-        ? schedule.filter((game) => game.gameDate <= cutoff)
-        : [];
+      // Filtered PER GAME against its own league's cutoff, not once against a
+      // single one. The two leagues' data ends on different dates, so one
+      // cutoff is wrong for whichever league it did not come from.
+      const predictable = schedule.filter((game) => {
+        const league = leagueBySlug(game.leagueSlug || 'nba');
+        const cutoff = predictableDateFor(freshness, league);
+        return cutoff ? game.gameDate <= cutoff : false;
+      });
 
       const predicted = await Promise.all(
         predictable.map(async (game, index) => {
+          const leagueSlug = game.leagueSlug || 'nba';
+
+          // Both paths end in the same normaliser: the fixtures are written
+          // in each backend DTO's own shape, so dev cannot quietly agree with
+          // itself while production disagrees.
           const summary = DEV_FIXTURES_ON
-            ? devPredictionFor(game, index)
-            : await createPrediction({
+            ? normalisePredictionBody(leagueSlug, devPredictionFor(game, index))
+            : await createPredictionFor(leagueSlug, {
                 homeTeamId: game.homeTeamId,
                 awayTeamId: game.awayTeamId,
                 gameDate: game.gameDate,
@@ -52,15 +62,15 @@ function PredictionsLayout() {
 
           return {
             key: `${game.homeTeamId}-${game.awayTeamId}-${game.gameDate}`,
-            gameId: summary.id,
+            gameId: summary.gameId,
 
-            leagueSlug: game.leagueSlug || 'nba',
+            leagueSlug,
             homeTeamId: game.homeTeamId,
             homeTeamName: game.homeTeamName,
             awayTeamId: game.awayTeamId,
             awayTeamName: game.awayTeamName,
             gameDate: game.gameDate,
-            prediction: summary.latestPrediction,
+            prediction: summary.prediction,
           };
         })
       );
@@ -88,7 +98,9 @@ function PredictionsLayout() {
         context={{
           games,
           health,
-          predictableDate: latestPredictableDate(health?.dataAsOf),
+          // A function rather than a date, so a page with two leagues on it
+          // cannot accidentally judge both by one cutoff.
+          predictableDateFor: (league) => predictableDateFor(health, league),
         }}
       />
     );

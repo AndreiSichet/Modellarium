@@ -10,11 +10,30 @@ export const PLAYER_STATS = [
   { id: 'pra', label: 'Player PRA', field: 'predictedPra', short: 'Points + rebounds + assists' },
 ];
 
-export const TABS = [
-  { id: 'game', label: 'Game' },
-  { id: 'quarters', label: 'Quarters & Halves' },
-  ...PLAYER_STATS,
-];
+export const GAME_TAB = { id: 'game', label: 'Game' };
+export const QUARTERS_TAB = { id: 'quarters', label: 'Quarters & Halves' };
+
+/** Every tab, which is the NBA's set. */
+export const TABS = [GAME_TAB, QUARTERS_TAB, ...PLAYER_STATS];
+
+/**
+ * The tabs one league actually has.
+ *
+ * A tab for a market a league does not serve would advertise something that
+ * is not there and then render an empty panel or a failed request - the same
+ * rule that keeps a shortcut chip off a league with no predictions. The WNBA
+ * serves three markets, all of them on the Game tab, so it gets one tab and
+ * the caller drops the tablist entirely.
+ */
+export function tabsFor(league) {
+  const markets = league?.markets ?? {};
+
+  return [
+    GAME_TAB,
+    ...(markets.quarterHalf ? [QUARTERS_TAB] : []),
+    ...(markets.playerProps ? PLAYER_STATS : []),
+  ];
+}
 
 export function tabId(id) {
   return `detail-tab-${id}`;
@@ -28,22 +47,22 @@ export function isPlayerTab(id) {
   return PLAYER_STATS.some((stat) => stat.id === id);
 }
 
-function DetailTabs({ active, onSelect }) {
+function DetailTabs({ active, onSelect, tabs = TABS }) {
   const ref = useRef(null);
 
   function onKeyDown(event) {
-    const index = TABS.findIndex((tab) => tab.id === active);
+    const index = tabs.findIndex((tab) => tab.id === active);
     let next = null;
 
-    if (event.key === 'ArrowRight') next = (index + 1) % TABS.length;
-    else if (event.key === 'ArrowLeft') next = (index - 1 + TABS.length) % TABS.length;
+    if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+    else if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
     else if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = TABS.length - 1;
+    else if (event.key === 'End') next = tabs.length - 1;
     else return;
 
     // Only after the key is recognised as ours, or Tab is swallowed too.
     event.preventDefault();
-    onSelect(TABS[next].id);
+    onSelect(tabs[next].id);
     ref.current?.querySelectorAll('[role="tab"]')[next]?.focus();
   }
 
@@ -55,7 +74,7 @@ function DetailTabs({ active, onSelect }) {
       ref={ref}
       onKeyDown={onKeyDown}
     >
-      {TABS.map((tab) => (
+      {tabs.map((tab) => (
         <button
           key={tab.id}
           type="button"

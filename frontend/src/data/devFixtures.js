@@ -82,9 +82,61 @@ export const DEV_SCHEDULE = [
     awayTeamName: 'Oklahoma City Thunder',
     gameDate: '2026-04-13',
   },
+
+  // WNBA. Dated to the WNBA's own cutoff + 1, not the NBA's - so a bug that
+  // judged these by NBA freshness would show them on the wrong date or not
+  // at all.
+  {
+    leagueSlug: 'wnba',
+    homeTeamId: 1611661317,
+    homeTeamAbbr: 'PHX',
+    homeTeamName: 'Phoenix Mercury',
+    awayTeamId: 1611661319,
+    awayTeamAbbr: 'LVA',
+    awayTeamName: 'Las Vegas Aces',
+    gameDate: '2026-09-25',
+  },
+  {
+    // ATL and CHI both exist in the NBA too. Rendered side by side with the
+    // Hawks or the Bulls, a lookup that resolved teams by abbreviation would
+    // show identical badges here.
+    leagueSlug: 'wnba',
+    homeTeamId: 1611661330,
+    homeTeamAbbr: 'ATL',
+    homeTeamName: 'Atlanta Dream',
+    awayTeamId: 1611661329,
+    awayTeamAbbr: 'CHI',
+    awayTeamName: 'Chicago Sky',
+    gameDate: '2026-09-25',
+  },
 ];
 
-export const DEV_HEALTH = { dataAsOf: '2026-04-12', stale: true, daysBehind: 161 };
+// Two cutoffs, because the real payload has two and they differ. A single one
+// here would let a bug that judges the WNBA by NBA freshness pass in dev.
+export const DEV_HEALTH = {
+  dataAsOf: '2026-04-12',
+  stale: true,
+  daysBehind: 161,
+  wnba: { dataAsOf: '2026-09-24', stale: true, daysBehind: 10 },
+};
+
+const WNBA_PREDICTIONS = {
+  // Phoenix Mercury vs Las Vegas Aces - the reference fixture, carrying the
+  // values the serving path actually returns for it.
+  1611661317: {
+    homeWinProbability: 0.18193019489666626,
+    homeMargin: -8.403725674288566,
+    totalPoints: 178.40689601339275,
+  },
+  // Atlanta Dream vs Chicago Sky. BOTH abbreviations also belong to an NBA
+  // team, so this fixture makes the collision visible in a browser rather
+  // than only provable in a test.
+  1611661330: {
+    homeWinProbability: 0.5312,
+    homeMargin: 1.9044,
+    totalPoints: 164.2718,
+  },
+};
 
 const PREDICTIONS = {
   1610612738: { homeWinProbability: 0.5745, homeMargin: 1.4149, totalPoints: 232.9323 },
@@ -98,7 +150,43 @@ const PREDICTIONS = {
   1610612761: { homeWinProbability: 0.4102, homeMargin: -2.6640, totalPoints: 213.8827 },
 };
 
+/**
+ * Each league's response in ITS OWN backend DTO shape.
+ *
+ * Shaped from the Java records - GameSummaryDto {id, latestPrediction} and
+ * WnbaSummaryDto {gameId, prediction} - and NOT from the inference service's
+ * snake_case bodies, which never reach a browser. The caller runs these
+ * through the same normaliser a real response goes through, so a wrong
+ * mapping breaks dev too instead of dev agreeing with itself.
+ */
 export function devPredictionFor(game, index) {
+  if ((game.leagueSlug || 'nba') === 'wnba') {
+    const values = WNBA_PREDICTIONS[game.homeTeamId] || WNBA_PREDICTIONS[1611661317];
+
+    return {
+      gameId: 950 + index,
+      homeTeamAbbreviation: game.homeTeamAbbr,
+      awayTeamAbbreviation: game.awayTeamAbbr,
+      gameDate: game.gameDate,
+      prediction: {
+        ...values,
+        moneylineWindow: 'CARRY5',
+        spreadWindow: 'CARRY5',
+        totalsWindow: 'CARRY10',
+        moneylineCaveat:
+          "Elo alone scored 0.6046 on test against this model's 0.6130, " +
+          'reversing the validation ordering where this model led Elo by ' +
+          '1.4%. NOT acted on: re-selecting on test would make the test set ' +
+          'a validation set. Treat it as the first thing to re-examine if ' +
+          'the moneyline market is revisited, ideally with more seasons.',
+        dataAsOf: '2026-09-24',
+        stale: true,
+        daysBehind: 10,
+        predictedAt: '2026-10-03T19:49:17Z',
+      },
+    };
+  }
+
   const values = PREDICTIONS[game.homeTeamId] || PREDICTIONS[1610612738];
   return {
     id: 900 + index,

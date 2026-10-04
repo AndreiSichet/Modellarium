@@ -25,25 +25,31 @@ function sectionId(league) {
 function GamesPage() {
   const { sport: slug } = useParams();
   const sport = slug ? findSport(slug) : null;
-  const { games, predictableDate } = useOutletContext();
+  const { games, predictableDateFor } = useOutletContext();
 
   const unknownSport = Boolean(slug) && !sport;
 
   const leagues = unknownSport ? [] : slug ? leaguesForSport(slug) : LEAGUES;
 
-  const sections = leagues
-    .map((league) => ({
+  // One section per league, each judged by ITS OWN cutoff. A single shared
+  // date would mark one league's games predictable on the other league's
+  // freshness.
+  const sections = leagues.map((league) => {
+    const date = predictableDateFor(league);
+
+    return {
       id: sectionId(league),
       league,
+      date,
       games: soonestGames(
         games.filter(
-          (game) =>
-            game.leagueSlug === league.slug && game.gameDate === predictableDate
+          (game) => game.leagueSlug === league.slug && game.gameDate === date
         )
       ),
-    }))
+    };
+  });
 
-    .filter((section) => section.games.length > 0);
+  const withGames = sections.filter((section) => section.games.length > 0);
 
   const [active, setActive] = useActiveSection(sections.map((s) => s.id));
 
@@ -55,13 +61,13 @@ function GamesPage() {
         <h1 className="games-page-title">{sport ? 'Upcoming' : 'General'}</h1>
 
         <p className="games-page-sub">
-          {sport ? `${sport.label} games` : 'Games across every sport'} for{' '}
-          {predictableDate || 'an unknown date'}
+          {sport ? `${sport.label} games` : 'Games across every sport'}, by the
+          newest date each league can be predicted for
         </p>
       </header>
 
-      {sections.length === 0 ? (
-        <NoPredictionsYet sport={sport} />
+      {withGames.length === 0 ? (
+        <NothingPredictable sport={sport} leagues={leagues} />
       ) : (
         <>
           <LeagueShortcuts
@@ -80,7 +86,7 @@ function GamesPage() {
 }
 
 function LeagueSection({ section }) {
-  const { league } = section;
+  const { league, games, date } = section;
 
   return (
     <section className="league-section" id={section.id}>
@@ -95,7 +101,19 @@ function LeagueSection({ section }) {
         </Link>
       </div>
 
-      <GameList games={section.games} league={league} />
+      {games.length > 0 ? (
+        <>
+          {date ? <p className="league-section-date">{date}</p> : null}
+          <GameList games={games} league={league} />
+        </>
+      ) : (
+        // ONE QUIET LINE RATHER THAN NO SECTION AT ALL. Dropping an empty
+        // league would leave its page reachable only by a typed URL, which
+        // defeats having built it; a line is cheaper than an undiscoverable
+        // page. It is not a placeholder for a league with no capability -
+        // this league serves predictions, it just has no games today.
+        <p className="league-section-empty">{league.seasonStatus}</p>
+      )}
     </section>
   );
 }
@@ -112,26 +130,39 @@ function UnknownSport({ slug }) {
   );
 }
 
-function NoPredictionsYet({ sport }) {
+function NothingPredictable({ sport, leagues }) {
   const { health } = useOutletContext();
 
   return (
     <div className="predictions-message">
       <h1 className="predictions-message-title">No predictions yet</h1>
-      <p className="predictions-message-body">
-        The 2026-27 NBA season begins on 20 October 2026.
-      </p>
-      <p className="predictions-message-body">
-        Predictions need recent form to work from, so they become available
-        once each team has played enough games for that form to be computed —
-        around ten games in, which is roughly three weeks after opening night.
-      </p>
+
+      {leagues.map((league) => (
+        <p className="predictions-message-body" key={league.slug}>
+          <strong>{league.label}:</strong> {league.seasonNote[0]}
+        </p>
+      ))}
+
       {health?.dataAsOf ? (
         <p className="predictions-message-meta">
           Model data is current to {health.dataAsOf}
           {sport ? `, and nothing is scheduled for ${sport.label} today` : ''}.
         </p>
       ) : null}
+
+      {/* Links, so no league page is reachable only by a typed URL while
+          every league happens to be between seasons. */}
+      <p className="predictions-message-body">
+        {leagues.map((league) => (
+          <Link
+            className="league-section-more"
+            key={league.slug}
+            to={`/predictions/${league.sport}/${league.slug}`}
+          >
+            More {league.label}
+          </Link>
+        ))}
+      </p>
     </div>
   );
 }

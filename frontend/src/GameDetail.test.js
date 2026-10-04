@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 import App from './App';
 import {
-  createPrediction,
+  createPredictionFor,
   createQuarterHalfPrediction,
   getHealth,
   getPlayerPropPredictions,
@@ -25,13 +25,13 @@ const FIXTURE = {
   gameDate: TODAY,
 };
 
+// The NORMALISED shape createPredictionFor returns, not the raw DTO. The raw
+// per-league DTO shapes are pinned separately, against a mocked fetch, in
+// api.test.js - mocking the api module here would otherwise leave the wire
+// shape unpinned anywhere.
 const SUMMARY = {
-  id: 4,
-  homeTeamAbbreviation: 'BOS',
-  awayTeamAbbreviation: 'LAL',
-  gameDate: TODAY,
-  played: false,
-  latestPrediction: {
+  gameId: 4,
+  prediction: {
     homeWinProbability: 0.5745,
     homeMargin: 1.4149,
     totalPoints: 232.9323,
@@ -122,7 +122,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   getSchedule.mockResolvedValue([FIXTURE]);
   getHealth.mockResolvedValue(HEALTH);
-  createPrediction.mockResolvedValue(SUMMARY);
+  createPredictionFor.mockResolvedValue(SUMMARY);
   createQuarterHalfPrediction.mockResolvedValue(QUARTER_HALF);
   getPlayerPropPredictions.mockResolvedValue(PLAYER_PROPS);
 });
@@ -192,7 +192,7 @@ describe('fetching', () => {
       gameDate: TODAY,
     });
 
-    expect(createPrediction).toHaveBeenCalledTimes(1);
+    expect(createPredictionFor).toHaveBeenCalledTimes(1);
 
     expect(getPlayerPropPredictions).not.toHaveBeenCalled();
   });
@@ -226,7 +226,7 @@ describe('fetching', () => {
 
     expect(getPlayerPropPredictions).toHaveBeenCalledTimes(1);
     expect(createQuarterHalfPrediction).toHaveBeenCalledTimes(1);
-    expect(createPrediction).toHaveBeenCalledTimes(1);
+    expect(createPredictionFor).toHaveBeenCalledTimes(1);
     expect(getSchedule).toHaveBeenCalledTimes(1);
   });
 });
