@@ -149,11 +149,17 @@ jobs:
           fi
 
           cat health.json
-          # models_loaded is a per-family dict, not an int. Each family is
-          # asserted separately for the reason the shape changed: one
-          # aggregate would still look plausible if a family loaded twice
-          # and another not at all.
-          python -c "import json; h = json.load(open('health.json')); assert h['status'] == 'ok', h; m = h['models_loaded']; assert m == {'team': 7, 'quarter_half': 6, 'player_props': 10}, m; print('health OK:', h)"
+          # models_loaded is a per-family dict, not an int, and the check is
+          # EXACT EQUALITY rather than a per-key lookup: one aggregate - or a
+          # subset test - would still look plausible if a family loaded twice
+          # and another not at all. The cost is that adding a league means
+          # editing this line, which is the right way round; a check that
+          # tolerated a new family silently would also tolerate a missing one.
+          #
+          # wnba: 3 was added in phase 4. The service refuses to boot unless
+          # models_wnba/ matches its own manifest, so a wrong count here means
+          # the manifest and the directory agreed on something unexpected.
+          python -c "import json; h = json.load(open('health.json')); assert h['status'] == 'ok', h; m = h['models_loaded']; assert m == {'team': 7, 'quarter_half': 6, 'player_props': 10, 'wnba': 3}, m; print('health OK:', h)"
 
           kill "$UVICORN_PID"
 

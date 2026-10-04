@@ -1,0 +1,113 @@
+{
+  "selection": {
+    "moneyline": {
+      "family": "linear",
+      "window": "CARRY5",
+      "validation_mean": 0.5977775727324486,
+      "validation_sd": 0.02030272989628034,
+      "runner_up": {
+        "family": "linear",
+        "window": "ROLL5",
+        "validation_mean": 0.5996556187105679,
+        "validation_sd": 0.023195067376300893
+      }
+    },
+    "spread": {
+      "family": "linear",
+      "window": "CARRY5",
+      "validation_mean": 9.51322232166372,
+      "validation_sd": 0.4287168506083141,
+      "runner_up": {
+        "family": "linear",
+        "window": "ROLL5",
+        "validation_mean": 9.556357863165138,
+        "validation_sd": 0.40874441648873383
+      }
+    },
+    "totals": {
+      "family": "linear",
+      "window": "CARRY10",
+      "validation_mean": 13.336033390161095,
+      "validation_sd": 0.7576989060152506,
+      "runner_up": {
+        "family": "linear",
+        "window": "CARRY5",
+        "validation_mean": 13.377394977540947,
+        "validation_sd": 0.49573027954879445
+      }
+    }
+  },
+  "elo_per_fold": {
+    "2021": {
+      "k": 40,
+      "carryover": 0.5,
+      "train_log_loss": 0.6408414858157311
+    },
+    "2022": {
+      "k": 40,
+      "carryover": 0.3333333333333333,
+      "train_log_loss": 0.6352017484990764
+    },
+    "2023": {
+      "k": 30,
+      "carryover": 0.3333333333333333,
+      "train_log_loss": 0.6350527954249678
+    },
+    "2024": {
+      "k": 40,
+      "carryover": 0.5,
+      "train_log_loss": 0.6326628495172438
+    }
+  },
+  "candidates": [
+    "ROLL5",
+    "CARRY5",
+    "CARRY10"
+  ],
+  "families": [
+    "naive",
+    "elo",
+    "linear",
+    "xgboost"
+  ],
+  "folds": {
+    "2021": [
+      2015,
+      2016,
+      2017,
+      2018,
+      2019,
+      2020
+    ],
+    "2022": [
+      2015,
+      2016,
+      2017,
+      2018,
+      2019,
+      2020,
+      2021
+    ],
+    "2023": [
+      2015,
+      2016,
+      2017,
+      2018,
+      2019,
+      2020,
+      2021,
+      2022
+    ],
+    "2024": [
+      2015,
+      2016,
+      2017,
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023
+    ]
+  }
+}

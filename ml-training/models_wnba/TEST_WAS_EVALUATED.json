@@ -1,0 +1,51 @@
+{
+  "when": "2026-10-03T15:08:10+00:00",
+  "selection": {
+    "moneyline": "linear/CARRY5",
+    "spread": "linear/CARRY5",
+    "totals": "linear/CARRY10"
+  },
+  "elo": {
+    "k": 40,
+    "carryover": 0.5,
+    "train_log_loss": 0.6294338151909528
+  },
+  "results": {
+    "moneyline": {
+      "window": "CARRY5",
+      "family": "linear",
+      "n": 589,
+      "n_expansion": 150,
+      "model": 0.6130076133524055,
+      "naive": 0.6877912183478407,
+      "elo": 0.6045881185129538,
+      "model_excl": 0.6160277517032676,
+      "naive_excl": 0.6884073770615505,
+      "model_only_exp": 0.6041686751122164
+    },
+    "spread": {
+      "window": "CARRY5",
+      "family": "linear",
+      "n": 589,
+      "n_expansion": 150,
+      "model": 10.2923267403894,
+      "naive": 12.060780984719862,
+      "elo": null,
+      "model_excl": 10.24470190365977,
+      "naive_excl": 11.662870159453304,
+      "model_only_exp": 10.43170876255145
+    },
+    "totals": {
+      "window": "CARRY10",
+      "family": "linear",
+      "n": 575,
+      "n_expansion": 136,
+      "model": 14.47977699661158,
+      "naive": 15.062782608695652,
+      "elo": null,
+      "model_excl": 13.96907932270395,
+      "naive_excl": 14.438041002277904,
+      "model_only_exp": 16.128279046945764
+    }
+  }
+}

@@ -1,0 +1,42 @@
+package com.andreisichet.basketball_predictor.model;
+
+import java.time.Instant;
+import java.time.LocalDate;
+
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+/** One set of WNBA model outputs for one game. */
+@Entity
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class WnbaPrediction {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "game_id")
+    private Game game;
+
+    private double homeWinProbability;
+
+    private double homeMargin;
+
+    private double totalPoints;
+
+    private LocalDate dataAsOf;
+
+    private boolean stale;
+
+    private Instant predictedAt;
+}

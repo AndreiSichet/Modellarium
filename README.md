@@ -4,7 +4,7 @@ A personal sportsbook, in active development.
 
 For each NBA game it predicts the winner, the margin, and the totals for points, rebounds and assists — the same again for the first quarter and the first half — plus five stats for each player expected to play. Every number comes from models trained here on eleven seasons of real results. Nothing is scraped from a bookmaker.
 
-The NBA is the only sport so far. The pipeline is built so another can be added alongside it rather than replacing it.
+**The WNBA was added as a second league in October 2026**, with its own pipeline, its own models and its own three markets. It is reachable over HTTP and does not appear in the web interface yet.
 
 ---
 
@@ -17,8 +17,9 @@ Three families, all reachable in the running app.
 | **Full game** | 7 | Home win probability, home margin, total points, rebound margin/total, assist margin/total |
 | **First quarter and first half** | 6 | Winner, margin and total for each period. Q1 and 1H only, not all four quarters |
 | **Player props** | 5 per player | Points, rebounds, assists, three-pointers made, and the three combined. Up to 10 players per team |
+| **WNBA** | 3 | Winner, margin and total points. Twelve seasons, its own models — **not yet in the web interface** |
 
-Two of the markets carry qualifiers that travel all the way to the screen rather than being hidden: the quarter and half winner probabilities are conditional on the period not being tied, and the first-quarter winner is labelled low confidence because it measurably is.
+Three of the markets carry qualifiers that travel all the way to the caller rather than being hidden: the quarter and half winner probabilities are conditional on the period not being tied, the first-quarter winner is labelled low confidence because it measurably is, and the WNBA winner carries a caveat recording that a bare Elo formula beat it on the held-out seasons.
 
 ## Scope, stated plainly
 
@@ -68,19 +69,24 @@ basketball-predictor/
 │   │                       team advanced stats, live injury report
 │   ├── preprocessing/      Validation, rolling features, rest days, Elo,
 │   │                       availability, and the final dataset build
+│   ├── wnba/               The second league's own pipeline, parallel
+│   │                       to the NBA's rather than sharing it
 │   └── data/               raw/ and processed/ (mostly gitignored)
 ├── ml-training/            Baselines, XGBoost, tuning, finalisation
 │   ├── models/             7 production models (committed)
 │   ├── models_quarter_half/    6 models + manifest
 │   ├── models_player_props/    10 artifacts + routing manifest
+│   ├── wnba/                   Selection, and the live feature module
+│   ├── models_wnba/            3 models + manifest
 │   ├── continuous_retrain.py   Scheduled retrain with a promotion gate
 │   └── model_evaluation.py     Shared scoring
 ├── injury-service/         FastAPI — turns the injury-report PDF into JSON
 │                           (the only service carrying a Java runtime)
-├── inference-service/      FastAPI — /health, /schedule, three /predict routes
+├── inference-service/      FastAPI — /health, schedules, four /predict routes
 ├── backend/                Spring Boot REST API + PostgreSQL
 │   └── src/                   Spring Boot application
 ├── frontend/               React — four routes, a seven-tab game detail page
+│                           (NBA only; the WNBA is not surfaced yet)
 ├── infra/                  Terraform (not started)
 ├── .github/workflows/      ci.yml, continuous-retrain.yml
 ├── PROJECT_INSIGHTS.md     How the whole system works, in detail
@@ -116,7 +122,9 @@ Working end to end, locally and under Docker Compose.
 - [x] Live feature computation for an unplayed matchup
 - [x] Inference service — three prediction endpoints, health and schedule
 - [x] Backend — Spring Boot, PostgreSQL persistence, cached fixture sync
-- [x] Frontend — browse and detail views over all three prediction families
+- [x] Frontend — browse and detail views over all three NBA prediction families
+- [x] A second league — WNBA pipeline, models, inference and backend endpoints
+- [ ] The WNBA in the web interface
 - [x] Docker and Compose — all five services
 - [x] CI — four parallel jobs, all green
 - [x] Continuous retraining with a promotion gate
@@ -127,7 +135,9 @@ Working end to end, locally and under Docker Compose.
 
 Serving roster availability is the highest-value remaining work — it is the only change so far that measurably beat the accuracy ceiling — but it cannot be verified until the 2026-27 season opens and real injury reports exist. Cloud deployment and CD are the last two items on the original milestone list.
 
-Longer term: market odds as a model input, drift monitoring across a season, and a second sport.
+The WNBA's markets work over HTTP and are invisible in a browser, so surfacing them is the next piece of league work — the serving layer was finished first so the interface has something real to display.
+
+Longer term: market odds as a measuring stick, drift monitoring across a season, and a second sport.
 
 ---
 

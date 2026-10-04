@@ -1,8 +1,10 @@
 package com.andreisichet.basketball_predictor.dto;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -11,6 +13,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.json.JsonTest;
+
+import com.andreisichet.basketball_predictor.model.WnbaPrediction;
 
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -25,6 +29,16 @@ class InferenceWireShapeTest {
     private static final LocalDate DATA_AS_OF = LocalDate.of(2026, 4, 12);
     private static final int DAYS_BEHIND = 146;
 
+    /**
+     * health.json was recaptured when the WNBA family was added, so its
+     * daysBehind is from that later moment while the four prediction fixtures
+     * keep theirs. The numbers are both static records of a real response; no
+     * test cross-references the two, so they are allowed to differ rather
+     * than one being edited to match the other.
+     */
+    private static final int HEALTH_DAYS_BEHIND = 174;
+    private static final LocalDate WNBA_DATA_AS_OF = LocalDate.of(2026, 9, 24);
+
     @Nested
     class Health {
         @Test
@@ -34,11 +48,26 @@ class InferenceWireShapeTest {
 
             assertThat(health.status()).isEqualTo("ok");
             assertThat(health.dataAsOf()).isEqualTo(DATA_AS_OF);
-            assertThat(health.daysBehind()).isEqualTo(DAYS_BEHIND);
+            assertThat(health.daysBehind()).isEqualTo(HEALTH_DAYS_BEHIND);
             assertThat(health.stale()).isTrue();
 
             assertThat(health.modelsLoaded()).containsExactlyInAnyOrderEntriesOf(
-                    Map.of("team", 7, "quarter_half", 6, "player_props", 10));
+                    Map.of("team", 7, "quarter_half", 6, "player_props", 10, "wnba", 3));
+        }
+
+        @Test
+        void deserialisesTheWnbaBlockAsItsOwnCutoff() {
+            InferenceHealth health =
+                    mapper.readValue(Fixture.read("health.json"), InferenceHealth.class);
+
+            assertThat(health.wnba()).isNotNull();
+            assertThat(health.wnba().dataAsOf()).isEqualTo(WNBA_DATA_AS_OF);
+            assertThat(health.wnba().stale()).isTrue();
+
+            // The point of the nested block: a DIFFERENT date from the NBA's.
+            // If these were ever equal the test would still pass, so the
+            // inequality is asserted rather than left implied by two literals.
+            assertThat(health.wnba().dataAsOf()).isNotEqualTo(health.dataAsOf());
         }
 
         @Test
@@ -51,6 +80,11 @@ class InferenceWireShapeTest {
             assertThat(dto.modelsLoaded()).isEqualTo(health.modelsLoaded());
             assertThat(dto.dataAsOf()).isEqualTo(DATA_AS_OF);
             assertThat(dto.stale()).isTrue();
+
+            // The NBA cutoff stays top-level and the WNBA's arrives beside
+            // it, which is the additive shape section 21's outage argued for.
+            assertThat(dto.wnba()).isNotNull();
+            assertThat(dto.wnba().dataAsOf()).isEqualTo(WNBA_DATA_AS_OF);
         }
     }
 
@@ -210,6 +244,88 @@ class InferenceWireShapeTest {
                             assertThat(player.value(target)).isNotNaN();
                         }
                     }));
+        }
+    }
+
+    @Nested
+    class Wnba {
+        private static final LocalDate GAME_DATE = LocalDate.of(2026, 9, 25);
+
+        @Test
+        void deserialisesAllThreeMarketsAndTheirProvenance() {
+            InferenceWnbaResponse response = mapper.readValue(
+                    Fixture.read("predict-wnba.json"), InferenceWnbaResponse.class);
+
+            assertThat(response.dataAsOf()).isEqualTo(WNBA_DATA_AS_OF);
+            assertThat(response.stale()).isTrue();
+            assertThat(response.season()).isEqualTo(2026);
+            assertThat(response.markets()).containsOnlyKeys("moneyline", "spread", "totals");
+
+            // Phoenix Mercury at home against the Las Vegas Aces. The values
+            // are pinned, not just checked for presence: they were reproduced
+            // bit-identically by the offline cross-check against phase 3's own
+            // dataset, so a drift here means the serving path moved.
+            assertThat(response.market("moneyline").value()).isEqualTo(0.18193019489666626);
+            assertThat(response.market("spread").value()).isEqualTo(-8.403725674288566);
+            assertThat(response.market("totals").value()).isEqualTo(178.40689601339275);
+
+            // Two targets chose CARRY5 and one chose CARRY10. A single window
+            // would make this field look decorative; it is not.
+            assertThat(response.market("moneyline").window()).isEqualTo("CARRY5");
+            assertThat(response.market("spread").window()).isEqualTo("CARRY5");
+            assertThat(response.market("totals").window()).isEqualTo("CARRY10");
+        }
+
+        @Test
+        void carriesTheMoneylineCaveatThroughToTheClientDto() {
+            InferenceWnbaResponse response = mapper.readValue(
+                    Fixture.read("predict-wnba.json"), InferenceWnbaResponse.class);
+
+            // The caveat is the qualifier that must survive to the screen:
+            // phase 3 measured Elo alone beating this model on the test
+            // seasons. Only moneyline carries one, and the other two must stay
+            // null rather than inheriting it.
+            assertThat(response.market("moneyline").caveat())
+                    .contains("Elo alone")
+                    .contains("NOT acted on");
+            assertThat(response.market("spread").caveat()).isNull();
+            assertThat(response.market("totals").caveat()).isNull();
+
+            WnbaPrediction saved = new WnbaPrediction();
+            saved.setHomeWinProbability(response.market("moneyline").value());
+            saved.setHomeMargin(response.market("spread").value());
+            saved.setTotalPoints(response.market("totals").value());
+            saved.setDataAsOf(response.dataAsOf());
+            saved.setStale(response.stale());
+            saved.setPredictedAt(Instant.parse("2026-10-03T00:00:00Z"));
+
+            WnbaSummaryDto.Prediction dto = WnbaSummaryDto.Prediction.of(
+                    saved,
+                    response,
+                    response.market("moneyline"),
+                    response.market("spread"),
+                    response.market("totals"));
+
+            assertThat(dto.homeWinProbability()).isEqualTo(0.18193019489666626);
+            assertThat(dto.moneylineCaveat()).isEqualTo(response.market("moneyline").caveat());
+            assertThat(dto.totalsWindow()).isEqualTo("CARRY10");
+        }
+
+        @Test
+        void aMissingMarketFailsLoudlyRatherThanReadingAsZero() {
+            // The negative test. If Python renamed or dropped a market, a
+            // lenient lookup would hand the entity a 0.0 and the row would
+            // claim a 0% win probability and a 0-point total - numbers that
+            // look like predictions. Same reasoning as the quarter/half
+            // response throwing on an unknown market name.
+            InferenceWnbaResponse response = mapper.readValue(
+                    Fixture.read("predict-wnba.json").replace("\"spread\"", "\"handicap\""),
+                    InferenceWnbaResponse.class);
+
+            assertThatThrownBy(() -> response.market("spread"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("no WNBA market named spread")
+                    .hasMessageContaining("response shape has changed");
         }
     }
 }

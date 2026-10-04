@@ -17,6 +17,7 @@ import com.andreisichet.basketball_predictor.dto.InferenceQuarterHalfResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceRequest;
 import com.andreisichet.basketball_predictor.dto.InferenceResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceScheduledGame;
+import com.andreisichet.basketball_predictor.dto.InferenceWnbaResponse;
 
 /** The one place that talks to the Python inference service. */
 @Component
@@ -43,16 +44,30 @@ public class InferenceClient {
         return post("/predict/quarter-half", body, InferenceQuarterHalfResponse.class);
     }
 
+    /** The three WNBA models: moneyline, spread and totals. */
+    public InferenceWnbaResponse predictWnba(InferenceRequest body) {
+        return post("/predict/wnba", body, InferenceWnbaResponse.class);
+    }
+
     /** Both teams' prop boards in one call. */
     public InferencePlayerPropsResponse predictPlayerProps(InferenceRequest body) {
         return post("/predict/player-props", body, InferencePlayerPropsResponse.class);
     }
 
+    /** Upcoming WNBA regular-season fixtures. */
+    public List<InferenceScheduledGame> fetchWnbaSchedule(int daysAhead) {
+        return fetchSchedule("/schedule/wnba", daysAhead);
+    }
+
     /** Upcoming regular-season fixtures, straight from nba_api. */
     public List<InferenceScheduledGame> fetchSchedule(int daysAhead) {
+        return fetchSchedule("/schedule", daysAhead);
+    }
+
+    private List<InferenceScheduledGame> fetchSchedule(String path, int daysAhead) {
         try {
             List<InferenceScheduledGame> fixtures = client.get()
-                    .uri(builder -> builder.path("/schedule")
+                    .uri(builder -> builder.path(path)
                             .queryParam("days_ahead", daysAhead)
                             .build())
                     .retrieve()

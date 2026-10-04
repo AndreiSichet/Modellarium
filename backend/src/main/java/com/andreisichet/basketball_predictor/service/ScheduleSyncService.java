@@ -3,6 +3,7 @@ package com.andreisichet.basketball_predictor.service;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.IntFunction;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -16,7 +17,7 @@ import com.andreisichet.basketball_predictor.model.Team;
 import com.andreisichet.basketball_predictor.repository.GameRepository;
 import com.andreisichet.basketball_predictor.repository.TeamRepository;
 
-/** Caches upcoming NBA fixtures into the games table. */
+/** Caches upcoming fixtures into the games table, one league at a time. */
 @Service
 public class ScheduleSyncService {
     private static final Logger log = LoggerFactory.getLogger(ScheduleSyncService.class);
@@ -40,25 +41,59 @@ public class ScheduleSyncService {
         this.daysAhead = daysAhead;
     }
 
-    /** Fetch the upcoming schedule and make sure every fixture has a row. */
+    /**
+     * The NBA schedule. A SEPARATE TRANSACTION from the WNBA's.
+     *
+     * The two leagues are synced by two public methods rather than one, and
+     * that is the whole point: @Transactional is proxy-based, so one method
+     * calling the other on `this` would share a single transaction and a
+     * WNBA failure would roll back the NBA fixtures written before it. The
+     * job calls both through the proxy, so each gets its own transaction and
+     * its own fetch failure handling.
+     */
     @Transactional
-    public void sync() {
+    public void syncNba() {
+        syncLeague("NBA", inferenceClient::fetchSchedule);
+    }
+
+    /**
+     * The WNBA schedule, independently.
+     *
+     * Expected to cache NOTHING for most of the year, and that is correct
+     * rather than broken: the WNBA regular season runs May to September, and
+     * the type-digit filter on the Python side keeps playoff fixtures out
+     * because no model here has seen one. Measured in October 2026 - all 17
+     * unplayed WNBA games were playoffs, so this syncs 0 fixtures.
+     */
+    @Transactional
+    public void syncWnba() {
+        syncLeague("WNBA", inferenceClient::fetchWnbaSchedule);
+    }
+
+    private void syncLeague(
+            String league, IntFunction<List<InferenceScheduledGame>> fetch) {
         List<InferenceScheduledGame> fixtures;
 
         try {
-            fixtures = inferenceClient.fetchSchedule(daysAhead);
+            fixtures = fetch.apply(daysAhead);
         } catch (Exception error) {
-            log.warn("Schedule sync skipped - could not fetch fixtures: {}", error.getMessage());
+            log.warn("{} schedule sync skipped - could not fetch fixtures: {}",
+                    league, error.getMessage());
             return;
         }
 
         if (fixtures.isEmpty()) {
-            log.info("Schedule sync: 0 fixtures returned for the next {} days, nothing to cache.",
-                    daysAhead);
+            log.info("{} schedule sync: 0 fixtures returned for the next {} days, "
+                    + "nothing to cache.", league, daysAhead);
             return;
         }
 
-        Map<Long, Team> teamsById = teamRepository.findAll().stream()
+        // Scoped to the league being synced. The two id ranges are disjoint,
+        // so a fixture from the wrong league would simply fail to resolve and
+        // be counted as skipped rather than quietly written against the other
+        // league's team rows.
+        Map<Long, Team> teamsById = teamRepository.findByLeagueOrderByNameAsc(league)
+                .stream()
                 .collect(Collectors.toMap(Team::getId, Function.identity()));
 
         long before = gameRepository.count();
@@ -77,7 +112,9 @@ public class ScheduleSyncService {
         }
 
         long created = gameRepository.count() - before;
-        log.info("Schedule sync: {} fixtures fetched ({} days ahead), {} new, {} already present{}.",
+        log.info("{} schedule sync: {} fixtures fetched ({} days ahead), {} new, "
+                + "{} already present{}.",
+                league,
                 fixtures.size(),
                 daysAhead,
                 created,

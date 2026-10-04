@@ -62,6 +62,42 @@ COPY data-pipeline/data/processed/games_final.csv \
      data-pipeline/data/processed/player_boxscores_with_rolling.csv \
      ./data-pipeline/data/processed/
 
+# WNBA. A fourth model family, and the first league that is not the NBA, so
+# it gets its own directories throughout rather than extra columns in the
+# NBA's - the same parallel-not-shared arrangement the pipeline uses.
+#
+# wnba_games_final.csv is 746 KB against the NBA's 6 MB, and it was
+# gitignored as disposable pipeline output until this line existed. That is
+# the fourth time a genuine runtime dependency has been found inside a broad
+# ignore rule, so it was checked in the same change that added this COPY
+# rather than by a red CI run - CLAUDE.md section 4's standing rule.
+#
+# NAME COLLISION, AND IT IS THE WRONG WAY ROUND. Despite the name, this is
+# NOT the WNBA counterpart of the NBA's games_final.csv: it is the RAW long
+# table, the counterpart of games_master.csv. The file carrying rolling,
+# rest and Elo is wnba_games_final_features.csv, and it is deliberately NOT
+# here. Serving replays all three from this raw table under the parameters
+# in models_wnba/manifest.json, so there is no precomputed feature column
+# in the image that could drift from what the models were fitted on.
+#
+# The directory copy is deliberate: the registry check reads manifest.json
+# and globs the directory, so adding a fourth WNBA target needs no change
+# here. It also carries the test-once receipt and the selection tables,
+# which nothing in the image reads but which are the artifacts' provenance.
+COPY ml-training/wnba/live_wnba_features.py ./ml-training/wnba/
+COPY data-pipeline/wnba/preprocessing/build_wnba_rolling_features.py \
+     data-pipeline/wnba/preprocessing/build_wnba_rest_days.py \
+     data-pipeline/wnba/preprocessing/build_wnba_elo.py \
+     ./data-pipeline/wnba/preprocessing/
+# fetch_wnba_games is here for current_season() alone - the WNBA's May season
+# boundary is defined there and restating it would be a second copy. It is
+# imported lazily inside season_of() so nba_api is not pulled in at startup,
+# and as with fetch_player_boxscores above, nothing in the image calls the API.
+COPY data-pipeline/wnba/ingestion/fetch_wnba_games.py ./data-pipeline/wnba/ingestion/
+COPY ml-training/models_wnba/ ./ml-training/models_wnba/
+COPY data-pipeline/data/wnba/processed/wnba_games_final.csv \
+     ./data-pipeline/data/wnba/processed/
+
 WORKDIR /app/inference-service
 
 EXPOSE 8000

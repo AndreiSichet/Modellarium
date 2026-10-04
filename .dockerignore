@@ -32,6 +32,16 @@ data-pipeline/data/processed/games_with_rolling.csv
 data-pipeline/data/processed/games_with_features.csv
 data-pipeline/data/processed/model_dataset.csv
 
+# The same split for the WNBA. These patterns are path-specific rather than
+# glob-based, so the NBA rules above match nothing under data/wnba/ - which
+# would have uploaded 12.7 MB of raw pulls and intermediates that no image
+# instruction copies. Only wnba_games_final.csv is served.
+data-pipeline/data/wnba/raw/
+data-pipeline/data/wnba/processed/wnba_games_with_rolling.csv
+data-pipeline/data/wnba/processed/wnba_games_with_features.csv
+data-pipeline/data/wnba/processed/wnba_games_final_features.csv
+data-pipeline/data/wnba/processed/wnba_model_dataset.csv
+
 # Editor/OS noise.
 .vscode/
 *.code-workspace

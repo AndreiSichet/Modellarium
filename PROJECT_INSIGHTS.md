@@ -52,9 +52,10 @@ requirement.
 16. [Testing everything](#16-testing-everything)
 17. [Problems found and fixed](#17-problems-found-and-fixed)
 18. [Design decisions and why](#18-design-decisions-and-why)
-19. [The accuracy experiments — six ideas tried, six rejected](#19-the-accuracy-experiments--six-ideas-tried-six-rejected)
-20. [Known limitations and what comes next](#20-known-limitations-and-what-comes-next)
-21. [Quick reference](#21-quick-reference)
+19. [The accuracy experiments — seven ideas tried, seven rejected](#19-the-accuracy-experiments--seven-ideas-tried-seven-rejected)
+20. [The WNBA — a second league](#20-the-wnba--a-second-league)
+21. [Known limitations and what comes next](#21-known-limitations-and-what-comes-next)
+22. [Quick reference](#22-quick-reference)
 
 ---
 
@@ -917,7 +918,48 @@ The distinction that matters is not "did something go wrong". It is **"was a
 comparison actually made"**. A refusal is a measurement. A crash is the absence
 of one, and says nothing whatever about model quality.
 
-### 6.5 Why it runs on a self-hosted machine
+### 6.5 The week where nothing happens now says so
+
+The job refreshes all the data **before** it checks whether there is enough new
+data to bother retraining. So on a quiet week it rebuilds the whole derived
+dataset — 26,398 rows — and then throws it away, because the step that commits
+that file only runs when a promotion actually happens.
+
+**Throwing it away is defensible.** Committing a data refresh with no model
+change is its own decision, and nobody made it. What was wrong is that the run
+said nothing: a week that rebuilt 26,398 rows and dropped them printed exactly
+the same thing as a week where nothing arrived.
+
+Since 30 September it prints the comparison:
+
+```
+  rebuilt by this run       : 26,478 team-game rows, latest 2026-10-24
+  committed (served)        : 26,398 team-game rows, latest 2026-04-12
+  -> THIS RUN BUILT 80 ROW(S) THAT ARE BEING DISCARDED.
+```
+
+and, on an ordinary week, says that too rather than staying silent:
+
+```
+  -> identical. Nothing new was found, so nothing is being discarded.
+```
+
+**The one way this could have been written to look right and measure nothing**
+was to compare the rebuilt file against itself — read the same file twice and
+it always agrees. So the second number is read from the *committed* version in
+version control, and that was proven by deliberately adding 80 rows and
+requiring the two sides to disagree.
+
+It is **not** a failure and **not** a warning. A skip is the designed behaviour,
+so failing would turn a correct outcome red; and a warning that fires most weeks
+is one people stop reading. It is a line in the summary, which is all it needs
+to be.
+
+This sits beside the season check from 6.7, not inside it. That one answers *is
+the pipeline looking at the right season*; this one answers *did the refresh find
+anything, and where did it go*.
+
+### 6.6 Why it runs on a self-hosted machine
 
 The job needs 13,199 downloaded box-score files that are not stored in version
 control. A cloud runner starts from an empty disk and would re-download all of
@@ -935,7 +977,7 @@ which would delete 61 MB across 39,594 files at the start of every run and
 recreate the exact cold start that self-hosting exists to avoid. Silently, with
 the only visible symptom being a job that suddenly takes hours.
 
-### 6.6 How it was proven before real data existed
+### 6.7 How it was proven before real data existed
 
 Real new games do not exist until October. A "detect new data" check would
 correctly find nothing every time, so waiting would mean shipping a completely
@@ -970,11 +1012,17 @@ features.
 | `POST /predict` | The seven full-game markets |
 | `POST /predict/quarter-half` | The six period markets |
 | `POST /predict/player-props` | Both teams' player boards |
+| `GET /schedule/wnba` | Upcoming WNBA fixtures, regular season only |
+| `POST /predict/wnba` | The three WNBA markets (chapter 20) |
 
 ### 7.3 It refuses to start if anything is missing
 
 The service holds an explicit list of the seven models it expects. If the
-files on disk do not match that list exactly, **it refuses to boot**. This is
+files on disk do not match that list exactly, **it refuses to boot**. The
+WNBA's three models are checked the same way, except that the list comes from
+the models' own manifest file rather than from the code — because which WNBA
+models exist is an outcome of model selection, and a second copy in the code
+would be another thing that has to agree with it. This is
 deliberate: a service that starts successfully and then produces wrong answers
 is far worse than one that does not start.
 
@@ -1127,10 +1175,36 @@ Runs on:       localhost, port 5432 (the PostgreSQL default)
 Username:      postgres
 ```
 
-The tables are created **automatically** by Hibernate from the Java entity
-classes when the application starts. Nobody wrote the table definitions by
-hand. This is controlled by `spring.jpa.hibernate.ddl-auto=update` in
-`application.properties`.
+The tables used to be created **automatically** by Hibernate from the Java
+entity classes at startup. Since 30 September 2026 they are created by a
+**migration file** instead: `db/migration/V1__baseline.sql`, applied by Flyway,
+with Hibernate set to `ddl-auto=validate` — it now only *checks* that the
+database matches the entities and **refuses to start** if it does not.
+
+**Why that swap matters.** The old setting only ever *added*. Rename a field on
+an entity and Hibernate would add the new column and leave the old one sitting
+there, still full of data, with nothing reporting a problem. The application
+read the new column and worked. Anyone looking at the database later found two
+columns where one was true.
+
+**The baseline was copied from the live database, not generated from the Java
+classes**, and that distinction was the whole point. Generating it from the
+classes would have described what Hibernate *would* build today rather than
+what it actually built over months of small additions. If those two ever
+differed, the difference would be precisely the leftover-column problem — and
+generating from the classes would have erased the evidence before anyone read
+it. Compared column by column: **all six tables and all 45 columns matched, with
+no leftovers.** The risk was real; the damage was none.
+
+One pattern worth knowing, because it looks like a decision and is not: every
+column marked "required" holds a Java primitive (a plain number or true/false,
+which cannot be empty), and every optional one holds an object type. `game_date`
+is optional because it is a date *object*, not because anyone decided a game
+might have no date.
+
+From here, a schema change is a file somebody writes and reviews, applied in a
+known order, with a record of what ran. Before, it was a side effect of editing
+a Java class.
 
 > **A warning about which database you are looking at.** This machine can have
 > **two** PostgreSQL servers both claiming port 5432: the Windows service
@@ -1140,7 +1214,7 @@ hand. This is controlled by `spring.jpa.hibernate.ddl-auto=update` in
 > the wrong place. This cost real time; when someone says "check the database",
 > ask which.
 
-#### Table: `team` — 30 rows, all NBA teams
+#### Table: `team` — 45 rows, 30 NBA and 15 WNBA
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -1231,6 +1305,14 @@ about what the probability actually means. Those describe the **model**, not
 this request — they would be the same on row one and row ten thousand — so
 they are attached when the response is built, not written to disk.
 
+#### Table: `wnba_prediction` — the three WNBA numbers
+
+A separate table rather than extra columns on `prediction`. The WNBA prices
+three markets against the NBA's seven, so sharing one table would mean four
+columns that are always empty for a WNBA row and nothing in the row saying
+which league it belongs to. The `game` table *is* shared, which is safe
+because the two leagues' team ids do not overlap.
+
 #### Table: `player_prop_prediction` — five numbers per player per request
 
 | Column | Type | Meaning |
@@ -1295,7 +1377,7 @@ Starts everything. Carries two annotations:
 | File | Queries |
 |---|---|
 | `TeamRepository.java` | Standard operations only |
-| `GameRepository.java` | Three: unplayed games soonest-first (with an `@EntityGraph` so both teams load in the same query, 17.8); unplayed games inside a date window, used by the browse endpoint; find one game by teams + date |
+| `GameRepository.java` | Two: unplayed games inside a date window, used by the browse endpoint; and find one game by teams + date. A third — unplayed games soonest-first, with an `@EntityGraph` — was removed with `/api/games/upcoming` on 30 September (17.19) |
 | `PredictionRepository.java` | Latest prediction for one game, and all predictions for a **batch** of games |
 | `PlayerRepository.java` | Standard operations only |
 | `QuarterHalfPredictionRepository.java` | Standard operations only |
@@ -1332,7 +1414,6 @@ user's request land on the same row.
 | `PredictionService.java` | The original seven models |
 | `QuarterHalfPredictionService.java` | The six Q1/1H markets |
 | `PlayerPropPredictionService.java` | Both teams' player boards, and the find-or-create for `Player` rows |
-| `GameService.java` | Lists unplayed games with their latest prediction. Uses two queries instead of one-per-game (17.8) |
 | `ScheduleService.java` | Serves the cached fixture list and the live freshness check. Holds no network client of its own |
 | `ScheduleSyncService.java` | Fetches the fixture list and caches it |
 
@@ -1388,16 +1469,37 @@ POST http://localhost:8080/api/predictions
 |---|---|
 | 1 | Spring routes it to `PredictionController` and turns the JSON into a `PredictionRequest` object |
 | 2 | The controller hands it to `PredictionService` and does nothing else |
-| 3 | A database transaction begins |
-| 4 | `GameLookup` finds both teams. If either is unknown: stop, 400, nothing saved |
+| 3 | `GameLookup` finds both teams. If either is unknown: stop, 400, nothing saved |
 | 5 | `InferenceClient` POSTs to `http://localhost:8000/predict`, field names converted to the underscore style Python expects |
 | 6 | The Python service computes the inputs, runs the seven models, and returns the numbers plus `data_as_of` and `stale` |
 | 7 | If Python replied 400, `InferenceClient` turns that into our 400 with Python's own explanation attached. **Nothing has been written yet** — that ordering is the point (17.3) |
-| 8 | `GameLookup` finds the existing game or creates one. Since the sync job caches fixtures in advance, it usually **finds** one |
-| 9 | A `Prediction` row is saved |
-| 10 | A `GameSummaryDto` is assembled **while the session is still open** |
-| 11 | The transaction commits |
-| 12 | Spring converts the DTO to JSON, status 200 |
+| 8 | **A database transaction begins here**, and not before — see below |
+| 9 | `GameLookup` finds the existing game or creates one. Since the sync job caches fixtures in advance, it usually **finds** one |
+| 10 | A `Prediction` row is saved |
+| 11 | A `GameSummaryDto` is assembled **while the session is still open** |
+| 12 | The transaction commits |
+| 13 | Spring converts the DTO to JSON, status 200 |
+
+**Step 3 used to be "a transaction begins", and moving it to step 8 is a real
+change made on 30 September.** A database connection is a limited resource, and
+the old arrangement held one for the entire round trip to Python — including
+the time Python spent thinking, and including the full wait when Python is slow
+or not answering at all. Locally that is a few hundred milliseconds and costs
+nothing. Once the Python service lives on another machine, every request in
+flight would be occupying a connection purely in order to wait.
+
+Measured on the heaviest of the three endpoints: the whole request takes about
+**360 milliseconds**, of which the transaction is open for **75**. The other
+285 now hold nothing.
+
+**What did not change is the ordering, and that mattered more than the
+speed-up.** Python is still called before anything is written, so a request
+Python rejects still leaves no trace. That was a real bug once (17.3), and
+rearranging where the transaction starts is exactly the kind of change that
+would quietly undo it — so it was tested both ways: with Python **stopped**,
+and with a request Python **rejects**. Those are different paths, and stopping
+the service only exercises one of them. All three endpoints returned the right
+error and wrote nothing, either way.
 
 The quarter/half and player-prop endpoints follow the identical shape. The
 only differences are which Python endpoint is called, which table is written,
@@ -1553,35 +1655,65 @@ live API and get a year; now it gets 120 days.
 An empty list is a valid answer, not an error — there genuinely are no NBA
 fixtures in the next fourteen days during the off-season.
 
-### 12.5 `GET /api/games/upcoming` — stored games with their latest prediction
+> **There used to be a seventh endpoint here.** `GET /api/games/upcoming`
+> returned stored games with their latest prediction. The website rebuild
+> removed its last caller, and on 30 September the endpoint, its service class
+> and both its tests were deleted on purpose rather than left to rot. The story
+> of what that deletion found is in 17.19 — it is more interesting than the
+> endpoint was.
 
-**Response 200:** a list of `GameSummaryDto`, same shape as 12.1's response.
+### 12.4b `POST /api/predictions/wnba` — the three WNBA numbers
 
-Returns hundreds of rows rather than a handful, because the sync job fills the
-table. That is what turned its long-documented N+1 query into a measured 486
-database queries per call; it is now 2. See 17.8.
+Request body is the same shape as the others. The response carries which
+rolling window produced each market, and the moneyline's caveat verbatim.
 
-> **This endpoint currently has no caller.** The frontend rebuild removed the
-> browse view that used it. The endpoint and both its regression tests are
-> still live and still correct — they are simply guarding something nothing
-> calls. See 19.13.
+**Response 200:**
+```json
+{ "gameId": 715,
+  "homeTeamAbbreviation": "PHX",
+  "awayTeamAbbreviation": "LVA",
+  "gameDate": "2026-09-25",
+  "prediction": {
+    "homeWinProbability": 0.18193019489666626,
+    "homeMargin": -8.403725674288566,
+    "totalPoints": 178.40689601339275,
+    "moneylineWindow": "CARRY5",
+    "spreadWindow": "CARRY5",
+    "totalsWindow": "CARRY10",
+    "moneylineCaveat": "Elo alone scored 0.6046 on test against this model's 0.6130 ...",
+    "dataAsOf": "2026-09-24",
+    "stale": true,
+    "daysBehind": 9,
+    "predictedAt": "2026-10-03T19:49:17.611836194Z" } }
+```
 
-### 12.6 `GET /api/teams` — all 30 teams
+**Response 400** when the fixture cannot be scored at all — a team early in
+its season, or in its first games as a franchise, has no complete rolling
+window, and the WNBA's linear models cannot accept a missing value. The
+message names what is missing. See chapter 20.
+
+### 12.5 `GET /api/teams?league=NBA` — one league's teams
+
+Defaults to the NBA and returns the same 30 rows it always did. `?league=WNBA`
+returns the 15 WNBA teams. It does **not** return all 45: eight abbreviations
+belong to a team in each league, so a combined list would show two Atlantas to
+anything keying on the short code.
 
 **Response 200:**
 ```json
 [ { "id": 1610612737, "name": "Atlanta Hawks", "abbreviation": "ATL" } ]
 ```
 
-### 12.7 `GET /api/health` — how fresh the underlying data is
+### 12.6 `GET /api/health` — how fresh the underlying data is
 
 **Response 200:**
 ```json
 { "status": "ok",
-  "modelsLoaded": { "team": 7, "quarter_half": 6, "player_props": 10 },
+  "modelsLoaded": { "team": 7, "quarter_half": 6, "player_props": 10, "wnba": 3 },
   "dataAsOf": "2026-04-12",
-  "daysBehind": 139,
-  "stale": true }
+  "daysBehind": 174,
+  "stale": true,
+  "wnba": { "dataAsOf": "2026-09-24", "daysBehind": 9, "stale": true } }
 ```
 
 `modelsLoaded` **used to be a single number** and is now a breakdown per model
@@ -1986,21 +2118,43 @@ Three things about it are deliberate and easy to undo by accident:
 harmless addition the backend should tolerate, while the two destructive
 changes are the ones that have actually caused outages.
 
-**`GameServiceUpcomingDateTest`** — two tests. Checks that "upcoming games"
-means games in the future. Nothing ever marks a game as played, so "not
-played" had quietly stopped meaning "still to come" once hundreds of fixtures
-were being cached. Includes a boundary case pinning that a game dated **today**
-still counts as upcoming, since the two spellings of that rule are one word
-apart.
+**`ScheduleServiceQueryCountTest`** — asks for the fixture list and counts how
+many database queries that took, using Hibernate's own statistics rather than
+reading the log (an earlier attempt at log-reading produced a wrong number,
+because output is buffered and the first call's queries appeared after the
+second marker).
 
-**`GameServiceQueryCountTest`** — asks for the upcoming-games list and counts
-how many database queries that took, using Hibernate's own statistics. Fails
-if the count grows with the number of games. Exists because that endpoint
-quietly went from 2 queries to 486 without anything failing (17.8).
+Measured: **2 queries for 729 fixtures, and 2 for 7,290.** Ten times the
+fixtures, the same two queries.
 
-It asserts a small **ceiling** rather than an exact number: what must hold is
-that the count does not scale, and pinning it to exactly 2 would break on
-unrelated changes to how Hibernate batches.
+It replaced two tests that were deleted along with `/api/games/upcoming`. The
+risk did not go with them — it moved. The browse endpoint serves ~690 fixtures
+on every page load and nothing was pinning it.
+
+**It asserts two different things, and both are load-bearing:**
+
+- **A ceiling** rather than an exact number, because what must hold is that the
+  count does not scale. Pinning it at exactly 2 would break on an unrelated
+  change to how Hibernate batches, and a test that fires for the wrong reason
+  gets relaxed rather than investigated.
+- **The same count at ten times the fixtures.** This is the one that catches a
+  genuine per-game query.
+
+Why both: fetching teams one-per-game costs **31** queries, not 690, because
+the database session remembers entities it has already loaded and there are
+only 30 teams. So the ceiling catches that, while the ten-times comparison
+catches anything the session cannot deduplicate. The deleted test had only the
+ceiling.
+
+**The second measurement seeds nine times whatever the first one saw, rather
+than a fixed number.** Written first with a fixed batch, it compared 729
+fixtures against 1,129 — a 1.55x increase, which proves almost nothing, because
+the fixtures already cached in the table dominate any fixed addition. The ratio
+is now asserted rather than assumed, so the check cannot quietly weaken as the
+table grows.
+
+**It is deliberately not wrapped in a test transaction**, and that is not a
+detail — see 17.20.
 
 ### 16.3 The checks worth repeating after any change
 
@@ -2380,6 +2534,67 @@ stylesheet contained exactly the right rules:
 
 **Checking that a declaration is present is not checking the box it lands in.**
 
+### 17.18 A library that was installed, loaded, and did nothing
+
+Adding Flyway meant adding two packages. Both resolved, both were inside the
+built application, and the application **started normally, ran no migration, and
+created no tracking table.** No error. No warning. The check that the database
+matched the code passed — but only because the database already happened to
+match.
+
+Spring Boot 4 moved each integration's automatic wiring into its own separate
+package. The migration tool itself was present; the piece that *notices* it and
+runs it was not. The same split had already caught this project once before,
+with the HTTP client.
+
+**The tell was the absence of something.** Seven lines that should have appeared
+in the startup log did not. Nothing draws attention to a log message that never
+arrives, which makes this harder to spot than any failure.
+
+### 17.19 A deletion that did not close what it was supposed to
+
+`GET /api/games/upcoming` had no caller left after the website was rebuilt, so
+it was removed — the endpoint, its service class, a repository query and two
+tests.
+
+The stated reason for doing it was partly that it would settle a separate loose
+end: a `played` flag that nothing ever sets to true, whose only reader was
+supposedly this endpoint. **It was not the only reader.** Listing them rather
+than trusting the claim found two, and the survivor is on the path the website
+actually uses — every prediction response still carries that field. Confirmed
+against the running system, not by reading code.
+
+So the flag went from two readers to one, and the loose end is exactly as loose
+as it was.
+
+**The thing genuinely worth checking was something else**, and it was clear: two
+database queries that read almost identically, where only one carried the
+instruction that loads both teams in a single query. Had they been the same one,
+deleting it would have quietly restored a 30-query pattern — no error, just a
+slower page.
+
+### 17.20 A guard that passed when it should have failed
+
+The replacement query-count test (16.2) needed proving. The way to prove a guard
+works is to break the thing it guards and watch it go red.
+
+So the shared team lookup was swapped for a per-game one, which is exactly the
+regression the test exists to catch. **The test stayed green.**
+
+Not because the guard was weak. The service runs inside a database session, and
+the full list of teams had already been loaded a moment earlier, so every
+per-game lookup was answered from memory without touching the database. Nothing
+to count.
+
+A guard verified that way would have looked verified and been blind to a partial
+change. The faithful version of the break — removing the shared lookup *as well*
+— goes red at 31 queries, as it should.
+
+**This is the third time a verification tool in this project has been wrong
+about its own subject, and the third time a positive control found it rather
+than review.** The pattern is always the same: the test that is supposed to fail
+does not, and the reason is never that the code is fine.
+
 ---
 
 ## 18. Design decisions and why
@@ -2473,16 +2688,17 @@ moved to finding new information instead.
 
 ---
 
-## 19. The accuracy experiments — six ideas tried, six rejected
+## 19. The accuracy experiments — seven ideas tried, seven rejected
 
 Chapter 5 described the ceiling: three completely different kinds of model all
 land in the same accuracy band, so the limit is what the features know rather
 than how cleverly they are combined. The obvious response is to go looking for
 new information.
 
-Six attempts have now been made. **All six were rejected**, and this chapter is
-the record of what each one was, what it found, and — the part that took longest
-to learn — **why the six failures are not all the same kind of failure.**
+Seven attempts have now been made. **All seven were rejected**, and this chapter
+is the record of what each one was, what it found, and — the part that took
+longest to learn — **why the seven failures are not all the same kind of
+failure.**
 
 Two of them worked in the sense that mattered most: they cost a few hours and
 prevented a few weeks.
@@ -2497,6 +2713,7 @@ prevented a few weeks.
 | 4 | Weighting absences by player quality | nothing | information was genuinely new |
 | 5 | Shot location and shot quality | tie, then stopped | information was genuinely new |
 | 6 | Travel, time zones and schedule density | tie | **both, and it could tell which** |
+| 7 | Counting absences differently, not weighting them | tiny but real | **the question was wrong** |
 
 Numbers 1 and 3 failed because the information was already in the model under
 another name. Numbers 4, 5 and 6 failed **despite the information being
@@ -2589,7 +2806,7 @@ absence by that player's recent **minutes**. Minutes are a proxy for a coach's
 trust, not for contribution — so a superstar and a rotation player missing the
 same 32 minutes currently count identically.
 
-**This was the best-founded of the six**, because the model has no
+**This was the best-founded of the seven**, because the model has no
 representation of player quality anywhere: team averages describe outcomes, and
 the rating system is team-level by construction. The gap was real.
 
@@ -2703,11 +2920,63 @@ model already had — days since the last game:
   of it. Its null does not establish that density is useless, only that whatever
   it adds is not usable.
 
-**That diagnostic is the one thing from these six experiments most worth
+**That diagnostic is the one thing from these seven experiments most worth
 reusing.** Run it before scoring, and a null becomes classifiable rather than
 arguable.
 
-### 19.7 What makes these results trustworthy
+### 19.7 Does it matter *how many* are missing, or *who*? (Absence counting)
+
+Experiment 4 changed how much each missing player *counts for* and found
+nothing. That left one idea standing, and it was a good one.
+
+The feature adds up the missing players' typical minutes. So a team missing one
+35-minute starter and a team missing three 12-minute bench players land on
+almost the same number — the total hides the difference between losing someone
+irreplaceable and losing depth. **Concentration is plausibly what matters, and
+a total cannot see it.**
+
+So this kept the weighting exactly as it is and changed only the arithmetic:
+the largest single absence instead of the total, both together, and the sum of
+the two largest.
+
+**The diagnostic from experiment 6 answered it before a single model was
+trained.** Comparing each new arithmetic against the total it would replace:
+the largest single absence agrees with the total at **0.87**, and the top two
+at **0.96**. Above roughly 0.8, a null result means the *question* was wrong
+rather than that the model could not use the answer — these are not different
+quantities on real NBA rosters, they are the same quantity wearing a different
+hat.
+
+**The reason is in the counts.** A third of team-games have no absences or one,
+where the two arithmetics cannot possibly differ. Measured rather than assumed,
+they are actually identical on **60%** of cases, because so many absences carry
+no weight at all.
+
+The models confirmed it: both together made things very slightly worse, the
+largest-single made no difference, and the top-two was **0.44% better**.
+
+**That last number is real and still does not matter**, which is a distinction
+worth keeping. The margin of error excluded zero — and only barely, so the
+calculation was redone across ten different random draws, all ten agreeing. So
+it is a genuine improvement, and it is **one seventh** of what would justify
+changing anything, from a variant that is 96% the same as what it replaces.
+
+Calling it a tie would be wrong. Calling it a finding would be worse.
+
+**A guess written into the plan was overturned by counting.** The plan reasoned
+that taking the largest absence would be more exposed to the missing-weight
+problem than a total, because a star with no weight vanishes entirely where in a
+total the others still contribute. Measured, all three arithmetics report zero on
+**exactly the same 5,640 team-games**. The exposure comes from games where
+*every* absence is unweighted, and there all three agree.
+
+**What this leaves.** Availability has now resisted two ways of weighting it and
+one way of counting it. The one thing still known to be wrong is that 40% of
+absences carry no weight because the player has not played enough games yet —
+and that is a coverage problem the new season fixes by itself. No experiment
+needed.
+
+### 19.8 What makes these results trustworthy
 
 Every experiment above follows the same discipline, and each rule exists because
 something went wrong without it.
@@ -2739,7 +3008,7 @@ its first two probes. Both times the *check* was right and the probe was wrong:
 cannot when two consecutive venues share a zone. Neither is a defect; the fix
 was to test each feature where its test can mean something.
 
-### 19.8 What six rejections actually establish
+### 19.9 What seven rejections actually establish
 
 Not that the model is finished, and not that nothing will ever help. Something
 narrower and more useful:
@@ -2762,7 +3031,195 @@ the only measure that would mean the model knows something the world does not.
 
 ---
 
-## 20. Known limitations and what comes next
+## 20. The WNBA — a second league
+
+Everything described so far is about the NBA. In October 2026 the app gained a
+second league, and this chapter is the whole of it: why it was built the way
+it was, what it predicts, how good it is, and the one thing still missing.
+
+### Why a second league at all
+
+The NBA side had run out of ideas. Seven separate attempts to improve accuracy
+had all failed (chapter 19), and the conclusion was that the information in a
+box score had been squeezed dry. Adding a league does not pretend to solve
+that. It does something different: it tests whether the *machinery* — the
+pipeline, the feature discipline, the validation, the serving path — transfers
+to a different sport-shaped problem, and it roughly doubles what the app can
+actually show someone.
+
+The WNBA was the right second league because the data comes from the same
+place. The same `nba_api` library serves it, under a different league code, so
+no new data source had to be found, licensed or scraped.
+
+### Parallel, not shared
+
+The WNBA has its own folders throughout: its own ingestion script, its own
+preprocessing, its own models directory, its own database table, its own
+endpoints. Almost nothing is shared with the NBA code.
+
+That looks like duplication and it is deliberate. The alternative — adding a
+"league" parameter to every existing script — would mean every NBA code path
+growing a branch, and every one of those branches is a chance to break
+something that currently works. The NBA is the part of this app that has been
+verified to death; it should not have to change to make room for a newcomer.
+
+The one thing that *is* shared is a single function called `trailing_mean`,
+which computes a rolling average with the one-game lag that keeps a game's own
+result out of its own features. Sharing that is the point: a second copy of
+the lag rule is exactly where a subtle data leak would appear.
+
+### The league is smaller, and that changed real decisions
+
+| | NBA | WNBA |
+|---|---|---|
+| games per season | 1,230 | 220 to 440 |
+| seasons used | 11 | 12 |
+| games in total | 13,199 | 2,655 |
+| teams | 30 | 15 |
+
+A fifth of the data. Three things followed from that, and none of them were
+copied from the NBA.
+
+**Simple models win.** On the NBA, boosted trees and linear regression tie.
+On the WNBA, linear regression beats trees on all three markets at every
+setting tried — not one configuration where the tree won. So the WNBA ships
+linear models. Copying the NBA's choice of algorithm because it is the NBA's
+choice would have shipped something measurably worse.
+
+**The rolling window had to be reconsidered.** The NBA looks at a team's last
+5 and last 10 games within the current season. Ten games is a quarter of a
+WNBA season, so that rule throws away far too much: it loses 29% of games, and
+nearly half of the 2020 season. Six different window definitions were built
+and the choice was made by measurement, not by instinct — the winner carries a
+team's form *across* the season boundary rather than resetting it, which keeps
+97% of games instead of 82%.
+
+**Elo was refitted rather than inherited.** Elo is the rating system that
+tracks how strong each team is. It has two dials: how much a single result
+moves a rating, and how much of a rating carries over between seasons. The
+NBA's values are not the WNBA's, and the WNBA's were fitted from WNBA results.
+
+### What it predicts, and how good it is
+
+Three markets, against seven for the NBA:
+
+| market | what it answers | how it is scored |
+|---|---|---|
+| moneyline | will the home team win | log loss |
+| spread | by how many points | average error |
+| totals | how many points in total | average error |
+
+Measured once on two seasons that were held back from everything — model
+choice, window choice, Elo fitting:
+
+| market | model | simple baseline | improvement |
+|---|---|---|---|
+| moneyline | 0.6130 | 0.6878 | 11.0% |
+| spread | 10.29 points | 12.06 | 14.6% |
+| totals | 14.48 points | 15.06 | 3.8% |
+
+All three genuinely beat their baselines. But two honest caveats come with
+them, and both are recorded on the model files themselves rather than buried
+here.
+
+**Elo alone beat the moneyline model.** On those same two test seasons, the
+bare Elo formula — one number per team, no machine learning at all — scored
+0.6046 against the model's 0.6130. The model had beaten Elo during model
+selection and lost to it on the final test.
+
+This was deliberately **not** acted on. Changing the choice of model because
+of what the test seasons said would turn the test into another round of model
+selection, which is precisely what holding seasons back is meant to prevent.
+So it is reported, attached to the model file, and flagged as the first thing
+to look at if the moneyline market is ever revisited. **The app sends that
+caveat to the client in every response**, for the same reason the NBA's
+weakest market ships labelled "low confidence": a prediction without its
+caveat misleads.
+
+**Totals barely beats its baseline** — 3.8%, against spread's 14.6%. It is a
+real improvement and a thin one.
+
+### Serving: everything is recomputed, nothing is remembered
+
+To predict a game that has not been played, the app needs each team's recent
+form, how many days of rest they have had, and their current Elo rating. The
+pipeline already computes all of that for past games and writes it to a file.
+The serving code deliberately **does not read that file**.
+
+Instead it carries only the raw results table and recomputes form, rest and
+Elo from scratch every time the service starts. The reason is a mismatch that
+would otherwise be invisible: the precomputed Elo in that file was fitted on
+one range of seasons, while the models were trained with Elo fitted on all of
+them. Two different sets of dials, with nothing in either file saying so. A
+raw results table cannot disagree with itself.
+
+This is affordable here and would not be on the NBA side — replaying 2,655
+WNBA games takes well under a second, where the NBA has 13,199 and uses a
+cheaper shortcut.
+
+**It was checked rather than assumed.** The recomputed values were compared
+against the pipeline's own numbers on sampled historical games, and they agree
+to around sixteen decimal places. The predictions produced through the live
+path match predictions produced offline from the training data to around
+fourteen decimal places.
+
+### It refuses rather than guessing
+
+A WNBA team's first game of a season has no "days since last game" — the
+previous game was seven months ago, which is not rest. The pipeline records
+that as unknown, not as zero.
+
+The models cannot accept an unknown value at all, so a request for such a
+fixture is **refused with an explanation** rather than answered with a filled-in
+guess. The same applies to a team early enough in its season that it has not
+played enough games for the rolling window. This is the same principle that
+runs through the whole project: an unknown is never quietly turned into a
+zero, because a zero looks like a measurement.
+
+### Three things that would have gone wrong quietly
+
+**The file names point the wrong way.** The WNBA file called
+`wnba_games_final.csv` is *not* the counterpart of the NBA's
+`games_final.csv`. It is the raw table; the one with the computed features is
+`wnba_games_final_features.csv`. Anyone matching the names would wire up the
+wrong file, and the symptom would be features that look plausible and are
+wrong.
+
+**Eight team abbreviations exist in both leagues** — ATL, CHI, DAL, IND, MIN,
+PHX, TOR and WAS are each an NBA team and a WNBA team. So the short code no
+longer identifies a team. The teams list endpoint therefore returns one
+league's teams rather than all of them, or an existing screen would show two
+Atlantas. The numeric ids do not collide, and the app checks that they do not
+every time it starts.
+
+**The team-seeding guard was wrong the moment there were two leagues.** It
+filled the teams table only if the table was completely empty. On any database
+already holding the 30 NBA teams, that check passes, nothing is inserted, and
+every WNBA prediction fails with "unknown team id" — on a database that looks
+perfectly healthy. It now checks per league.
+
+### The schedule is empty most of the year, and that is correct
+
+The WNBA season runs May to September. Asked in October for upcoming WNBA
+fixtures, the app returns none.
+
+That is the right answer, and the reason is sharper than "the season is over".
+The schedule feed *does* return 17 unplayed games in October — and every one
+of them is a playoff game. The models were trained on regular-season games
+only and have never seen a playoff game, so those 17 are filtered out rather
+than offered. Without that filter the app would confidently price 17 games of
+a kind it knows nothing about.
+
+### What is missing
+
+**The browser does not know the WNBA exists.** All three markets work over
+HTTP, and none of them appear anywhere in the web interface. That is the next
+piece of work, not an oversight — the serving layer was finished first so the
+interface has something real to display.
+
+---
+
+## 21. Known limitations and what comes next
 
 These are understood and accepted, not oversights.
 
@@ -2789,11 +3246,13 @@ These are understood and accepted, not oversights.
 5. **The fixture list is only as wide as the sync horizon** — 120 days by
    default. A setting, easily raised, but a real change worth knowing about.
 
-6. **`played` is never set to `true`** (half fixed). Nothing yet notices that a
-   game has finished. What *was* fixed: `/api/games/upcoming` no longer trusts
-   the flag on its own — it asks for games dated today or later, so a fixture
-   that has simply aged past its date drops out. The remaining half is tracked
-   with the pipeline rerun.
+6. **`played` is never set to `true`.** Nothing yet notices that a game has
+   finished. The half-fix recorded here previously — asking for games dated
+   today or later — lived in `/api/games/upcoming`, which was deleted on 30
+   September, so that half is simply gone rather than superseded. **Retiring
+   that endpoint was expected to close this item and did not**: the flag has a
+   second reader nobody had listed, and every prediction response still carries
+   it (17.19). The real fix still waits on the pipeline rerun.
 
 7. **The game history is baked into the container image**, so re-running the
    pipeline means rebuilding. Fine while the data is a static artifact; a
@@ -2809,26 +3268,31 @@ These are understood and accepted, not oversights.
    file into a lockfile, which is more machinery than this project uses
    anywhere else.
 
-10. **`ddl-auto=update` will not scale.** It only ever adds. It never renames,
-    removes or alters. The standard replacement is a migration tool such as
-    Flyway, deliberately deferred while the schema is still changing.
+10. ~~**`ddl-auto=update` will not scale.**~~ **Resolved 30 September 2026.**
+    The schema is now owned by a migration file and Hibernate only checks it,
+    refusing to start on a mismatch. Done before the cloud deployment rather
+    than after, because adopting an existing schema is ordinary work while it
+    lives on one machine and a different job once it is deployed with data
+    somebody cares about. See 9 and 17.18.
 
-11. **A database transaction is held open across the call to Python.** This buys
-    all-or-nothing safety, at the cost of occupying a database connection while
-    waiting on the network. It matters slightly more now that the player-props
-    call is the heaviest of the three.
+11. ~~**A database transaction is held open across the call to Python.**~~
+    **Resolved 30 September 2026.** The call now happens outside any
+    transaction, and only the writes are wrapped. Measured on the heaviest
+    endpoint: a 360-millisecond request holds a connection for 75 of them. The
+    ordering that stops a rejected request leaving junk behind is unchanged and
+    was tested both ways. See 11.1.
 
 12. **No authentication, no rate limiting.** Anyone who can reach the port can
     call any endpoint. Acceptable on a local machine, not acceptable if exposed
     publicly.
 
-13. **One backend endpoint has no caller.** `GET /api/games/upcoming` lost its
-    last user when the website was restructured. The endpoint and its two
-    regression tests are still live and still correct — they are simply
-    guarding something nothing calls. Recorded here as a deliberate decision to
-    make rather than deleted quietly as a side effect of unrelated work.
+13. ~~**One backend endpoint has no caller.**~~ **Resolved 30 September 2026.**
+    `GET /api/games/upcoming` was deleted on purpose, in a change about it
+    rather than as a side effect of unrelated work. It did **not** settle the
+    `played` flag as expected — that had a second reader nobody had listed. See
+    17.19.
 
-14. **Test coverage is better but still thin.** Fourteen backend tests, and
+14. **Test coverage is better but still thin.** Twelve backend tests, and
     every one guards something that actually went wrong. All five Python
     response shapes are pinned, which closes the largest gap. What is still
     missing is the layer in between: nothing exercises a prediction endpoint
@@ -2867,7 +3331,7 @@ These are understood and accepted, not oversights.
 
 ---
 
-## 21. Quick reference
+## 22. Quick reference
 
 ### Start everything
 
@@ -2900,7 +3364,6 @@ cd frontend  && npm test -- --watchAll=false
 GET  /api/teams                        all 30 teams
 GET  /api/health                       data freshness + models loaded
 GET  /api/games/schedule?daysAhead=14  cached NBA fixtures
-GET  /api/games/upcoming               stored games + latest prediction
 POST /api/predictions                  the 7 whole-game numbers
 POST /api/predictions/quarter-half     the 6 Q1 / first-half numbers
 POST /api/predictions/player-props     5 numbers per player, both teams
@@ -2909,12 +3372,13 @@ POST /api/predictions/player-props     5 numbers per player, both teams
 ### Tables
 
 ```
-team                      30 rows, seeded at startup
-game                      cached fixtures + anything predicted
+team                      45 rows (30 NBA, 15 WNBA), seeded per league
+game                      cached fixtures + anything predicted, both leagues
 prediction                7 whole-game numbers per request
 player                    created on demand
 quarter_half_prediction   6 numbers per request
 player_prop_prediction    5 numbers per player per request
+wnba_prediction           3 numbers per request
 ```
 
 ### Useful database checks

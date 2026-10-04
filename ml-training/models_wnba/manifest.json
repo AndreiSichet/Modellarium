@@ -1,0 +1,203 @@
+{
+  "league": "WNBA",
+  "built": "2026-10-03T19:01:01+00:00",
+  "seasons_trained_on": [
+    2015,
+    2026
+  ],
+  "elo": {
+    "k": 40,
+    "carryover": 0.5,
+    "train_log_loss": 0.624677172797288
+  },
+  "no_holdout_warning": "These artifacts are retrained on EVERY season, so they have no holdout and cannot themselves be evaluated - the validation and test numbers below belong to the held-out versions, not to these files. This is the same choice finalize_models.py makes for the NBA, and it is also exactly what made the NBA retrain gate misjudge production (CLAUDE.md s24): scoring a no-holdout model on a window inside its own training data read 9.58 MAE against an honest 10.74. Any future WNBA retrain gate must re-fit the architecture on the candidate's own training rows rather than score these weights.",
+  "targets": {
+    "moneyline": {
+      "family": "linear",
+      "window": "CARRY5",
+      "features": [
+        "HOME_CARRY5_WIN_PCT",
+        "HOME_CARRY5_PTS",
+        "HOME_CARRY5_PTS_ALLOWED",
+        "HOME_CARRY5_PLUS_MINUS",
+        "HOME_CARRY5_FG_PCT",
+        "HOME_CARRY5_REB",
+        "HOME_CARRY5_AST",
+        "HOME_CARRY5_TOV",
+        "AWAY_CARRY5_WIN_PCT",
+        "AWAY_CARRY5_PTS",
+        "AWAY_CARRY5_PTS_ALLOWED",
+        "AWAY_CARRY5_PLUS_MINUS",
+        "AWAY_CARRY5_FG_PCT",
+        "AWAY_CARRY5_REB",
+        "AWAY_CARRY5_AST",
+        "AWAY_CARRY5_TOV",
+        "HOME_REST_DAYS",
+        "HOME_IS_BACK_TO_BACK",
+        "HOME_IS_LONG_BREAK",
+        "HOME_TEAM_ELO",
+        "AWAY_REST_DAYS",
+        "AWAY_IS_BACK_TO_BACK",
+        "AWAY_IS_LONG_BREAK",
+        "AWAY_TEAM_ELO"
+      ],
+      "label": "HOME_WIN",
+      "metric": "log_loss",
+      "requires_complete_features": true,
+      "rows_trained_on": 2538,
+      "validation": {
+        "mean": 0.5977775727324486,
+        "sd": 0.02030272989628034,
+        "folds": [
+          2021,
+          2022,
+          2023,
+          2024
+        ],
+        "runner_up": {
+          "family": "linear",
+          "window": "ROLL5",
+          "validation_mean": 0.5996556187105679,
+          "validation_sd": 0.023195067376300893
+        }
+      },
+      "test": {
+        "seasons": [
+          2025,
+          2026
+        ],
+        "n": 589,
+        "model": 0.6130076133524055,
+        "naive": 0.6877912183478407,
+        "elo_alone": 0.6045881185129538,
+        "excluding_expansion": 0.6160277517032676,
+        "expansion_only": 0.6041686751122164
+      },
+      "caveat": "Elo alone scored 0.6046 on test against this model's 0.6130, reversing the validation ordering where this model led Elo by 1.4%. NOT acted on: re-selecting on test would make the test set a validation set. Treat it as the first thing to re-examine if the moneyline market is revisited, ideally with more seasons."
+    },
+    "spread": {
+      "family": "linear",
+      "window": "CARRY5",
+      "features": [
+        "HOME_CARRY5_WIN_PCT",
+        "HOME_CARRY5_PTS",
+        "HOME_CARRY5_PTS_ALLOWED",
+        "HOME_CARRY5_PLUS_MINUS",
+        "HOME_CARRY5_FG_PCT",
+        "HOME_CARRY5_REB",
+        "HOME_CARRY5_AST",
+        "HOME_CARRY5_TOV",
+        "AWAY_CARRY5_WIN_PCT",
+        "AWAY_CARRY5_PTS",
+        "AWAY_CARRY5_PTS_ALLOWED",
+        "AWAY_CARRY5_PLUS_MINUS",
+        "AWAY_CARRY5_FG_PCT",
+        "AWAY_CARRY5_REB",
+        "AWAY_CARRY5_AST",
+        "AWAY_CARRY5_TOV",
+        "HOME_REST_DAYS",
+        "HOME_IS_BACK_TO_BACK",
+        "HOME_IS_LONG_BREAK",
+        "HOME_TEAM_ELO",
+        "AWAY_REST_DAYS",
+        "AWAY_IS_BACK_TO_BACK",
+        "AWAY_IS_LONG_BREAK",
+        "AWAY_TEAM_ELO"
+      ],
+      "label": "HOME_MARGIN",
+      "metric": "mae",
+      "requires_complete_features": true,
+      "rows_trained_on": 2538,
+      "validation": {
+        "mean": 9.51322232166372,
+        "sd": 0.4287168506083141,
+        "folds": [
+          2021,
+          2022,
+          2023,
+          2024
+        ],
+        "runner_up": {
+          "family": "linear",
+          "window": "ROLL5",
+          "validation_mean": 9.556357863165138,
+          "validation_sd": 0.40874441648873383
+        }
+      },
+      "test": {
+        "seasons": [
+          2025,
+          2026
+        ],
+        "n": 589,
+        "model": 10.2923267403894,
+        "naive": 12.060780984719862,
+        "elo_alone": null,
+        "excluding_expansion": 10.24470190365977,
+        "expansion_only": 10.43170876255145
+      }
+    },
+    "totals": {
+      "family": "linear",
+      "window": "CARRY10",
+      "features": [
+        "HOME_CARRY10_WIN_PCT",
+        "HOME_CARRY10_PTS",
+        "HOME_CARRY10_PTS_ALLOWED",
+        "HOME_CARRY10_PLUS_MINUS",
+        "HOME_CARRY10_FG_PCT",
+        "HOME_CARRY10_REB",
+        "HOME_CARRY10_AST",
+        "HOME_CARRY10_TOV",
+        "AWAY_CARRY10_WIN_PCT",
+        "AWAY_CARRY10_PTS",
+        "AWAY_CARRY10_PTS_ALLOWED",
+        "AWAY_CARRY10_PLUS_MINUS",
+        "AWAY_CARRY10_FG_PCT",
+        "AWAY_CARRY10_REB",
+        "AWAY_CARRY10_AST",
+        "AWAY_CARRY10_TOV",
+        "HOME_REST_DAYS",
+        "HOME_IS_BACK_TO_BACK",
+        "HOME_IS_LONG_BREAK",
+        "HOME_TEAM_ELO",
+        "AWAY_REST_DAYS",
+        "AWAY_IS_BACK_TO_BACK",
+        "AWAY_IS_LONG_BREAK",
+        "AWAY_TEAM_ELO"
+      ],
+      "label": "TOTAL_PTS",
+      "metric": "mae",
+      "requires_complete_features": true,
+      "rows_trained_on": 2494,
+      "validation": {
+        "mean": 13.336033390161095,
+        "sd": 0.7576989060152506,
+        "folds": [
+          2021,
+          2022,
+          2023,
+          2024
+        ],
+        "runner_up": {
+          "family": "linear",
+          "window": "CARRY5",
+          "validation_mean": 13.377394977540947,
+          "validation_sd": 0.49573027954879445
+        }
+      },
+      "test": {
+        "seasons": [
+          2025,
+          2026
+        ],
+        "n": 575,
+        "model": 14.47977699661158,
+        "naive": 15.062782608695652,
+        "elo_alone": null,
+        "excluding_expansion": 13.96907932270395,
+        "expansion_only": 16.128279046945764
+      }
+    }
+  }
+}

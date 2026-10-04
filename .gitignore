@@ -77,9 +77,24 @@ frontend/build/
 !.vscode/extensions.json
 
 # WNBA pipeline data, ignored the same way the NBA's raw data is. The
-# processed table is NOT committed yet, deliberately: nothing reads it until
-# serving exists (phase 4). Committing a file nothing consumes is the reverse
-# of the problem CLAUDE.md s4's standing rule records - and when it IS added
-# to a COPY list, run `git check-ignore -v` in the same change.
+# processed tables are disposable output, with one exception added in phase 4
+# below. Everything else here is regenerable by rerunning the pipeline.
 data-pipeline/data/wnba/raw/*
 data-pipeline/data/wnba/processed/*
+
+# ...except the one the inference image copies, which stopped being disposable
+# output the moment phase 4 began serving from it - the same reclassification
+# games_final.csv went through. Caught by `git check-ignore -v` before the
+# COPY line was written rather than by a red CI run, which is the whole point
+# of the standing rule in CLAUDE.md s4. Everything else under processed/ stays
+# ignored because nothing reads it at runtime.
+!data-pipeline/data/wnba/processed/wnba_games_final.csv
+
+# The NBA regression gate's baseline is a per-change artifact, not a tracked
+# one. Committing it would BREAK the tool: the capture path refuses to
+# overwrite an existing baseline, deliberately, so that a baseline taken
+# after a change can never hide the regression it was meant to catch - and a
+# committed one means the next person to use the gate gets refused. It also
+# carries point-in-time values (the fixture count) that rot as a season is
+# played. The script is tracked; the snapshot is captured fresh each time.
+ml-training/wnba/nba_gate_baseline.json
