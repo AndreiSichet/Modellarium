@@ -63,9 +63,10 @@ requirement.
 
 ### What it does
 
-Modellarium predicts the outcome of NBA basketball games before they are
-played. For any game it can reach, it produces **eighteen separate numbers**
-across three families.
+Modellarium predicts the outcome of basketball games before they are played —
+the NBA, and since October 2026 the WNBA as well. For an NBA game it can
+reach, it produces **eighteen separate numbers** across three families; for a
+WNBA game, three.
 
 **Family one — the whole game (seven numbers, the original set)**
 
@@ -91,15 +92,25 @@ Points, rebounds, assists, three-pointers made, and the three added together.
 Returned for up to ten players per team, so a single request can produce a
 hundred numbers.
 
+**The WNBA — three numbers, from its own models**
+
+Who wins, by how much, and the combined score. A second league rather than a
+fourth family: its own data pipeline, its own models, its own pages. It has no
+rebound, assist, quarter or player markets, and the app shows no tabs or
+sections for markets a league does not serve. Chapter 20 is the whole of it.
+
 Nothing is scraped from a bookmaker and nothing is guessed. Every number comes
-from models trained on eleven seasons of real NBA results.
+from models trained here on real results — eleven seasons for the NBA, twelve
+for the WNBA.
 
 ### What it is made of
 
 Six independent pieces, each of which can be understood on its own:
 
 1. **The data pipeline** (Python) — downloads eleven seasons of NBA data and
-   turns it into a table a model can learn from.
+   turns it into a table a model can learn from. The WNBA has a second,
+   parallel pipeline beside it rather than sharing this one; chapter 20 says
+   why.
 2. **The models** (Python, scikit-learn and XGBoost) — the trained files that
    turn a row of features into a prediction.
 3. **The inference service** (Python, FastAPI) — a small web service that
@@ -161,6 +172,15 @@ training.
 
 **Rolling average** — an average over a moving window of recent games. "Points
 over the last five games" is a rolling average; it changes as games are played.
+
+**Within-season vs carried window** — two ways of deciding which games a
+rolling average may look at. A *within-season* window resets each season, so a
+team has no usable average until it has played enough games — the NBA's
+approach, and the reason its predictions start about ten games in. A *carried*
+window reaches back into the previous season instead. The WNBA uses carried
+windows, because ten games is a quarter of its season and resetting would
+throw away far too much; the practical consequence is that the WNBA has no
+warm-up period at all (chapter 20).
 
 **Elo rating** — a single number summarising a team's strength, which goes up
 when it wins and down when it loses, by an amount depending on how surprising
@@ -338,15 +358,17 @@ chapters go deeper on each step.
     |                   |  inputs the models learn from, such as a team's
     |                   |  scoring average over its last 10 games, days of
     |                   |  rest, and Elo rating. Also does this for quarter
-    |                   |  scores and for individual players.
+    |                   |  scores and for individual players. A parallel
+    |                   |  pipeline beside it does the same for the WNBA.
     +-------------------+
              |
              |  writes CSV files (spreadsheet-like text files)
              v
     +-------------------+
     |  ml-training      |  Python. Trains the models on those CSVs. Produces
-    |                   |  THREE sets: 7 whole-game models, 6 quarter/half
-    |                   |  models, and 10 player-prop files.
+    |                   |  FOUR sets: 7 whole-game models, 6 quarter/half
+    |                   |  models, 10 player-prop files, and 3 WNBA models
+    |                   |  selected separately (chapter 20).
     +-------------------+
              |
              |  saves models to ml-training/models*/
@@ -545,7 +567,10 @@ most important line in the whole feature-building step.
 
 ### 4.2 Ingestion — getting the raw data
 
-Four scripts in `data-pipeline/ingestion/`:
+Four scripts in `data-pipeline/ingestion/`. The WNBA has its own set in
+`data-pipeline/wnba/`, deliberately parallel rather than shared — chapter 20
+explains the reasoning, which is that generalising against one working
+example is how shared code acquires the wrong abstraction.
 
 **`fetch_games.py`** — pulls the team-level result of every game across eleven
 seasons (2015-16 to 2025-26). One file per season.
@@ -833,7 +858,16 @@ was never told which period it was looking at.
 halves, and 54.6% of games. Whatever produces home advantage builds over the
 course of a game rather than being present at tip-off.
 
-### 5.5 The one-day limit
+### 5.5 The WNBA's models were chosen separately, and chose differently
+
+Everything above is about the NBA. The WNBA's three models were selected by
+the same discipline on a fifth of the data, and came out elsewhere: simple
+linear models beat the boosted trees on every market at every setting tried,
+so that is what ships. Copying the NBA's choice of algorithm because it was
+the NBA's choice would have shipped something measurably worse. Chapter 20
+has the numbers.
+
+### 5.6 The one-day limit
 
 The inference service will not predict a game more than **one day** past the
 newest game in its data. This is permanent and structural, not a staleness
@@ -977,7 +1011,26 @@ which would delete 61 MB across 39,594 files at the start of every run and
 recreate the exact cold start that self-hosting exists to avoid. Silently, with
 the only visible symptom being a job that suddenly takes hours.
 
-### 6.7 How it was proven before real data existed
+### 6.7 The WNBA has none of this, and that matters from May
+
+Everything in this chapter is the NBA's. The WNBA has **no retraining job, no
+promotion gate and no automatic data refresh at all.** Its results are fixed
+into the deployed image and only move forward when someone runs its pipeline
+by hand and rebuilds.
+
+The consequence is concrete rather than theoretical. When the 2027 WNBA
+season starts in May, the app will carry on serving 2026 data and correctly
+reporting a cutoff from September 2026 — accurate, and useless — until a
+person intervenes. The interface is written so as not to promise otherwise:
+it says the season resumes, never that predictions will appear on their own.
+
+Closing it needs two things that do not exist yet: a WNBA promotion gate that
+re-fits the model architecture rather than scoring the shipped files (the
+manifest explains why — those files are trained on every season and so cannot
+be honestly scored), and a decision about how served data reaches the image
+at all, which is limitation 7 below.
+
+### 6.8 How it was proven before real data existed
 
 Real new games do not exist until October. A "detect new data" check would
 correctly find nothing every time, so waiting would mean shipping a completely
@@ -1076,6 +1129,11 @@ exactly the current state.
 ## 8. The injury sidecar
 
 Location: `injury-service/`.
+
+**This whole chapter is NBA-only**, and deliberately so rather than by
+omission. The WNBA publishes no equivalent injury report, and nothing in the
+WNBA pipeline reads or needs one — its models use team form, rest and Elo
+only. So there is no WNBA counterpart to anything described here.
 
 ### 8.1 Why a separate service exists
 
@@ -1365,23 +1423,25 @@ Starts everything. Carries two annotations:
 
 | File | What it is |
 |---|---|
-| `Team.java` | 30 rows, real NBA ids, never generated |
+| `Team.java` | 45 rows, real ids, never generated. Carries a league, because eight abbreviations belong to a team in each |
 | `Game.java` | One fixture. Auto-generated id |
 | `Prediction.java` | The seven whole-game numbers |
 | `Player.java` | Real NBA player id, created on demand |
 | `QuarterHalfPrediction.java` | The six Q1/1H numbers, hanging off the **same** `Game` row as everything else |
 | `PlayerPropPrediction.java` | One player's five numbers, plus which model produced them |
+| `WnbaPrediction.java` | The three WNBA numbers. Its own table, not extra columns on `Prediction` — three markets against seven would leave four columns always empty and nothing saying which league a row belonged to |
 
 ### `repository/` — the database queries
 
 | File | Queries |
 |---|---|
-| `TeamRepository.java` | Standard operations only |
+| `TeamRepository.java` | Teams of one league, and a per-league count the seeder uses |
 | `GameRepository.java` | Two: unplayed games inside a date window, used by the browse endpoint; and find one game by teams + date. A third — unplayed games soonest-first, with an `@EntityGraph` — was removed with `/api/games/upcoming` on 30 September (17.19) |
 | `PredictionRepository.java` | Latest prediction for one game, and all predictions for a **batch** of games |
 | `PlayerRepository.java` | Standard operations only |
 | `QuarterHalfPredictionRepository.java` | Standard operations only |
 | `PlayerPropPredictionRepository.java` | Standard operations only |
+| `WnbaPredictionRepository.java` | Standard operations only |
 
 ### `service/` — the decision-making
 
@@ -1414,24 +1474,25 @@ user's request land on the same row.
 | `PredictionService.java` | The original seven models |
 | `QuarterHalfPredictionService.java` | The six Q1/1H markets |
 | `PlayerPropPredictionService.java` | Both teams' player boards, and the find-or-create for `Player` rows |
+| `WnbaPredictionService.java` | The three WNBA markets |
 | `ScheduleService.java` | Serves the cached fixture list and the live freshness check. Holds no network client of its own |
-| `ScheduleSyncService.java` | Fetches the fixture list and caches it |
+| `ScheduleSyncService.java` | Fetches each league's fixture list and caches it. Two separate methods in two separate transactions, so one league's failure cannot undo the other's writes |
 
 ### `config/` — startup and timers
 
 | File | Role |
 |---|---|
-| `TeamSeeder.java` | Inserts the 30 teams if the table is empty |
+| `TeamSeeder.java` | Inserts each league's teams if that league has none. **Per league, not per table** — a table already holding the 30 NBA teams is not empty, so a whole-table check would have skipped and the 15 WNBA teams would never have arrived |
 | `WebConfig.java` | Allows the website (a different address) to call this API — without it the browser blocks everything |
-| `ScheduleSyncJob.java` | **When** the schedule sync runs: every six hours, and once at startup. Nothing about **how** — that is `ScheduleSyncService`'s job |
+| `ScheduleSyncJob.java` | **When** the schedule sync runs: every six hours, and once at startup. Nothing about **how** — that is `ScheduleSyncService`'s job. It calls each league separately, which is what keeps them in separate transactions |
 
 ### `controller/` — the web addresses
 
 | File | Endpoints |
 |---|---|
-| `PredictionController.java` | Three POST endpoints |
-| `GameController.java` | Upcoming games, and the fixture list |
-| `TeamController.java` | The 30 teams |
+| `PredictionController.java` | Four POST endpoints, one per market family plus the WNBA |
+| `GameController.java` | The cached fixture list. An `upcoming` endpoint was removed on 30 September when it turned out to have no caller (17.19) |
+| `TeamController.java` | One league's teams, defaulting to the NBA. Returning all 45 would show two Atlantas to anything keying on the short code |
 | `HealthController.java` | Freshness of the underlying data |
 
 ### `dto/` — the shapes sent over the network
@@ -1441,11 +1502,12 @@ Two groups, and the split is deliberate.
 **Talking to Python** (field names in `under_score` style, as Python writes):
 `InferenceRequest`, `InferenceResponse`, `InferenceHealth`,
 `InferenceScheduledGame`, `InferenceQuarterHalfResponse`,
-`InferencePlayerPropsResponse`.
+`InferencePlayerPropsResponse`, `InferenceWnbaResponse`.
 
 **Talking to the website** (field names in `camelCase`, as JavaScript
 expects): `TeamDto`, `PredictionDto`, `GameSummaryDto`, `HealthDto`,
-`ScheduledGameDto`, `QuarterHalfSummaryDto`, `PlayerPropsResponseDto`.
+`ScheduledGameDto`, `QuarterHalfSummaryDto`, `PlayerPropsResponseDto`,
+`WnbaSummaryDto`.
 
 Keeping them apart means one naming convention survives across the whole
 public API even though the service behind it uses another.
@@ -1488,7 +1550,7 @@ or not answering at all. Locally that is a few hundred milliseconds and costs
 nothing. Once the Python service lives on another machine, every request in
 flight would be occupying a connection purely in order to wait.
 
-Measured on the heaviest of the three endpoints: the whole request takes about
+Measured on the heaviest of the prediction endpoints: the whole request takes about
 **360 milliseconds**, of which the transaction is open for **75**. The other
 285 now hold nothing.
 
@@ -1498,12 +1560,15 @@ Python rejects still leaves no trace. That was a real bug once (17.3), and
 rearranging where the transaction starts is exactly the kind of change that
 would quietly undo it — so it was tested both ways: with Python **stopped**,
 and with a request Python **rejects**. Those are different paths, and stopping
-the service only exercises one of them. All three endpoints returned the right
-error and wrote nothing, either way.
+the service only exercises one of them. Every prediction endpoint returned the
+right error and wrote nothing, either way.
 
-The quarter/half and player-prop endpoints follow the identical shape. The
-only differences are which Python endpoint is called, which table is written,
-and what the response looks like.
+The quarter/half, player-prop and WNBA endpoints follow the identical shape.
+The only differences are which Python endpoint is called, which table is
+written, and what the response looks like. The WNBA one differs in one further
+respect worth knowing: its models cannot accept a missing input at all, so a
+fixture whose rolling history is incomplete is **refused with an explanation**
+rather than answered with a filled-in guess.
 
 ### 11.2 A browse request
 
@@ -1730,9 +1795,9 @@ on Python, while 12.4 no longer does.
 
 ### What it does
 
-Every six hours, and once at startup, it asks the Python service for the NBA
-fixture list and makes sure every fixture has a row in the `game` table. It
-writes nothing else — no predictions, no player rows.
+Every six hours, and once at startup, it asks the Python service for each
+league's fixture list and makes sure every fixture has a row in the `game`
+table. It writes nothing else — no predictions, no player rows.
 
 ### Why it exists
 
@@ -1752,6 +1817,22 @@ behaviour. So startup runs one sync immediately, **in addition** to the timer.
 The two were confirmed to be genuinely independent code paths rather than one
 masquerading as the other, by checking which internal thread each ran on: the
 startup one on `main`, the timed ones on `scheduling-1`.
+
+### The two leagues are synced separately, and that is deliberate
+
+The NBA and the WNBA are fetched by two separate methods, each in its own
+database transaction, called one after the other.
+
+Doing it in one pass would mean a WNBA failure undoing the NBA fixtures
+already written in the same transaction — one league's problem becoming both
+leagues' problem. Each call is also wrapped individually, so a WNBA failure
+cannot stop the NBA sync or take the startup run down with it.
+
+**The WNBA sync usually caches nothing, and that is correct.** Its season runs
+May to September, and only regular-season games are kept, because no model
+here has ever seen a playoff game. Measured in October 2026: the schedule
+feed offered 17 unplayed WNBA games and every one of them was a playoff game,
+so the right answer was to cache none of them.
 
 ### Why it never crashes
 
@@ -1793,7 +1874,7 @@ how it was verified.
 
 Location: `frontend/`. React, created with create-react-app.
 
-### 10.1 The shape of the site
+### 14.1 The shape of the site
 
 Four routes, all sharing one two-column layout: a sports rail on the left, the
 content on the right.
@@ -1804,14 +1885,42 @@ content on the right.
 | `/predictions` | **General** — today's games across every sport |
 | `/predictions/:sport` | **Upcoming** — today's games for one sport |
 | `/predictions/:sport/:league` | **League** — everything available for one league |
-| `/predictions/:sport/:league/:gameId` | **Game detail** — seven tabs over all 18 markets |
+| `/predictions/:sport/:league/:gameId` | **Game detail** — tabs over that league's markets |
 
 General and Upcoming are **the same component** with a different scope. Two
 components would be two copies of the subsections, the shortcuts, the cap and
 the links — and the first edit to either is where they start telling the user
 different things.
 
-### 10.2 Everything is fetched once, in one place
+**Adding the WNBA needed no new routes.** The last two addresses are written
+in terms of "a sport" and "a league" rather than naming either, so the WNBA's
+pages worked as soon as it was added to the league list. That was the point of
+writing them that way, and it is worth noting that it actually paid off
+rather than assuming it would.
+
+**The detail page's tabs follow the league.** The NBA has seven tabs over
+eighteen markets; the WNBA serves three markets which all fit on one page, so
+it gets no tab bar at all. A tab bar with one tab is a control that does
+nothing, and a tab for a market a league does not serve advertises something
+that is not there.
+
+### 14.2 Two leagues, two sets of dates
+
+The app only offers a prediction for a game it can actually reach — one day
+past the end of that league's data. **That cutoff is asked for per league**,
+because the two leagues' data ends on different dates.
+
+Using the NBA's date for a WNBA game would be wrong in a specific and
+embarrassing way: it would mark WNBA games as predictable whenever NBA data
+was fresh, the page would ask for predictions, and the server would refuse
+them. A league the server says nothing about is treated as having no
+predictable date at all, rather than quietly borrowing the other league's.
+
+A league with no games today still gets its heading, its link and one quiet
+line saying why. Dropping it would leave its pages reachable only by typing a
+URL, which rather defeats having built them.
+
+### 14.3 Everything is fetched once, in one place
 
 The data is fetched by the shared layout, not by the pages. Because all four
 routes match that layout, moving between them does not remount it and does not
@@ -1834,7 +1943,7 @@ many visits never open that tab.
 > prediction instead of always writing — not a cache in the browser, which
 > would hide the rate without changing it.
 
-### 10.3 Saying what is not known
+### 14.4 Saying what is not known
 
 A theme running through the whole interface: **a prediction without its caveat
 misleads**, and a redesign is exactly when caveats get dropped for looking
@@ -1858,7 +1967,37 @@ Three survive to the screen as visible elements, never as hover-only tooltips:
 A **stale badge** appears whenever the underlying data is old, which is the
 same instinct one layer up.
 
-### 10.4 The design language
+**A fourth was considered and removed, and the difference matters.** The WNBA
+winner model came with a note recording that a bare Elo rating had scored
+better on the held-out seasons, and for a day the page showed it. Then the
+difference was measured properly: its confidence interval runs from −0.006 to
++0.022, which includes zero, so the apparent gap is within what chance could
+produce over 589 games. There was no reliable finding to warn anyone about.
+
+The rule above is that a caveat must not be dropped for looking cluttered.
+This one was not — it was dropped because nobody had checked whether it
+described anything real, and once checked, it did not. The note stays in the
+model's own manifest, and the server no longer sends it at all. A warning that
+says less than it appears to is its own kind of misleading.
+
+### 14.5 The same page, two leagues' worth of wrong
+
+Three parts of this work differed per league, and all three are the kind of
+mistake that renders perfectly and still says something false:
+
+  - **Team colours are looked up by numeric id, never by abbreviation.** Eight
+    abbreviations belong to a team in each league — ATL, CHI, DAL, IND, MIN,
+    PHX, TOR and WAS — so a lookup by short code would render the Atlanta
+    Dream in the Atlanta Hawks' colours and report no error at all.
+  - **The empty-state wording is per league**, because the reason differs.
+    See chapter 20: the NBA's explanation is about a warm-up the WNBA does
+    not have.
+  - **The two leagues' response shapes disagree** on what the fields are
+    called, deliberately and for recorded reasons. That disagreement is
+    absorbed in one place at the network boundary, so no component has to
+    know about it.
+
+### 14.6 The design language
 
 A single file defines every colour, typeface, size and spacing step. **No
 component may hardcode any of them.** That is not tidiness — it is what makes
@@ -1883,7 +2022,7 @@ genuinely differ: an underline or a focus ring is judged at a lower bar than
 text, and darkening those too would dull the identity to fix a problem they do
 not have.
 
-### 10.5 Accessibility
+### 14.7 Accessibility
 
   - **Landmarks.** One main region per page, wrapping the *content column* —
     the sports rail sits beside it as a navigation region, not inside it.
@@ -1897,7 +2036,7 @@ not have.
   - **Team badges are hidden from screen readers**, which is correct only
     because the team is always named in text beside them.
 
-### 10.6 What tests can and cannot see
+### 14.8 What tests can and cannot see
 
 The test environment has **no layout engine**. Elements have no size, nothing
 overflows, nothing scrolls, and sticky positioning has no meaning. A layout
@@ -1963,8 +2102,9 @@ Confirm it is alive at `http://localhost:8000/health`. Expected — note that
 
 ```json
 {"status":"ok",
- "models_loaded":{"team":7,"quarter_half":6,"player_props":10},
- "data_as_of":"2026-04-12","days_behind":162,"stale":true}
+ "models_loaded":{"team":7,"quarter_half":6,"player_props":10,"wnba":3},
+ "data_as_of":"2026-04-12","days_behind":162,"stale":true,
+ "wnba":{"data_as_of":"2026-09-24","days_behind":10,"stale":true}}
 ```
 
 Leave this terminal running.
@@ -1992,7 +2132,8 @@ startup schedule sync:
 
 ```
 Running the initial schedule sync so a fresh database is not empty.
-Schedule sync: 457 fixtures fetched (120 days ahead), 451 new, ...
+NBA schedule sync: 457 fixtures fetched (120 days ahead), 451 new, ...
+WNBA schedule sync: 0 fixtures returned for the next 120 days, nothing to cache.
 ```
 
 **Step 3 — start the website**
@@ -2059,7 +2200,7 @@ slow job hide the others' results.
 | Job | What it proves |
 |---|---|
 | **backend** | The full application starts against a real database, and all tests pass |
-| **frontend** | 88 tests pass and the production build compiles |
+| **frontend** | 115 tests pass and the production build compiles |
 | **inference-service** | The service genuinely boots and reports all models loaded |
 | **docker-build** | Every container image still builds from a clean checkout |
 
@@ -2200,8 +2341,8 @@ The same body works for `/api/predictions/quarter-half` and
 
 | Area | Tests |
 |---|---|
-| Frontend | 88 across 7 files |
-| Backend | 14 |
+| Frontend | 115 across 9 files, two of them added for the WNBA: one for its pages and copy, one pinning both leagues' response shapes against a mocked network |
+| Backend | 17 |
 | Data pipeline | Validation scripts, run manually over the full corpus |
 | Models | Verification harnesses, run manually |
 
@@ -2594,6 +2735,55 @@ about its own subject, and the third time a positive control found it rather
 than review.** The pattern is always the same: the test that is supposed to fail
 does not, and the reason is never that the code is fine.
 
+### 17.21 A seeding check that was right until there were two leagues
+
+The backend fills the team table on startup if it is empty. That was correct
+with one league and became **actively wrong** with two: a database already
+holding the 30 NBA teams is not empty, so the check passed, nothing was
+inserted, and the 15 WNBA teams never arrived.
+
+The symptom would have been every WNBA prediction failing with "unknown team
+id" **on a database that looks perfectly healthy** — 30 teams present, seeded,
+no errors anywhere. The check now counts per league, which handles the fresh
+database and the already-seeded one in the same statement.
+
+Found by reasoning about the existing database rather than by testing on an
+empty one, which is the only place the old check still worked.
+
+### 17.22 A warning that described nothing
+
+The WNBA's winner model came with a recorded note: a bare Elo rating had
+scored better than it on the held-out seasons. That looks exactly like a
+weakness a reader should be told about, so it was shown on the page.
+
+Then the difference was measured properly. Its confidence interval runs from
+−0.006 to +0.022 — it includes zero, so the apparent gap is inside what
+chance could produce across 589 games. There was no reliable finding.
+
+**The rule it appeared to serve is a real one**, and that is what made this
+easy to get wrong: a prediction must never be shown without its caveat,
+because caveats get dropped for looking cluttered. This one was not dropped
+for looking cluttered. It was dropped because nobody had checked whether it
+described anything, and once checked, it did not. The note was then removed
+from the server's reply as well, so no other client can make the same
+mistake — it lives in the model's own manifest and nowhere else.
+
+A warning that says less than it appears to is its own kind of misleading.
+
+### 17.23 A test that would have passed if the thing it guarded disappeared
+
+A small one, but it recurs. When the warning above was first hidden rather
+than removed, the test checked only that nothing appeared on screen. That test
+would have passed just as well if the server had stopped sending the field
+entirely — it could not tell "deliberately not displayed" from "no longer
+exists", which are different states with different causes.
+
+So it was written to assert the field **arrived** first and then was not
+shown. Later, when the field was genuinely removed, the assertion moved again:
+it now checks the response has no such property at all. Each version asserts
+the thing that was actually true at the time, and each is placed at the layer
+that can actually observe it.
+
 ---
 
 ## 18. Design decisions and why
@@ -2616,6 +2806,25 @@ teams, they never change, and nothing works without them — so they are
 inserted at startup. There are thousands of players, they change constantly,
 and any one request concerns about twenty. Shipping and maintaining a list of
 thousands to support twenty would be work with no payoff.
+
+**Why does the WNBA have its own pipeline instead of a "league" setting?**
+Because the NBA's pipeline is the part of this project that has been verified
+to death, and it should not have to change to make room for a newcomer. Every
+existing path would have grown a branch, and each branch is a chance to break
+something that currently works. There is exactly one shared piece — the
+function that computes a rolling average with the one-game lag that keeps a
+game's own result out of its own features — and that one is shared precisely
+because a second copy of the lag rule is where a subtle data leak would
+appear. Extracting more is a later job, against two working examples rather
+than one.
+
+**Why is each league asked for its own data cutoff?** Because the two leagues'
+data ends on different dates, so a single cutoff is wrong for whichever league
+it did not come from. Using the NBA's for a WNBA game would mark WNBA games
+predictable whenever NBA data was fresh, and the app would then ask the server
+for predictions it refuses. A league the server says nothing about is treated
+as having no predictable date rather than borrowing the other's — an unknown
+is not a zero, which is a theme running through this whole project.
 
 **Why three separate prediction endpoints instead of one?** The request bodies
 are identical, which is exactly the argument someone would make for merging
@@ -3028,6 +3237,15 @@ That is also why it is the honest test of the whole project. Predicting outcomes
 accurately is one thing; predicting them better than the market already does is
 the only measure that would mean the model knows something the world does not.
 
+**Adding the WNBA did not add an eighth experiment**, and it is worth saying
+why, because the question naturally arises. A second league is not a new
+feature tried against the ceiling; it is the same machinery applied to a
+different sport-shaped problem. It did produce one result in the same style,
+though, and in the same direction: the WNBA's winner model appeared to lose to
+a bare Elo rating, and putting a confidence interval on that difference showed
+it spanning zero (17.22). Another measurement that declined to be a finding —
+which is this chapter's recurring shape, arrived at from a new direction.
+
 ---
 
 ## 20. The WNBA — a second league
@@ -3365,6 +3583,21 @@ These are understood and accepted, not oversights.
     the Docker one. A backend started on the host reaches the Windows one. Not
     a code problem, but it has cost real debugging time.
 
+17. **The WNBA has no automatic data refresh**, so its predictions in May 2027
+    depend on someone remembering to run its pipeline. The NBA's weekly job
+    has no WNBA counterpart. See 6.7 — this is the most consequential item on
+    this list, because the failure is silent: the app keeps answering, with
+    last season's data, and says so correctly.
+
+18. **Two WNBA teams' colours are provisional.** Portland and Toronto joined
+    in 2026 and their brand colours are marked in the code as unconfirmed
+    rather than presented as fact. Cosmetic, and labelled.
+
+19. **The WNBA has no rebound, assist, quarter or player markets.** Three
+    markets against the NBA's eighteen. Not a defect — nothing was built and
+    nothing is advertised — but it is why the WNBA game page looks sparse
+    beside an NBA one.
+
 ### The roadmap, in priority order
 
 1. **Serve the availability features.** The 5.8% margin improvement is proven,
@@ -3417,12 +3650,13 @@ cd frontend  && npm test -- --watchAll=false
 ### Endpoints
 
 ```
-GET  /api/teams                        all 30 teams
-GET  /api/health                       data freshness + models loaded
-GET  /api/games/schedule?daysAhead=14  cached NBA fixtures
+GET  /api/teams?league=NBA             one league's teams (30 NBA, 15 WNBA)
+GET  /api/health                       freshness per league + models loaded
+GET  /api/games/schedule?daysAhead=14  cached fixtures, both leagues
 POST /api/predictions                  the 7 whole-game numbers
 POST /api/predictions/quarter-half     the 6 Q1 / first-half numbers
 POST /api/predictions/player-props     5 numbers per player, both teams
+POST /api/predictions/wnba             the 3 WNBA numbers
 ```
 
 ### Tables
