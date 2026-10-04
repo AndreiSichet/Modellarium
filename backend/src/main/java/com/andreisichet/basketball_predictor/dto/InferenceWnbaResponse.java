@@ -12,11 +12,18 @@ public record InferenceWnbaResponse(
         @JsonProperty("days_behind") int daysBehind,
         int season,
         Map<String, Market> markets) {
+    /**
+     * The Python side no longer sends a `caveat`, and this record no longer
+     * declares one. Unknown properties are ignored, so an older inference
+     * service that still sends it is tolerated rather than rejected - which
+     * is the right way round, and the same reasoning the wire-shape tests
+     * record: an added field is backwards compatible, a removed or retyped
+     * one is a break.
+     */
     public record Market(
             double value,
             String metric,
-            String window,
-            String caveat) {
+            String window) {
     }
 
     /**

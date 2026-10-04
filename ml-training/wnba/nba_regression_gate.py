@@ -62,6 +62,22 @@ VOLATILE = {"predictedAt", "id", "gameId", "predicted_at",
 # second league should change what the NBA returns.
 ADDITIVE_ONLY = {"inference_health", "backend_health"}
 
+# SLIDING, NOT VOLATILE-PER-FIELD: /api/games/schedule returns fixtures in a
+# 120-day window measured FROM TODAY, so the count moves every midnight as the
+# far edge advances into the season. Measured when it first differed:
+# 711 -> 718, with exactly 7 fixtures on the new far edge (2027-02-01) and 0
+# dropping off the near edge, so the arithmetic closed exactly and the change
+# was the calendar rather than the code.
+#
+# Equality is therefore the wrong test, but dropping the check loses the half
+# that mattered - a schedule endpoint returning nothing. So the count is
+# reported rather than diffed, and a separate assertion fails on a collapse.
+# Classified rather than re-baselined, for the same reason daysBehind was:
+# recapturing is how a real regression gets absorbed into a new "correct"
+# state.
+SLIDING = {"schedule_count"}
+MIN_SCHEDULE_COUNT = 100
+
 
 def subset_match(before, after):
     """(every baseline field survived unchanged, the names that were added).
@@ -185,6 +201,16 @@ def main() -> int:
           f"{'OK' if value == REFERENCE_PROBABILITY else 'CHANGED'}")
 
     for key in sorted(before):
+        if key in SLIDING:
+            value = after.get(key)
+            collapsed = not isinstance(value, int) or value < MIN_SCHEDULE_COUNT
+            print(f"  {key:<28} {before[key]} -> {value}  "
+                  f"(date-derived, not diffed)"
+                  f"{'  COLLAPSED' if collapsed else ''}")
+            if collapsed:
+                failures.append(f"{key} collapsed to {value}")
+            continue
+
         if key in ADDITIVE_ONLY:
             same, added = subset_match(before[key], after.get(key))
             note = "identical" if same else "DIFFERS"

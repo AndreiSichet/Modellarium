@@ -50,10 +50,6 @@ const WNBA_FIXTURE = {
   gameDate: WNBA_DATE,
 };
 
-const CAVEAT =
-  "Elo alone scored 0.6046 on test against this model's 0.6130, reversing " +
-  'the validation ordering where this model led Elo by 1.4%.';
-
 const WNBA_SUMMARY = {
   gameId: 71,
   prediction: {
@@ -63,7 +59,6 @@ const WNBA_SUMMARY = {
     moneylineWindow: 'CARRY5',
     spreadWindow: 'CARRY5',
     totalsWindow: 'CARRY10',
-    moneylineCaveat: CAVEAT,
     dataAsOf: '2026-09-24',
     stale: true,
     daysBehind: 10,
@@ -310,22 +305,22 @@ describe('the WNBA game detail page', () => {
     expect(getPlayerPropPredictions).not.toHaveBeenCalled();
   });
 
-  test('does not show the manifest caveat, which is not a measured finding', async () => {
+  test('the response carries no caveat field at all', async () => {
     const { container } = await openWnbaDetail();
 
-    // THE FIELD ARRIVES, AND IS DELIBERATELY NOT SHOWN. Asserting that first
-    // is what makes this a test about a design decision rather than one that
-    // would pass just as well if the backend stopped sending it.
-    expect(WNBA_SUMMARY.prediction.moneylineCaveat).toBeTruthy();
+    // THE FIELD IS GONE FROM THE RESPONSE, not merely unrendered. The
+    // manifest's note records bare Elo at 0.6046 against this model's
+    // 0.6130, and a paired bootstrap puts that difference at +0.0083 with a
+    // 95% interval of [-0.0059, +0.0224], spanning zero on all ten seeds. A
+    // field carrying a null result invites every client to present it as a
+    // finding, so it stays in models_wnba/manifest.json and is not served.
+    //
+    // Asserted on the payload rather than only on the DOM: checking the
+    // screen alone would pass just as well if the field were still being
+    // sent and simply ignored, which is the thing that changed.
+    expect(WNBA_SUMMARY.prediction).not.toHaveProperty('moneylineCaveat');
+    expect(Object.keys(WNBA_SUMMARY.prediction)).not.toContain('moneylineCaveat');
 
-    // The gap it describes - Elo alone at 0.6046 against this model's 0.6130
-    // - has a paired bootstrap interval of [-0.0059, +0.0224] on test log
-    // loss, spanning zero on all ten seeds. So there is no reliable
-    // difference to put in front of a reader, and no confidence tag either:
-    // q1_winner's label records a market that IS measurably weak. The note
-    // stays in models_wnba/manifest.json, which is where a model-selection
-    // note written for engineers belongs.
-    expect(container.querySelector('.market-caveat')).toBeNull();
     expect(container.textContent).not.toMatch(/Elo alone/);
     expect(container.textContent).not.toMatch(/validation set/);
   });

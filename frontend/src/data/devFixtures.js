@@ -173,12 +173,6 @@ export function devPredictionFor(game, index) {
         moneylineWindow: 'CARRY5',
         spreadWindow: 'CARRY5',
         totalsWindow: 'CARRY10',
-        moneylineCaveat:
-          "Elo alone scored 0.6046 on test against this model's 0.6130, " +
-          'reversing the validation ordering where this model led Elo by ' +
-          '1.4%. NOT acted on: re-selecting on test would make the test set ' +
-          'a validation set. Treat it as the first thing to re-examine if ' +
-          'the moneyline market is revisited, ideally with more seasons.',
         dataAsOf: '2026-09-24',
         stale: true,
         daysBehind: 10,

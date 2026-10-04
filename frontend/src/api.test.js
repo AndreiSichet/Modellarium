@@ -39,8 +39,8 @@ const WNBA_BODY = {
     homeMargin: -8.403725674288566,
     totalPoints: 178.40689601339275,
     moneylineWindow: 'CARRY5',
+    spreadWindow: 'CARRY5',
     totalsWindow: 'CARRY10',
-    moneylineCaveat: 'Elo alone scored 0.6046 on test…',
     dataAsOf: '2026-09-24',
     stale: true,
   },
@@ -120,7 +120,10 @@ describe('createPredictionFor', () => {
     expect(result.prediction.homeWinProbability).toBe(0.18193019489666626);
     expect(result.prediction.homeMargin).toBe(-8.403725674288566);
     expect(result.prediction.totalPoints).toBe(178.40689601339275);
-    expect(result.prediction.moneylineCaveat).toBeTruthy();
+
+    // No caveat on the wire. The windows are what remains of the provenance.
+    expect(result.prediction).not.toHaveProperty('moneylineCaveat');
+    expect(result.prediction.totalsWindow).toBe('CARRY10');
   });
 
   test('an unknown league makes no request at all', async () => {

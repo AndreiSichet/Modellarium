@@ -277,19 +277,26 @@ class InferenceWireShapeTest {
         }
 
         @Test
-        void carriesTheMoneylineCaveatThroughToTheClientDto() {
+        void theResponseCarriesNoCaveatAtAll() {
+            // THE FIELD IS ABSENT FROM THE WIRE, NOT NULL ON IT. Asserted on
+            // the raw JSON rather than through the record, because the record
+            // no longer declares the field - so reading it back would be
+            // checking that a thing this class cannot see is not there, which
+            // would pass whatever Python sends.
+            String body = Fixture.read("predict-wnba.json");
+
+            assertThat(body).doesNotContain("caveat");
+            assertThat(body).doesNotContain("Elo alone");
+
+            // And the fixture is a real capture, not an edited one: it still
+            // carries everything the response does send.
+            assertThat(body).contains("\"window\":\"CARRY10\"");
+        }
+
+        @Test
+        void mapsThroughToTheClientDtoWithoutIt() {
             InferenceWnbaResponse response = mapper.readValue(
                     Fixture.read("predict-wnba.json"), InferenceWnbaResponse.class);
-
-            // The caveat is the qualifier that must survive to the screen:
-            // phase 3 measured Elo alone beating this model on the test
-            // seasons. Only moneyline carries one, and the other two must stay
-            // null rather than inheriting it.
-            assertThat(response.market("moneyline").caveat())
-                    .contains("Elo alone")
-                    .contains("NOT acted on");
-            assertThat(response.market("spread").caveat()).isNull();
-            assertThat(response.market("totals").caveat()).isNull();
 
             WnbaPrediction saved = new WnbaPrediction();
             saved.setHomeWinProbability(response.market("moneyline").value());
@@ -307,8 +314,12 @@ class InferenceWireShapeTest {
                     response.market("totals"));
 
             assertThat(dto.homeWinProbability()).isEqualTo(0.18193019489666626);
-            assertThat(dto.moneylineCaveat()).isEqualTo(response.market("moneyline").caveat());
             assertThat(dto.totalsWindow()).isEqualTo("CARRY10");
+
+            // The windows are what remains of the provenance, and they are
+            // genuinely per-target rather than decorative.
+            assertThat(dto.moneylineWindow()).isEqualTo("CARRY5");
+            assertThat(dto.spreadWindow()).isEqualTo("CARRY5");
         }
 
         @Test

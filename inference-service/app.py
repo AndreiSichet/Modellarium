@@ -159,16 +159,26 @@ class PlayerPropsResponse(BaseModel):
     teams: list[TeamPlayerProps]
 
 class WnbaMarket(BaseModel):
-    """One WNBA market, with the provenance a thin model needs carried."""
+    """One WNBA market, with the provenance a thin model needs carried.
+
+    THE MANIFEST'S `caveat` IS DELIBERATELY NOT HERE. It records that bare Elo
+    scored 0.6046 on the test seasons against the moneyline model's 0.6130 -
+    which sounds like a weakness a client should see, and was served as one
+    for a day. Putting a paired bootstrap on that difference gives
+    +0.008301 with a 95% interval of [-0.005932, +0.022443], spanning zero on
+    all ten seeds (ml-training/wnba/moneyline_vs_elo.py). So it is not a
+    reliable difference, and shipping it over the wire invited every client to
+    present a null result as a finding.
+
+    It is NOT the same case as q1_winner's confidence label, which marks a
+    market that is measurably weak - 0.5796 against a 0.5184 naive. The note
+    stays in models_wnba/manifest.json, where a model-selection record written
+    for engineers belongs.
+    """
 
     value: float
     metric: str
     window: str
-    # Phase 3's finding, surfaced rather than left in a file nobody reads:
-    # Elo alone beat the moneyline model on the test seasons. Same principle
-    # as q1_winner shipping confidence "low" - a weakness the client can read
-    # beats one only the manifest knows about.
-    caveat: str | None = None
 
 class WnbaResponse(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
@@ -795,7 +805,6 @@ def predict_wnba(request: PredictionRequest):
             value=value,
             metric=entry["metric"],
             window=entry["window"],
-            caveat=entry.get("caveat"),
         )
 
     days_behind, stale = wnba_freshness()

@@ -1680,8 +1680,6 @@ rolling window produced each market, and the moneyline's caveat verbatim.
     "moneylineWindow": "CARRY5",
     "spreadWindow": "CARRY5",
     "totalsWindow": "CARRY10",
-    "moneylineCaveat": "Elo alone scored 0.6046 on test against this model's 0.6130 ...",
-    // sent, but not displayed - see chapter 20
     "dataAsOf": "2026-09-24",
     "stale": true,
     "daysBehind": 9,
@@ -3143,12 +3141,17 @@ cluttered; it was dropped because nobody had checked whether it described
 anything real, and once checked, it did not. A note that says less than it
 appears to is its own kind of misleading.
 
+It was then removed from the server's reply as well, not just from the page.
+Leaving a field in the response that the app ignores would let anything else
+reading that response — a future page, another tool — present the same null
+result as a finding. The note lives in the model's own manifest file and
+nowhere else.
+
 The model choice was **not** changed either, for a different and stricter
 reason: changing it because of what the test seasons said would turn the test
 into another round of model selection, which is exactly what holding seasons
-back is meant to prevent. So the note stays on the model file as the first
-thing to re-examine if the moneyline market is ever revisited, and the server
-still sends it — it simply is not displayed.
+back is meant to prevent. So it stays on the model file as the first thing to
+re-examine if the moneyline market is ever revisited.
 
 **Totals barely beats its baseline** — 3.8%, against spread's 14.6%. It is a
 real improvement and a thin one.

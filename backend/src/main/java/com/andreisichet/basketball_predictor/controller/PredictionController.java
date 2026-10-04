@@ -54,9 +54,9 @@ public class PredictionController {
      *
      * Same reasoning as quarter-half and player-props: the request bodies
      * match but the responses do not. The WNBA prices three markets with
-     * their own windows and its own caveat, so a shared endpoint would return
-     * a mostly-null union whichever league it was called for. It is also the
-     * honest shape given the Python side splits the same way.
+     * their own windows, so a shared endpoint would return a mostly-null
+     * union whichever league it was called for. It is also the honest shape
+     * given the Python side splits the same way.
      */
     @PostMapping("/wnba")
     public WnbaSummaryDto createWnba(@RequestBody PredictionRequest request) {
