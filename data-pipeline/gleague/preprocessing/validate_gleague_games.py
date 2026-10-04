@@ -118,6 +118,28 @@ def validate_season(season: str, raw: pd.DataFrame, kind: str) -> dict:
           f"{int((pairs != 2).sum())} game(s): "
           f"{dict(pairs[pairs != 2].value_counts())}")
 
+    # THE HOLE THE DERIVED SCHEDULE VERDICT LEFT OPEN.
+    #
+    # Phase 1 replaced a named truncated-season waiver with a derived verdict,
+    # under which a season where some teams played MORE than the mode is
+    # 'unbalanced' and the completeness rule does not apply. That is right for
+    # a league whose schedules genuinely are uneven - and it means a game
+    # DUPLICATED under a fresh GAME_ID now looks exactly like a team playing
+    # more than the mode. The 'exactly twice' check above cannot see it either,
+    # because both copies are internally well-formed.
+    #
+    # Two teams cannot meet twice on one date, so the pair plus the date is a
+    # natural key and a repeat is a defect rather than a schedule quirk.
+    one_per_game = frame.groupby("GAME_ID").agg(
+        date=("GAME_DATE", "first"),
+        teams=("TEAM_ID", lambda s: tuple(sorted(s))))
+    repeated = one_per_game[one_per_game.duplicated(
+        subset=["date", "teams"], keep=False)]
+    check(season, "no two GAME_IDs share a date and a team pair",
+          not len(repeated),
+          f"{len(repeated)} game(s): "
+          f"{list(repeated.index)[:6]}")
+
     digits = set(type_digit(frame).unique())
     wanted = (REGULAR_SEASON_TYPE_DIGIT if kind == "regular"
               else SHOWCASE_CUP_TYPE_DIGIT)

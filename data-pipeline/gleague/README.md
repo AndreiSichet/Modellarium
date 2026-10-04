@@ -1,26 +1,56 @@
-# G League pipeline — phase 1 (ingestion and validation)
+# G League pipeline — phases 1 and 2
 
 A third parallel pipeline, beside `data-pipeline/` (NBA) and
-`data-pipeline/wnba/`. Ingestion and validation only; no features, no models,
-no serving.
+`data-pipeline/wnba/`. Ingestion, validation and features; no models, no
+serving.
 
 ```
 gleague/
-├── ingestion/fetch_gleague_games.py        23 seasons, two competitions
+├── ingestion/fetch_gleague_games.py            23 seasons, two competitions
 └── preprocessing/
-    ├── clean_gleague_rows.py               shared by the two below
-    ├── validate_gleague_games.py           311 checks
-    ├── build_gleague_games_table.py        the two output tables
-    └── verify_gleague_validator.py         negative tests, 12 of 12
+    ├── clean_gleague_rows.py                   shared by validator + builder
+    ├── validate_gleague_games.py               341 checks
+    ├── build_gleague_games_table.py            the two long tables
+    ├── verify_gleague_validator.py             negative tests, 13 of 13
+    ├── build_gleague_rest_days.py              counts Cup games
+    ├── build_gleague_rolling_features.py       FIVE candidates
+    ├── build_gleague_elo.py                    K, carryover, expansion offset
+    ├── build_gleague_model_dataset.py          the wide output
+    └── verify_gleague_features.py              26 of 26
 ```
 
-Outputs, both gitignored — nothing reads them at runtime until serving exists:
+Run in that order. Outputs all gitignored — nothing reads them at runtime
+until serving exists:
 
 | file | rows | games |
 |---|---|---|
-| `data/gleague/processed/gleague_games_final.csv` | 19,258 | 9,629 |
-| `data/gleague/processed/gleague_showcase_games.csv` | 2,384 | 1,192 |
-| `data/gleague/processed/gleague_franchise_identity.csv` | 452 | — |
+| `processed/gleague_games_final.csv` | 19,256 | 9,628 |
+| `processed/gleague_showcase_games.csv` | 2,384 | 1,192 |
+| `processed/gleague_franchise_identity.csv` | 452 | — |
+| `processed/gleague_rest_days.csv` | 19,256 | — |
+| `processed/gleague_rolling_features.csv` | 19,256 | — |
+| `processed/gleague_elo.csv` | — | 9,628 |
+| **`processed/gleague_model_dataset.csv`** | — | **9,628 x 88** |
+
+## Phase 2 at a glance
+
+**Five rolling candidates, and phase 3 chooses.** `ROLL5` (within season),
+`CARRY5`/`CARRY10` (carried across seasons), and `CUP5`/`CUP10` — carried
+*and* counting the Showcase Cup, which no other league here can offer.
+Retention: 86% / 97% / 95% / 97% / 95%.
+
+**The Cup feeds features and never labels.** It reaches rest days (fatigue is
+physical) and the `CUP*` windows; no Cup game is ever a target row, asserted
+by game-id type digit.
+
+**Elo: K=20, carryover=0.200**, lower than the NBA's 1/3 and the WNBA's 0.5 as
+roster churn predicts — though it beats the NBA's values by only 0.03%, so the
+direction is established and the magnitude is not. The level is the
+informative number: **0.672** against ~0.63 (WNBA) and 0.613 (NBA).
+
+**The expansion offset is fitted and the league mean stays.** 31 new
+franchises, revealed strength mean −18.1 with a 95% CI of [−41.3, +3.6], and
+an independent grid search picking +0. The opposite of the WNBA's picture.
 
 ---
 
@@ -87,10 +117,17 @@ still: 347 of 1,192, **14.6%**. It is also entirely absent before 2005-06. The
 builder recomputes the margin from `PTS` and refuses to write if the derived
 sign disagrees with `WL`.
 
-**Five row-level defect classes**, each identified by a structural signature
+**Six row-level defect classes**, each identified by a structural signature
 rather than a score threshold — see `clean_gleague_rows.py`, which the
 validator and the builder share so the output cannot be cleaned by a rule the
 validation never saw.
+
+**The sixth was found by phase 2, not by validation**, and it is worth
+knowing why: a tied game (`2020300058`, 95-95, no `WL` on either side) is
+perfectly well-formed — two rows, two teams, one date, no nulls — and passes
+the `WL`-agrees-with-`PTS` check vacuously because `WL` is absent. It is wrong
+only against a fact about basketball that no row-level check encodes, and
+Elo's input gate is what refused it.
 
 **The completeness rule is one-directional and this league breaks it.**
 `N teams short by S ⇒ N·S/2 absent games` describes a balanced schedule with

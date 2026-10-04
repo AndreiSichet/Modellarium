@@ -254,6 +254,37 @@ def main() -> int:
                f"max {after['max']} - the verdict follows the distribution, "
                f"so it cannot be a list of season names")
 
+        # ------------------------------ 6 a game duplicated under a new id
+        section("TEST 6 - the same game duplicated under a fresh GAME_ID")
+        print("The hole the derived schedule verdict opened: a duplicate "
+              "looks like a")
+        print("team playing more than the mode, which 'unbalanced' now "
+              "permits, and both")
+        print("copies pass the exactly-twice check.\n")
+
+        raw = fresh_copy(workspace)
+        path = raw / target_file
+        frame = pd.read_csv(path, dtype={"GAME_ID": str})
+        victim = pick_clean_game(frame)
+        copy = frame[frame["GAME_ID"] == victim].copy()
+        # A fresh id in the same season, same type digit, so nothing else
+        # can object to it: only the date-and-pair key can.
+        taken = set(frame["GAME_ID"])
+        # A season's ids are contiguous, so a small offset is always taken.
+        # The offset must keep the id 10 digits with '2' third, or the
+        # type-digit check would fire instead and prove the wrong thing.
+        new_id = next(
+            candidate for n in range(1, 9000)
+            if (candidate := str(int(victim) + 9000 + n)) not in taken
+            and len(candidate) == 10 and candidate[2] == "2")
+        copy["GAME_ID"] = new_id
+        doubled = pd.concat([frame, copy], ignore_index=True)
+        doubled.to_csv(path, index=False, encoding="utf-8")
+        code, out = run_validator(raw)
+        caught = code != 0 and "share a date and a team pair" in out
+        record(f"game {victim} duplicated as {new_id} is caught", caught,
+               extract_failures(out) if caught else out[-900:])
+
         # --------------------------- 5 the exclusion set, BOTH directions
         section("TEST 5 - the named exclusion set, BOTH directions")
         print("The spec asked for a waiver negative-tested in both "

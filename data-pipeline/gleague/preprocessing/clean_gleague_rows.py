@@ -72,6 +72,10 @@ KNOWN_UNUSABLE_GAMES = {
     # Three rows, every WL 'O', and both surviving MATCHUP strings written
     # from the away perspective ('ROA @ ABQ'), so no row claims to be home.
     "2020400057": "no valid WL on any row and no identifiable home side",
+    # Huntsville Flight 95 - North Charleston Lowgators 95, 2004-01-21, with
+    # no WL on either side. Basketball has no draws, so the record is
+    # incomplete and nothing recovers the winner.
+    "2020300058": "a tied score (95-95) with no WL on either side",
 }
 
 
@@ -156,14 +160,25 @@ def _sum_partial_lines(frame: pd.DataFrame) -> pd.DataFrame:
 def _irreconcilable_games(frame: pd.DataFrame) -> list:
     """Games whose WL contradicts their PTS, or that cannot be judged.
 
-    A game with WL absent on either side is NOT irreconcilable - the margin is
-    still exactly derivable from PTS. Only an active contradiction is.
+    A game with WL absent on either side is NOT irreconcilable in general -
+    the margin is still exactly derivable from PTS. Only an active
+    contradiction is.
+
+    A TIE IS THE ONE EXCEPTION, AND IT HOLDS WHATEVER WL SAYS. Basketball has
+    no draws; overtime decides. So equal scores mean the record is incomplete
+    and nothing recovers who won - the margin derives to 0, which is not a
+    real result, and HOME_WIN cannot be formed at all. Found by phase 2's Elo
+    input gate rather than here, because the WL-validity guard below used to
+    skip a tie whose WL was absent on both sides.
     """
     bad = []
     for game_id, group in frame.groupby("GAME_ID"):
         if len(group) != 2:
             continue
         a, b = group.iloc[0], group.iloc[1]
+        if a["PTS"] == b["PTS"]:
+            bad.append(game_id)
+            continue
         if not ({a["WL"], b["WL"]} <= VALID_WL):
             continue
         if sorted([a["WL"], b["WL"]]) != ["L", "W"]:
