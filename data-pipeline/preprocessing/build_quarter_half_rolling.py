@@ -25,14 +25,27 @@ ROLLING_METRICS = [
     "HALF1_PTS_ALLOWED",
 ]
 
-EXPECTED_UNIVERSE_ROWS = 26_398
+# EXPECTED_TEAMS_PER_GAME is a STRUCTURAL invariant and stays a literal: a
+# basketball game has two sides, today and in 2030. A row COUNT is not that
+# kind of fact, and the one that used to live here - EXPECTED_UNIVERSE_ROWS =
+# 26_398 - was asserted as an equality.
+#
+# It would have raised on the first new NBA game, two rows later, and in three
+# places at once: the daily refresh, the weekly retrain, AND the inference
+# service's own boot, because live_quarter_half_features calls
+# reindex_to_universe at startup. So the app would have stopped serving on the
+# 21st rather than merely failing a job.
+#
+# Replaced with the property the number was standing in for - see
+# reindex_to_universe. Same shape as the hardcoded season list in section 35
+# and the quarter/half game-id list in section 25: an expectation with no
+# expiry inside something designed to run unattended for months.
 EXPECTED_TEAMS_PER_GAME = 2
 
-def load_universe() -> pd.DataFrame:
+def load_universe(directory: Path = None) -> pd.DataFrame:
     """Every team-game, with its date. The frame everything is aligned to."""
-    games = pd.read_csv(
-        GAMES_FINAL_PATH, usecols=MERGE_KEYS + ["GAME_DATE"]
-    )
+    path = (directory / "games_final.csv") if directory else GAMES_FINAL_PATH
+    games = pd.read_csv(path, usecols=MERGE_KEYS + ["GAME_DATE"])
     games["GAME_DATE"] = pd.to_datetime(games["GAME_DATE"])
 
     duplicates = int(games.duplicated(subset=MERGE_KEYS).sum())
@@ -42,12 +55,23 @@ def load_universe() -> pd.DataFrame:
             f"pairs; every join below assumes it is unique."
         )
 
-    print(f"Universe: {len(games):,} team-games from {GAMES_FINAL_PATH.name}.")
+    # The path actually read, not the module default - these differ whenever a
+    # caller passes a directory, which the inference service does for every
+    # boot against the mounted volume. Printing GAMES_FINAL_PATH.name was
+    # right about the filename and wrong about which copy of it.
+    print(f"Universe: {len(games):,} team-games from {path}.")
     return games
 
-def load_raw() -> pd.DataFrame:
-    """Quarter/half scores, GAME_ID reconciled to the team pipeline's int."""
-    raw = pd.read_csv(RAW_PATH, dtype={"GAME_ID": str})
+def load_raw(directory: Path = None) -> pd.DataFrame:
+    """Quarter/half scores, GAME_ID reconciled to the team pipeline's int.
+
+    `directory` lets a caller read a different data root - the inference
+    service passes the mounted volume's. Defaults to this repo's processed
+    directory, which is where the pipeline writes, so nothing about a
+    pipeline run changes.
+    """
+    path = (directory / "quarter_half_raw.csv") if directory else RAW_PATH
+    raw = pd.read_csv(path, dtype={"GAME_ID": str})
     raw["GAME_ID"] = raw["GAME_ID"].astype(int)
 
     sizes = raw.groupby("GAME_ID").size()
@@ -100,10 +124,17 @@ def reindex_to_universe(universe: pd.DataFrame,
         indicator="_raw_merge",
     )
 
-    if len(merged) != EXPECTED_UNIVERSE_ROWS:
+    # DERIVED FROM THE INPUT, NOT REMEMBERED. The join is a left merge of the
+    # universe onto the metrics, so it must return exactly one row per
+    # universe row: fewer means rows were dropped, more means the validate
+    # below was bypassed and a game matched twice. That is the property the
+    # old literal 26,398 was standing in for, and unlike the literal it is
+    # still true after a new game is played.
+    if len(merged) != len(universe):
         raise RuntimeError(
-            f"reindex produced {len(merged):,} rows, expected "
-            f"{EXPECTED_UNIVERSE_ROWS:,}."
+            f"reindex produced {len(merged):,} rows from a universe of "
+            f"{len(universe):,}. A left join cannot change the row count, so "
+            f"either rows were dropped or a game matched more than once."
         )
 
     unmatched = merged.loc[merged["_raw_merge"] != "both", "GAME_ID"]

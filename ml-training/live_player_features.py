@@ -36,8 +36,9 @@ OUTPUT_ID_COLUMNS = ["PLAYER_ID", "PLAYER_NAME", "TEAM_ID", "ROUTE",
 
 def load_player_history() -> pd.DataFrame:
     """The player-game history, narrowed to what this module reads."""
-    path = (Path(__file__).resolve().parents[1] / "data-pipeline" / "data"
-            / "processed" / "player_boxscores_with_rolling.csv")
+    from served_data import data_root
+
+    path = data_root() / "processed" / "player_boxscores_with_rolling.csv"
     history = pd.read_csv(path, usecols=HISTORY_COLUMNS, low_memory=False)
     history["GAME_DATE"] = pd.to_datetime(history["GAME_DATE"])
     return history.sort_values(["PLAYER_ID", "GAME_DATE", "GAME_ID"]).reset_index(

@@ -104,12 +104,51 @@ docker compose up --build
 Five services: `postgres`, `injury-service`, `inference-service`, `backend`,
 `frontend`. The app is at `http://localhost:3000`.
 
+### The served game history lives on a volume, not in the image
+
+`inference-service` reads every league's history from a read-only bind mount
+at `D:\modellarium-data`, located through `DATA_DIR`. It **refuses to boot**
+if that is unset or incomplete — deliberately, with no fallback to a copy
+inside the image, because two indistinguishable sources of served data is a
+hazard this project has already paid for once elsewhere.
+
+Seed it once:
+
+```bash
+python ml-training/seed_served_volume.py
+```
+
+**The committed tables under `data-pipeline/data/` are no longer what the app
+serves.** They remain in the repo for exactly two things: seeding that volume
+the first time, and CI's inference boot check. A reader who sees a committed
+`games_final.csv` and concludes it is what production reads would be wrong.
+
+`GET /health` reports which snapshot is being served, so "the refresh ran" and
+"the service picked it up" are separately observable.
+
+### Opening night, and every day after
+
+**Trigger `daily-refresh` once manually, then leave it.** It runs every
+morning at 07:00 UTC, rebuilds each league's history, validates the result,
+swaps it in and restarts the inference service — rolling back if the new
+snapshot will not boot. Predictions then advance on their own, which they did
+not before: `MAX_DAYS_AHEAD` is 1, so a hand-built image yields predictions
+for exactly one day.
+
+Three outcomes, all legible: **advanced**, **nothing new** (an off-day or a
+league between seasons — green, not a failure), and **failed** (red, with the
+previous snapshot still serving).
+
 
 ## Rebuilding the data and models
 
 The pipeline scripts run in dependency order — ingestion, validation, features, Elo, then the final dataset — followed by the training scripts. Both fetchers skip what is already on disk, so a rerun pays only for genuinely new games.
 
 The retrain job automates this weekly and **never deploys**: candidate models land in a directory nothing serves, and promotion opens a pull request for a human to merge.
+
+That job owns **models only**. Served *data* advances daily through
+`daily-refresh` and the volume above, which is why the retrain's habit of
+rebuilding the tables and discarding them is no longer a gap.
 
 ---
 

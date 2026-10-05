@@ -1,0 +1,224 @@
+name: daily data refresh
+
+# Rebuild every league's history, snapshot it onto the served volume, and swap
+# it in. This is what makes opening night self-sustaining: the served data
+# used to be baked into the inference image, so a new day meant running the
+# pipeline and rebuilding by hand, which yields predictions for exactly one
+# day at a time.
+#
+# MID-MORNING IN ROMANIA, which is 07:00 UTC (09:00 EET / 10:00 EEST). NBA
+# games finish in the early hours of European time, so results are settled by
+# then. GitHub's cron can fire late; that is acceptable here, because a
+# refresh running at 08:00 instead of 07:00 changes nothing about the day it
+# finds.
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+# ONE REFRESH AT A TIME. A dispatched run can land on top of the scheduled
+# one, and two refreshes race on the `current` pointer: one swaps to its
+# snapshot, the other swaps to its own, and the first then sees /health
+# reporting a snapshot it did not write and rolls back. That is not
+# hypothetical - it happened during this item's own testing, when a stray
+# process produced two snapshots 0.75 seconds apart.
+#
+# cancel-in-progress is FALSE on purpose. Cancelling a refresh mid-rebuild
+# would be safe for the served data - nothing is swapped until validation
+# passes - but it would leave the volume lock held until it goes stale, and a
+# queued run is the more useful behaviour for a job that takes minutes.
+#
+# daily_refresh.py also takes a lock on the volume itself, which is what
+# covers a run started by hand outside Actions.
+concurrency:
+  group: daily-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: refresh the served snapshot
+    # SELF-HOSTED, FOR THE SAME THREE REASONS THE WEEKLY RETRAIN IS. A
+    # hosted runner starts from an empty disk, and fetch_player_boxscores
+    # resumes by file existence over 13,199 gitignored files - so a hosted
+    # run would re-fetch all of them at 1 request/second, about 3.7 hours,
+    # every day. It also keeps LFS bandwidth and tens of thousands of nba_api
+    # calls off an unknown datacenter IP.
+    #
+    # And the served volume is a HOST path. A hosted runner could not write
+    # D:\modellarium-data at all.
+    runs-on: self-hosted
+    timeout-minutes: 240
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # clean: true is the default and would run `git clean -ffdx`, whose
+          # -x removes IGNORED files - which here means the 39,594-file raw
+          # corpus this job resumes from. The symptom would not be an error;
+          # it would be a job that suddenly takes hours.
+          clean: false
+          # The repo's one LFS-tracked file is read by
+          # build_player_rolling_minutes. Without this, checkout writes the
+          # ~130-byte pointer stub and the failure looks like a malformed CSV
+          # rather than a missing one - which cost real debugging time once.
+          lfs: true
+
+      - name: Pull LFS content
+        shell: powershell
+        run: |
+          # Belt and braces with lfs: true above, because clean: false means
+          # a working tree already holding a stub can look up-to-date against
+          # the index. git lfs pull replaces every file whose content is
+          # still a pointer, unconditionally, and is a no-op costing seconds
+          # otherwise.
+          $ErrorActionPreference = 'Continue'
+          git lfs pull
+          if ($LASTEXITCODE -ne 0) { Write-Host "git lfs pull exited $LASTEXITCODE" }
+
+      - name: Check the seeded corpus is where this job expects it
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+
+          # THIS FAILS THE JOB RATHER THAN WARNING, and that is deliberate.
+          # It emitted a ::warning:: through a real incident and nobody saw
+          # it, because a warning leaves the step GREEN and the only visible
+          # symptom was a job that ran for hours. The runner's _work path is
+          # derived from both the repo name and the runner's install
+          # location, so a rename or a drive move orphans this corpus.
+          $boxscores = "data-pipeline\data\raw\player_boxscores"
+          $count = 0
+          if (Test-Path $boxscores) {
+            $count = (Get-ChildItem "$boxscores\*.csv" -ErrorAction SilentlyContinue).Count
+          }
+          Write-Host "player_boxscores CSVs: $count"
+          if ($count -lt 1000) {
+            Write-Host "::error::Only $count box-score files. The seeded corpus is missing, so this job would re-fetch 13,199 games at 1/second. Re-seed before running - see CLAUDE.md section 4."
+            exit 1
+          }
+
+          # The LFS file must be real content, not a pointer. The failure mode
+          # is a file that EXISTS and is wrong, so size is what is checked.
+          $rolling = "data-pipeline\data\processed\player_boxscores_with_rolling.csv"
+          if (-not (Test-Path $rolling)) {
+            Write-Host "::error::$rolling is missing."
+            exit 1
+          }
+          $size = (Get-Item $rolling).Length
+          Write-Host "player_boxscores_with_rolling.csv: $size bytes"
+          if ($size -lt 1MB) {
+            Write-Host "::error::$rolling is $size bytes - that is an LFS pointer stub, not the table."
+            exit 1
+          }
+
+      - name: Build the job's own interpreter
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+
+          # The same reasoning as the retrain job's .ct-venv, and the SAME
+          # venv: bare `python` resolves to this project's root .venv
+          # interactively and to the base install under the runner service,
+          # so naming the interpreter explicitly is the only way to know
+          # which one ran. Reused rather than duplicated because the
+          # dependency set is identical; guarded by Test-Path so a daily job
+          # does not reinstall it every morning.
+          if (-not (Test-Path ".ct-venv\Scripts\python.exe")) {
+            python -m venv .ct-venv
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            .\.ct-venv\Scripts\python.exe -m pip install --upgrade pip
+            .\.ct-venv\Scripts\python.exe -m pip install -r data-pipeline\requirements.txt
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            .\.ct-venv\Scripts\python.exe -m pip install -r ml-training\requirements.txt
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+
+          # "Packages landed in the right interpreter" is the whole claim, and
+          # a path is the only thing that demonstrates it.
+          .\.ct-venv\Scripts\python.exe -c "import pandas; print('pandas from:', pandas.__file__)"
+
+      - name: Refresh the served snapshot
+        id: refresh
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+
+          .\.ct-venv\Scripts\python.exe -W ignore ml-training\daily_refresh.py `
+            --volume "D:\modellarium-data" `
+            --outcome-file "refresh-outcome.txt"
+          $code = $LASTEXITCODE
+
+          $outcome = "failed"
+          if (Test-Path "refresh-outcome.txt") {
+            $outcome = (Get-Content "refresh-outcome.txt" -Raw).Trim()
+          }
+          Write-Host "exit $code, outcome '$outcome'"
+          "outcome=$outcome" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "code=$code"       | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+          # THREE OUTCOMES, AND TWO OF THEM ARE GREEN. A job that reports the
+          # same thing whether it did something or nothing is a job nobody
+          # can read - the weekly retrain's own lesson, where a crash and a
+          # gate refusal shared exit 1 and the wrapper reported the crash as
+          # "the guard worked as intended".
+          if ($outcome -eq "advanced") {
+            "## Advanced" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "A new snapshot is being served. Dates below." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } elseif ($outcome -eq "nothing-new") {
+            "## Nothing new" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "No league had a game later than the snapshot already being served - an off-day, a break, or a league between seasons. The previous snapshot continues to serve. This is not a failure." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } else {
+            "## Failed" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "A pipeline step, validation or the swap failed. **The previous snapshot keeps serving.** The step log says which." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+
+          if ($outcome -eq "failed") { exit 1 }
+          exit 0
+
+      - name: Report what is being served
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+
+          # Read from /health rather than from the volume, because what the
+          # SERVICE reports is the fact that matters - "the pointer moved" and
+          # "the service picked it up" are two different things.
+          try {
+            $health = Invoke-RestMethod -Uri "http://localhost:8000/health" -TimeoutSec 10
+            $served = $health.served_data
+            "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "| | |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "|---|---|" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "| snapshot | $($served.snapshot) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "| NBA data_as_of | $($health.data_as_of) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "| WNBA data_as_of | $($health.wnba.data_as_of) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "| G League data_as_of | $($health.gleague.data_as_of) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Write-Host "serving snapshot $($served.snapshot)"
+          } catch {
+            "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "**/health did not answer**, so what is being served could not be confirmed." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Write-Host "::warning::/health did not answer: $($_.Exception.Message)"
+          }
+
+      - name: Confirm this job committed nothing
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+
+          # THE REBUILD DIRTIES THE WORKING TREE AND THAT IS EXPECTED - the
+          # pipeline rewrites its tables in place. What must not happen is a
+          # COMMIT: the served data now lives on the volume, so regenerating
+          # it daily must add no git or LFS churn. Asserted by HEAD not
+          # moving, rather than by trusting that no step calls git commit.
+          $head = (git rev-parse HEAD).Trim()
+          Write-Host "HEAD is $head"
+          $dirty = (git status --porcelain | Measure-Object -Line).Lines
+          Write-Host "$dirty path(s) modified by the rebuild, none committed"
+          $ahead = (git rev-list "@{u}..HEAD" --count 2>$null)
+          if ($LASTEXITCODE -eq 0 -and $ahead -ne "0" -and $ahead) {
+            Write-Host "::error::This job created $ahead commit(s). It must not commit anything."
+            exit 1
+          }
+          Write-Host "no commits created"

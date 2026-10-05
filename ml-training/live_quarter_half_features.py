@@ -53,10 +53,13 @@ def load_quarter_half_history(quiet: bool = True) -> pd.DataFrame:
     """One row per team-game: the six derived metrics, with date and season."""
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer) if quiet else contextlib.nullcontext():
-        raw = load_raw()
+        from served_data import data_root
+
+        processed = data_root() / "processed"
+        raw = load_raw(processed)
         paired = attach_opponent(raw)
         metrics = derive_metrics(paired)
-        universe = load_universe()
+        universe = load_universe(processed)
         history = reindex_to_universe(universe, metrics)
 
     history["SEASON"] = derive_season(history["GAME_DATE"])

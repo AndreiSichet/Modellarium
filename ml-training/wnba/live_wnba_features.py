@@ -51,6 +51,18 @@ from build_wnba_rolling_features import (  # noqa: E402
 
 MODELS_DIR = ML / "models_wnba"
 MANIFEST_PATH = MODELS_DIR / "manifest.json"
+def games_path() -> "Path":
+    """Resolved at call time, so DATA_DIR moves it onto the volume.
+
+    A function rather than the module-level constant it replaces: the
+    constant was evaluated at import, which made the served path depend on
+    whether the environment was set before this module was first imported.
+    """
+    from served_data import data_root
+
+    return data_root() / "wnba" / "processed" / "wnba_games_final.csv"
+
+
 GAMES_PATH = (PROJECT / "data-pipeline" / "data" / "wnba" / "processed"
               / "wnba_games_final.csv")
 
@@ -102,7 +114,7 @@ def required_windows(manifest: dict) -> list:
 
 
 def load_games() -> pd.DataFrame:
-    frame = pd.read_csv(GAMES_PATH, dtype={"GAME_ID": str})
+    frame = pd.read_csv(games_path(), dtype={"GAME_ID": str})
     frame["GAME_DATE"] = pd.to_datetime(frame["GAME_DATE"])
     frame["WIN"] = (frame["WL"] == "W").astype(int)
     frame["PTS_ALLOWED"] = frame["PTS"] - frame["PLUS_MINUS"]

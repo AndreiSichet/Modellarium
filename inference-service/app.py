@@ -36,6 +36,10 @@ from live_player_features import (  # noqa: E402
     get_live_player_features,
     load_player_history,
 )
+from served_data import (  # noqa: E402
+    require_data_root,
+    snapshot_metadata,
+)
 from live_gleague_features import (  # noqa: E402
     NotScoreable as GleagueNotScoreable,
     get_live_features as get_live_gleague_features,
@@ -255,6 +259,9 @@ class ServiceState:
     wnba_known_team_ids: set
     wnba_data_as_of: pd.Timestamp
 
+    data_root: Path
+    snapshot: dict
+
     gleague_state: dict
     gleague_models: dict
     gleague_manifest: dict
@@ -427,6 +434,13 @@ def load_gleague_models() -> tuple:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # RESOLVED BEFORE ANY TABLE IS READ, so a missing volume is one clear
+    # refusal rather than six FileNotFoundErrors in whichever order the
+    # loaders happen to run. There is deliberately no fallback to a copy
+    # inside the image - see served_data for why.
+    state.data_root = require_data_root()
+    state.snapshot = snapshot_metadata(state.data_root)
+
     state.games_final_df = load_games_final()
     state.data_as_of = pd.Timestamp(state.games_final_df["GAME_DATE"].max())
     state.known_team_ids = set(state.games_final_df["TEAM_ID"].unique())
@@ -452,6 +466,10 @@ async def lifespan(_app: FastAPI):
     state.gleague_known_team_ids = state.gleague_state["known_team_ids"]
     state.gleague_models, state.gleague_manifest = load_gleague_models()
 
+    print(
+        f"Serving data from {state.data_root} "
+        f"(snapshot {state.snapshot.get('snapshot') or 'unstamped'})."
+    )
     print(
         f"Loaded {len(state.games_final_df)} team-game rows, "
         f"{len(state.known_team_ids)} teams, {len(state.models)} team models. "
@@ -524,6 +542,21 @@ def health():
             "data_as_of": state.gleague_data_as_of.date().isoformat(),
             "days_behind": gleague_days_behind,
             "stale": gleague_stale,
+        },
+        # WHICH SNAPSHOT IS BEING SERVED. Without this, "the refresh ran" and
+        # "the service picked it up" are two separate facts with one
+        # observation between them - and the daily job's rollback path has
+        # nothing to confirm itself against.
+        "served_data": {
+            "root": str(state.data_root),
+            "snapshot": state.snapshot.get("snapshot"),
+            "created": state.snapshot.get("created"),
+            "source": state.snapshot.get("source"),
+            # Present only when a snapshot's own stamp names a different id
+            # than the directory it sits in - which happens when one is
+            # copied by hand. Reported rather than hidden: a silent
+            # disagreement here is the hazard this whole block exists for.
+            "stamp_disagrees": state.snapshot.get("stamp_disagrees"),
         },
     }
 

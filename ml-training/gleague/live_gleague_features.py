@@ -48,9 +48,11 @@ for _path in (GLEAGUE_PREP, GLEAGUE_INGEST,
 
 import json  # noqa: E402
 
-PROCESSED = PROJECT / "data-pipeline" / "data" / "gleague" / "processed"
-REGULAR_PATH = PROCESSED / "gleague_games_final.csv"
-SHOWCASE_PATH = PROCESSED / "gleague_showcase_games.csv"
+def processed_dir() -> Path:
+    """Resolved at call time so DATA_DIR moves it onto the volume."""
+    from served_data import data_root
+
+    return data_root() / "gleague" / "processed"
 MODELS_DIR = ML / "models_gleague"
 MANIFEST_PATH = MODELS_DIR / "manifest.json"
 
@@ -73,16 +75,18 @@ def load_manifest() -> dict:
 
 
 def load_games() -> pd.DataFrame:
-    frame = pd.read_csv(REGULAR_PATH, dtype={"GAME_ID": str},
+    frame = pd.read_csv(processed_dir() / "gleague_games_final.csv",
+                        dtype={"GAME_ID": str},
                         parse_dates=["GAME_DATE"])
     frame["COMPETITION"] = "regular"
     return frame
 
 
 def load_showcase() -> pd.DataFrame:
-    if not SHOWCASE_PATH.exists():
+    path = processed_dir() / "gleague_showcase_games.csv"
+    if not path.exists():
         return pd.DataFrame()
-    frame = pd.read_csv(SHOWCASE_PATH, dtype={"GAME_ID": str},
+    frame = pd.read_csv(path, dtype={"GAME_ID": str},
                         parse_dates=["GAME_DATE"])
     frame["COMPETITION"] = "showcase"
     return frame

@@ -95,6 +95,21 @@ services:
       # Service name, not localhost: this call is container-to-container.
       # injury_availability defaults to localhost so a host run still works.
       INJURY_SERVICE_URL: http://injury-service:8001
+      # WHERE THE SERVED HISTORY LIVES. The image carries no history table at
+      # all, and the service refuses to boot if this is unset or the mount is
+      # incomplete - there is deliberately no fallback, because two
+      # indistinguishable sources of served data is the hazard this replaced.
+      # The path is the MOUNT POINT, not a snapshot: served_data follows the
+      # `current` pointer inside it, so a refresh swaps one small text file.
+      DATA_DIR: /served-data
+    volumes:
+      # READ-ONLY, and outside every checkout. Two writers have to agree on
+      # the host path - the refresh job from the runner's working copy on D:,
+      # and this stack from the Desktop checkout on C: - so a path inside
+      # either one would tie the served data to that checkout. Read-only
+      # because the service only ever reads it, and because a container that
+      # cannot write cannot half-write.
+      - D:/modellarium-data:/served-data:ro
     # DELIBERATELY NOT HEALTH-GATED, unlike the backend's wait on postgres.
     # depends_on here only orders startup; it must never block inference from
     # booting, because availability-unknown is a SUPPORTED state. The four

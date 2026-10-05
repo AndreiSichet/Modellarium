@@ -126,13 +126,28 @@ jobs:
       # raises on XGBClassifier(), so the team count never reaches 7) and a
       # broken uvicorn entry point (nothing ever answers on the port).
       #
-      # Needs FOUR things committed, not one: games_final.csv, the 7 model
-      # .json files, and now quarter_half_raw.csv plus
-      # player_boxscores_with_rolling.csv with their two model directories.
+      # Needs the committed tables plus every model directory. The tables
+      # are supplied through DATA_DIR below rather than being baked into the
+      # image, which is the one thing about this job that changed when the
+      # served data moved onto a volume.
       # Every one of them is read at startup, so a missing file is a failed
       # boot rather than a lazy error later.
+      # DATA_DIR IS REQUIRED NOW, AND IT POINTS AT THE COMMITTED COPY.
+      #
+      # The image no longer carries any history table - they arrive on a
+      # mounted volume in production - and the service refuses to boot
+      # without this, deliberately, with no fallback. So CI has to supply it,
+      # and the committed tables in this checkout are what it supplies.
+      #
+      # THE COMMITTED COPY IS NO LONGER WHAT PRODUCTION SERVES. It stays in
+      # the repo for exactly two purposes: this job, and seeding the volume
+      # the first time. Anyone reading a committed games_final.csv and
+      # concluding that is what the app is serving would be wrong, which is
+      # why it is said here and in served_data.
       - name: Boot the service and check health
         working-directory: inference-service
+        env:
+          DATA_DIR: ${{ github.workspace }}/data-pipeline/data
         run: |
           uvicorn app:app --host 0.0.0.0 --port 8000 > uvicorn.log 2>&1 &
           UVICORN_PID=$!

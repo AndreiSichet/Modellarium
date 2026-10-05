@@ -150,13 +150,14 @@ def get_live_features(
 
 def load_games_final() -> pd.DataFrame:
     """Load the history table. A service should call this once at startup."""
-    path = (
-        Path(__file__).resolve().parents[1]
-        / "data-pipeline"
-        / "data"
-        / "processed"
-        / "games_final.csv"
-    )
+    # Resolved through served_data so one environment variable moves all
+    # three leagues' history onto a mounted volume. DATA_DIR unset falls back
+    # to the repo copy, which is what every training and study script needs;
+    # the SERVICE calls require_data_root() at boot, so serving never takes
+    # that fallback.
+    from served_data import data_root
+
+    path = data_root() / "processed" / "games_final.csv"
     df = pd.read_csv(path)
     df["GAME_DATE"] = pd.to_datetime(df["GAME_DATE"])
     return df

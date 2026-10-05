@@ -31,6 +31,19 @@ MATCHUP = {"homeTeamId": 1610612737, "awayTeamId": 1610612738,
            "gameDate": "2026-04-13"}
 REFERENCE_PROBABILITY = 0.42541608214378357
 
+# The WNBA's pinned reference: Phoenix Mercury home vs Las Vegas Aces, the
+# only date MAX_DAYS_AHEAD permits against a WNBA cutoff of 2026-09-24.
+WNBA_MATCHUP = {"homeTeamId": 1611661317, "awayTeamId": 1611661319,
+                "gameDate": "2026-09-25"}
+WNBA_INFERENCE_BODY = {"home_team_id": 1611661317,
+                       "away_team_id": 1611661319,
+                       "game_date": "2026-09-25"}
+WNBA_REFERENCE = {
+    "moneyline": 0.18193019489666626,
+    "spread": -8.403725674288566,
+    "totals": 178.40689601339275,
+}
+
 # Legitimately per-call, so excluded from the diff rather than silently ignored.
 #
 # daysBehind/days_behind are in here because they are computed from
@@ -132,6 +145,16 @@ def strip_volatile(value):
 def probe():
     schedule = curl("GET", f"{BACKEND}/api/games/schedule?daysAhead=120")
     return {
+        # THE WNBA IS GUARDED TOO, FROM PHASE 4 OF THE G LEAGUE ONWARD. This
+        # file's name is historical - it guarded one league when it was
+        # written. Both layers are probed because they can drift apart: the
+        # WNBA phase caught the Java record silently dropping a freshness
+        # block exactly that way, by the inference body gaining two fields
+        # while the backend body gained one.
+        "wnba_prediction": curl("POST", f"{BACKEND}/api/predictions/wnba",
+                                WNBA_MATCHUP),
+        "wnba_inference": curl("POST", f"{INFERENCE}/predict/wnba",
+                               WNBA_INFERENCE_BODY),
         "predictions": curl("POST", f"{BACKEND}/api/predictions", MATCHUP),
         "quarter_half": curl("POST", f"{BACKEND}/api/predictions/quarter-half",
                              MATCHUP),
@@ -151,24 +174,48 @@ def reference_value(snapshot):
         return None
 
 
+def wnba_reference_values(snapshot):
+    """The WNBA's three pinned values, from the backend body.
+
+    Read from the BACKEND rather than the inference body, because that is the
+    layer a client sees and the one where the WNBA phase found a field
+    silently dropped. The inference body is compared too, byte-for-byte, by
+    the ordinary diff.
+    """
+    try:
+        prediction = snapshot["wnba_prediction"]["prediction"]
+        return {"moneyline": prediction["homeWinProbability"],
+                "spread": prediction["homeMargin"],
+                "totals": prediction["totalPoints"]}
+    except (KeyError, TypeError):
+        return {}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--capture", action="store_true")
+    parser.add_argument("--baseline", default=str(BASELINE),
+                        help="which baseline to compare against or write. "
+                             "A phase uses its own file so an earlier "
+                             "phase's record is never overwritten - the "
+                             "refusal below only protects the file named "
+                             "here.")
     parser.add_argument("--step", default="", help="label for this run")
     args = parser.parse_args()
 
+    baseline_path = Path(args.baseline)
     snapshot = probe()
     value = reference_value(snapshot)
 
     if args.capture:
-        if BASELINE.exists():
-            print(f"REFUSING: {BASELINE.name} already exists. The baseline is "
+        if baseline_path.exists():
+            print(f"REFUSING: {baseline_path.name} already exists. The baseline is "
                   "the pre-change state and\nmust not be recaptured after a "
                   "change - that would make any regression invisible.")
             return 1
-        BASELINE.write_text(json.dumps(strip_volatile(snapshot), indent=2,
+        baseline_path.write_text(json.dumps(strip_volatile(snapshot), indent=2,
                                        sort_keys=True))
-        print(f"Captured baseline to {BASELINE.name}\n")
+        print(f"Captured baseline to {baseline_path.name}\n")
         print(f"  reference homeWinProbability : {value}")
         print(f"  matches the recorded value   : {value == REFERENCE_PROBABILITY}")
         print(f"  schedule fixtures            : {snapshot['schedule_count']}")
@@ -177,8 +224,8 @@ def main() -> int:
               f"{snapshot['inference_health'].get('models_loaded')}")
         return 0
 
-    if not BASELINE.exists():
-        print(f"No {BASELINE.name}. Run with --capture first.")
+    if not baseline_path.exists():
+        print(f"No {baseline_path.name}. Run with --capture first.")
         return 1
 
     # Both sides are stripped HERE rather than relying on the baseline having
@@ -186,7 +233,7 @@ def main() -> int:
     # of frozen into a file written earlier. Adding a field to that set then
     # takes effect against an existing baseline, which is what let
     # daysBehind be classified without recapturing.
-    before = strip_volatile(json.loads(BASELINE.read_text()))
+    before = strip_volatile(json.loads(baseline_path.read_text()))
     after = strip_volatile(snapshot)
 
     label = f" [{args.step}]" if args.step else ""
@@ -199,6 +246,14 @@ def main() -> int:
                         f"{REFERENCE_PROBABILITY}")
     print(f"  reference homeWinProbability : {value}  "
           f"{'OK' if value == REFERENCE_PROBABILITY else 'CHANGED'}")
+
+    wnba = wnba_reference_values(snapshot)
+    for market, expected in WNBA_REFERENCE.items():
+        got = wnba.get(market)
+        if got != expected:
+            failures.append(f"WNBA {market} is {got}, recorded {expected}")
+        print(f"  WNBA {market:<24}{got}  "
+              f"{'OK' if got == expected else 'CHANGED'}")
 
     for key in sorted(before):
         if key in SLIDING:

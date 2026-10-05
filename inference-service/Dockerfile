@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir -r inference-service/requirements.txt
 # The sibling layout, reproduced exactly. Only the files this service
 # actually reaches for - not the whole pipeline or the training scripts.
 COPY inference-service/ ./inference-service/
+COPY ml-training/served_data.py ./ml-training/
 COPY ml-training/common.py ml-training/live_features.py \
      ml-training/injury_availability.py ./ml-training/
 COPY ml-training/models/ ./ml-training/models/
@@ -49,18 +50,23 @@ COPY data-pipeline/preprocessing/build_quarter_half_rolling.py \
 # has_played() from the fetcher; nothing in the image ever calls the API.
 COPY data-pipeline/ingestion/fetch_player_boxscores.py ./data-pipeline/ingestion/
 
-# The history tables the service serves from. Baked into the image, so a
-# pipeline rerun means a rebuild - see the note in CLAUDE.md section 11.
+# NO HISTORY TABLE IS COPIED INTO THIS IMAGE ANY MORE.
 #
-# SIZE WARNING: player_boxscores_with_rolling.csv is 77 MB, more than ten
-# times games_final.csv, and it is loaded into memory at startup. This is
-# the single largest thing this image carries and the reason it is no
-# longer small. A mounted volume or an object-store fetch is the real
-# answer once the pipeline runs on a schedule.
-COPY data-pipeline/data/processed/games_final.csv \
-     data-pipeline/data/processed/quarter_half_raw.csv \
-     data-pipeline/data/processed/player_boxscores_with_rolling.csv \
-     ./data-pipeline/data/processed/
+# All six - the NBA's three, the WNBA's one and the G League's two - arrive
+# through a read-only bind mount and are located via DATA_DIR. The service
+# REFUSES TO BOOT if that is unset or incomplete, with no fallback to a copy
+# inside the image: a fallback would let it serve either of two snapshots
+# with nothing saying which, which is the two-Postgres-on-5432 hazard
+# rebuilt somewhere new.
+#
+# This also took 77 MB of player box scores out of the image - previously
+# the largest thing it carried - and ended the "a pipeline rerun means a
+# rebuild" note in CLAUDE.md section 11.
+#
+# MODELS STAY BAKED IN, DELIBERATELY. Data advances daily; a model advances
+# only through a promotion, which already ends in a rebuild. Keeping them
+# apart means a data refresh can never change which model is serving, and a
+# model change stays a reviewed event.
 
 # WNBA. A fourth model family, and the first league that is not the NBA, so
 # it gets its own directories throughout rather than extra columns in the
@@ -95,8 +101,6 @@ COPY data-pipeline/wnba/preprocessing/build_wnba_rolling_features.py \
 # and as with fetch_player_boxscores above, nothing in the image calls the API.
 COPY data-pipeline/wnba/ingestion/fetch_wnba_games.py ./data-pipeline/wnba/ingestion/
 COPY ml-training/models_wnba/ ./ml-training/models_wnba/
-COPY data-pipeline/data/wnba/processed/wnba_games_final.csv \
-     ./data-pipeline/data/wnba/processed/
 
 # --- G League, the fifth model family -------------------------------------
 #
@@ -128,9 +132,6 @@ COPY data-pipeline/gleague/preprocessing/build_gleague_elo.py \
 COPY data-pipeline/gleague/ingestion/fetch_gleague_games.py \
      ./data-pipeline/gleague/ingestion/
 COPY ml-training/models_gleague/ ./ml-training/models_gleague/
-COPY data-pipeline/data/gleague/processed/gleague_games_final.csv \
-     data-pipeline/data/gleague/processed/gleague_showcase_games.csv \
-     ./data-pipeline/data/gleague/processed/
 
 WORKDIR /app/inference-service
 

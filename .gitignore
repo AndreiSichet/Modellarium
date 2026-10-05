@@ -98,3 +98,24 @@ data-pipeline/data/wnba/processed/*
 # carries point-in-time values (the fixture count) that rot as a season is
 # played. The script is tracked; the snapshot is captured fresh each time.
 ml-training/wnba/nba_gate_baseline.json
+# The same for each later phase's own baseline. Each phase captures its own so
+# an earlier phase's record is never overwritten, and all of them carry
+# point-in-time values (a fixture count, a days-behind) that rot as a season
+# is played. The gate SCRIPT is tracked; its snapshots are not.
+ml-training/gleague/gate_baseline_phase4.json
+ml-training/gate_baseline_a4.json
+
+# G League. Third league. The raw per-season pulls stay disposable; three
+# processed tables became RUNTIME DEPENDENCIES in phase 4 and are un-ignored
+# in the same change that added them to the inference image's COPY list -
+# the standing rule in CLAUDE.md section 4, whose count this makes five.
+#
+# The Showcase Cup table is the one that looks optional and is not: REST_DAYS
+# is computed across the Cup boundary, so without it every team's first
+# regular-season game of a Cup season would be served a value the models
+# never saw for that row - one game per team per season, silently.
+data-pipeline/data/gleague/raw/*
+data-pipeline/data/gleague/processed/*
+!data-pipeline/data/gleague/processed/gleague_games_final.csv
+!data-pipeline/data/gleague/processed/gleague_showcase_games.csv
+!data-pipeline/data/gleague/processed/gleague_franchise_identity.csv
