@@ -40,6 +40,7 @@ const HOME_IDS = [
 
 function fixture(index, gameDate, extra = {}) {
   return {
+    leagueSlug: 'nba',
     homeTeamId: HOME_IDS[index],
     homeTeamAbbr: 'H',
     homeTeamName: `Home ${index}`,
@@ -153,12 +154,14 @@ describe('routing', () => {
 
     expect(generalShape).toEqual(upcomingShape);
 
-    // Both leagues get a section on both pages. The WNBA has no games for
-    // seven months, and a section is what keeps its page reachable from
-    // anywhere other than a typed URL.
+    // ALL THREE leagues get a section on both pages. The WNBA has no games
+    // for seven months and the G League none until late December, and a
+    // section is what keeps each page reachable from anywhere other than a
+    // typed URL.
     expect(generalShape.sections).toEqual([
       'league-basketball-nba',
       'league-basketball-wnba',
+      'league-basketball-gleague',
     ]);
   });
 
@@ -281,12 +284,35 @@ describe('today, the cap, and the league page', () => {
 });
 
 describe('data states', () => {
-  test('empty: succeeded with nothing predictable, and the real dataAsOf is shown', async () => {
+  test('empty: each league states ITS OWN data date, never a shared one', async () => {
     getSchedule.mockResolvedValue([]);
     renderAt('/predictions/basketball');
 
     expect(await screen.findByRole('heading', { name: 'No predictions yet' })).toBeInTheDocument();
-    expect(screen.getByText(/Model data is current to 2026-04-12/)).toBeInTheDocument();
+
+    // The NBA's date, attributed to the NBA.
+    expect(
+      screen.getByText(/NBA model data is current to 2026-04-12/)
+    ).toBeInTheDocument();
+
+    // AND NO UNATTRIBUTED ONE. This used to print a single
+    // "Model data is current to 2026-04-12" beneath every league's note -
+    // the NBA's cutoff, sitting under the WNBA's line where it was ten
+    // weeks wrong, and under the G League's where it would be wrong again
+    // differently.
+    expect(screen.queryByText(/^Model data is current to/)).toBeNull();
+
+    // This health fixture carries no wnba or gleague block, so those two
+    // have no date to show - and showing nothing is right, because the
+    // alternative is showing the NBA's.
+    const panel = screen
+      .getByRole('heading', { name: 'No predictions yet' })
+      .closest('.predictions-message');
+    const dates = Array.from(
+      panel.querySelectorAll('.predictions-message-meta'),
+      (node) => node.textContent
+    ).filter((text) => /current to/.test(text));
+    expect(dates).toEqual(['NBA model data is current to 2026-04-12.']);
   });
 
   test('empty: fixtures exist but none are within the cutoff', async () => {

@@ -1,3 +1,5 @@
+import { formatLongDate } from '../dates';
+
 // What differs between leagues lives here, so components read capability
 // rather than branching on a slug. Three kinds of difference are real:
 //
@@ -9,7 +11,13 @@
 //               against the NBA's eighteen, and a tab or a group for a market
 //               that does not exist advertises something that is not there.
 //   seasonNote - what to say when there is nothing to predict. The mechanism
-//               genuinely differs; see the WNBA entry.
+//               genuinely differs; see the WNBA and G League entries.
+//
+// seasonStatus and seasonNote may each be a FUNCTION of { schedule }, because
+// one league's copy needs a date it can only get from the data: the G League's
+// regular-season start is derived from the first cached fixture rather than
+// typed in. A hardcoded date is a date that can be wrong, and this one was -
+// the cache says 27 December where the obvious guess was the 19th.
 export const LEAGUES = [
   {
     slug: 'nba',
@@ -41,16 +49,88 @@ export const LEAGUES = [
     // endpoint errors outright. A date invented here is a date that can be
     // wrong.
     //
-    // And it must not imply the app refreshes itself. WNBA data is baked into
-    // the image and only advances when its pipeline is run by hand, so the
-    // season resuming and predictions returning are two separate events.
+    // THE REFRESH CLAUSE WAS REVERSED BY A4, AND THE SENTENCE WAS CORRECTED
+    // RATHER THAN DROPPED. It used to say WNBA data is "not refreshed
+    // automatically", which was true when the table was baked into the
+    // inference image and only advanced when someone ran its pipeline. Since
+    // served data moved onto a volume refreshed daily, for all three leagues,
+    // that sentence became false - so the season resuming and predictions
+    // returning are now the SAME event, and the copy says so. The test that
+    // pinned the old phrase pins the new one; a test whose sentence went
+    // stale still earns its place, it just needs the right sentence.
     seasonNote: [
       'The 2026 WNBA season is over. Predictions resume when the 2027 regular season begins.',
       'No date is shown for that because the 2027 schedule has not been published yet.',
-      'WNBA data is not refreshed automatically, so predictions return once the new season has been loaded rather than on opening night.',
+      'WNBA data is refreshed daily, so predictions return on their own once the 2027 season is under way rather than waiting for anyone to load it.',
     ],
   },
+  {
+    slug: 'gleague',
+    label: 'G League',
+    sport: 'basketball',
+    freshness: 'gleague',
+    // Three markets, like the WNBA: no rebounds, assists, quarter/half or
+    // player props, so the detail page renders one tab and therefore no
+    // tablist at all.
+    markets: { rebounds: false, assists: false, quarterHalf: false, playerProps: false },
+    seasonStatus: ({ schedule }) => {
+      const opens = firstFixtureDate(schedule, 'gleague');
+      return opens
+        ? `No games today — the regular season begins ${formatLongDate(opens)}`
+        : 'No games today — the regular season has not been scheduled yet';
+    },
+    // THIS COPY DIFFERS FROM BOTH OTHER LEAGUES, on three counts.
+    //
+    // The Showcase Cup is named because the G League season OPENS with it and
+    // Modellarium predicts none of it - the models are regular-season only,
+    // by the type digit the pipeline filters on. Without saying so, a visitor
+    // seeing November fixtures with no predictions has no way to know why.
+    //
+    // The date is DERIVED from the first cached regular-season fixture, not
+    // typed. Unlike the WNBA, whose 2027 schedule is unpublished, these
+    // fixtures are already in the cache - so there is a real date available
+    // and no reason to guess one.
+    //
+    // And no "ten games in": all three shipped windows are CARRY10, which
+    // draw on the previous season, so there is no warm-up to wait through.
+    seasonNote: ({ schedule }) => {
+      const opens = firstFixtureDate(schedule, 'gleague');
+
+      return [
+        opens
+          ? `The G League regular season begins ${formatLongDate(opens)}.`
+          : 'The G League regular season has not been scheduled yet.',
+        'The season opens before that with the Showcase Cup, which is not predicted here — the models are trained on regular-season games only, so Cup fixtures appear nowhere.',
+        'Predictions are available from the first regular-season game, because the models carry the previous season forward rather than waiting for form to build up.',
+      ];
+    },
+  },
 ];
+
+/**
+ * The earliest cached fixture for one league, as an ISO date.
+ *
+ * The schedule holds regular-season fixtures only - the backend filters on
+ * the game-id type digit, which is also why the Showcase Cup is absent from
+ * it - so the earliest one IS the regular-season opener.
+ */
+export function firstFixtureDate(schedule, leagueSlug) {
+  const dates = (schedule || [])
+    .filter((game) => game?.leagueSlug === leagueSlug && game?.gameDate)
+    .map((game) => game.gameDate);
+
+  return dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : null;
+}
+
+/**
+ * One league's copy, resolved against whatever the page knows.
+ *
+ * Either a literal or a function, so a league whose copy depends on the data
+ * does not force every other league's to become a function too.
+ */
+export function leagueCopy(value, context) {
+  return typeof value === 'function' ? value(context || {}) : value;
+}
 
 export function leaguesForSport(sportSlug) {
   return LEAGUES.filter((league) => league.sport === sportSlug);

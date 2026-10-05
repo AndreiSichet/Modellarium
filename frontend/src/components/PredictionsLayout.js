@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 
-import { createPredictionFor, getHealth, getSchedule, normalisePredictionBody } from '../api';
+import {
+  createPredictionFor,
+  getHealth,
+  getSchedule,
+  normalisePredictionBody,
+  normaliseSchedule,
+} from '../api';
 import { DEV_FIXTURES_ON, DEV_HEALTH, DEV_SCHEDULE, devPredictionFor } from '../data/devFixtures';
 import { leagueBySlug } from '../data/leagues';
 import { predictableDateFor } from '../dates';
@@ -23,6 +29,11 @@ function PredictionsLayout() {
 
   const [status, setStatus] = useState('loading');
   const [games, setGames] = useState([]);
+  // THE UNFILTERED LIST, kept beside the predicted one because a league can
+  // need a date from a fixture it cannot yet predict: the G League's empty
+  // state derives its regular-season start from the first cached fixture,
+  // and every one of those is months past its cutoff.
+  const [schedule, setSchedule] = useState([]);
   const [health, setHealth] = useState(null);
   const [error, setError] = useState(null);
 
@@ -30,24 +41,35 @@ function PredictionsLayout() {
     setStatus('loading');
     setError(null);
     try {
+      // The dev fixtures go through normaliseSchedule too, because they are
+      // written in the wire shape. Same reason the prediction fixtures go
+      // through normalisePredictionBody: a mapping only dev skips is a
+      // mapping dev cannot catch a mistake in.
       const [schedule, freshness] = DEV_FIXTURES_ON
-        ? [DEV_SCHEDULE, DEV_HEALTH]
+        ? [normaliseSchedule(DEV_SCHEDULE), DEV_HEALTH]
         : await Promise.all([getSchedule(SCHEDULE_DAYS_AHEAD), getHealth()]);
 
       setHealth(freshness);
 
       // Filtered PER GAME against its own league's cutoff, not once against a
-      // single one. The two leagues' data ends on different dates, so one
+      // single one. The three leagues' data ends on different dates, so one
       // cutoff is wrong for whichever league it did not come from.
+      //
+      // NO `|| 'nba'` HERE ANY MORE. It read as a fallback and was in fact
+      // the only path that ever ran, because the wire field is `league` and
+      // this read `leagueSlug` - so every fixture, G League included, was
+      // judged by the NBA's cutoff and would have been POSTed to the NBA
+      // endpoint. `getSchedule` now maps the field and drops anything it
+      // cannot route, so a league here is always real.
       const predictable = schedule.filter((game) => {
-        const league = leagueBySlug(game.leagueSlug || 'nba');
+        const league = leagueBySlug(game.leagueSlug);
         const cutoff = predictableDateFor(freshness, league);
         return cutoff ? game.gameDate <= cutoff : false;
       });
 
       const predicted = await Promise.all(
         predictable.map(async (game, index) => {
-          const leagueSlug = game.leagueSlug || 'nba';
+          const { leagueSlug } = game;
 
           // Both paths end in the same normaliser: the fixtures are written
           // in each backend DTO's own shape, so dev cannot quietly agree with
@@ -67,8 +89,13 @@ function PredictionsLayout() {
             leagueSlug,
             homeTeamId: game.homeTeamId,
             homeTeamName: game.homeTeamName,
+            // CARRIED THROUGH FOR THE BADGE. The G League's franchises are
+            // not in teams.js, so without the API's abbreviation their
+            // badges would all read "?" - see TeamBadge.
+            homeTeamAbbr: game.homeTeamAbbr,
             awayTeamId: game.awayTeamId,
             awayTeamName: game.awayTeamName,
+            awayTeamAbbr: game.awayTeamAbbr,
             gameDate: game.gameDate,
             prediction: summary.prediction,
           };
@@ -76,6 +103,7 @@ function PredictionsLayout() {
       );
 
       setGames(predicted);
+      setSchedule(schedule);
       setStatus('ready');
     } catch (failure) {
       setError(failure.message);
@@ -97,6 +125,7 @@ function PredictionsLayout() {
       <Outlet
         context={{
           games,
+          schedule,
           health,
           // A function rather than a date, so a page with two leagues on it
           // cannot accidentally judge both by one cutoff.

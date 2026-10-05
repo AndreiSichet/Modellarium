@@ -1,4 +1,9 @@
-import { createPredictionFor, normalisePredictionBody } from './api';
+import {
+  createPredictionFor,
+  getSchedule,
+  normalisePredictionBody,
+  normaliseSchedule,
+} from './api';
 
 // THE ONLY PLACE THE RAW WIRE SHAPES ARE PINNED.
 //
@@ -45,6 +50,52 @@ const WNBA_BODY = {
     stale: true,
   },
 };
+
+const GLEAGUE_BODY = {
+  gameId: 981,
+  homeTeamAbbreviation: 'OKL',
+  awayTeamAbbreviation: 'AUS',
+  gameDate: '2026-03-29',
+  prediction: {
+    homeWinProbability: 0.5908580792747549,
+    homeMargin: 2.927269925841589,
+    totalPoints: 244.46527901729075,
+    moneylineWindow: 'CARRY10',
+    spreadWindow: 'CARRY10',
+    totalsWindow: 'CARRY10',
+    dataAsOf: '2026-03-28',
+    stale: true,
+  },
+};
+
+// ScheduledGameDto's OWN field name. It says `league`; components read
+// `leagueSlug`. Nothing translated the two until this mapping existed, and
+// nothing pinned the wire name either - every component test mocks
+// getSchedule and supplies the internal name - so `game.leagueSlug` was
+// always undefined and the layout's `|| 'nba'` was the only path that ever
+// ran. This file is where that can no longer happen quietly.
+const SCHEDULE_BODY = [
+  {
+    league: 'nba',
+    homeTeamId: 1610612737,
+    homeTeamAbbr: 'ATL',
+    homeTeamName: 'Atlanta Hawks',
+    awayTeamId: 1610612738,
+    awayTeamAbbr: 'BOS',
+    awayTeamName: 'Boston Celtics',
+    gameDate: '2026-04-13',
+  },
+  {
+    league: 'gleague',
+    homeTeamId: 1612709889,
+    homeTeamAbbr: 'OKL',
+    homeTeamName: 'Oklahoma City Blue',
+    awayTeamId: 1612709890,
+    awayTeamAbbr: 'AUS',
+    awayTeamName: 'Austin Spurs',
+    gameDate: '2026-12-27',
+  },
+];
 
 function mockFetchOnce(body) {
   global.fetch = jest.fn().mockResolvedValue({
@@ -133,5 +184,84 @@ describe('createPredictionFor', () => {
       /No prediction endpoint/
     );
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('the schedule wire shape', () => {
+  test("maps ScheduledGameDto's `league` onto the `leagueSlug` components read", async () => {
+    mockFetchOnce(SCHEDULE_BODY);
+    const fixtures = await getSchedule(14);
+
+    expect(fixtures).toHaveLength(2);
+    expect(fixtures.map((game) => game.leagueSlug)).toEqual(['nba', 'gleague']);
+
+    // The wire field survives alongside it rather than being renamed away,
+    // so a reader comparing against the DTO can still see where it came
+    // from.
+    expect(fixtures[0].league).toBe('nba');
+  });
+
+  test('reading the wrong field name yields nothing, which is the bug this had', () => {
+    // Before the mapping, this was the state every fixture was in - and
+    // `|| 'nba'` turned it into "every fixture is an NBA fixture".
+    expect(SCHEDULE_BODY.every((game) => game.leagueSlug === undefined)).toBe(true);
+  });
+
+  test('a fixture with no league is skipped and logged, never defaulted', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const fixtures = normaliseSchedule([
+      ...SCHEDULE_BODY,
+      { homeTeamId: 1, awayTeamId: 2, gameDate: '2026-04-13' },
+    ]);
+
+    expect(fixtures).toHaveLength(2);
+    expect(fixtures.some((game) => game.leagueSlug === undefined)).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/Skipped 1 scheduled fixture/));
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/missing/));
+
+    warn.mockRestore();
+  });
+
+  test('a league with no prediction endpoint is skipped, not passed through', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const fixtures = normaliseSchedule([
+      { league: 'euroleague', homeTeamId: 1, awayTeamId: 2, gameDate: '2026-04-13' },
+    ]);
+
+    // Validated against the endpoint table, because the question is not
+    // whether we have heard of the league but whether we can ask for a
+    // prediction for it.
+    expect(fixtures).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/euroleague/));
+
+    warn.mockRestore();
+  });
+
+  test('an empty or absent schedule is not an error', () => {
+    expect(normaliseSchedule([])).toEqual([]);
+    expect(normaliseSchedule(undefined)).toEqual([]);
+  });
+});
+
+describe('the G League prediction endpoint', () => {
+  test('posts to its own path and reads GleagueSummaryDto field names', async () => {
+    mockFetchOnce(GLEAGUE_BODY);
+    const summary = await createPredictionFor('gleague', PAYLOAD);
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/predictions/gleague'),
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(summary.gameId).toBe(981);
+    expect(summary.prediction.homeWinProbability).toBe(0.5908580792747549);
+  });
+
+  test("the NBA mapping would read nothing from a G League body", () => {
+    // Same guard the WNBA has: the two shapes are not interchangeable, and
+    // a wrong mapping must yield undefined rather than a plausible value.
+    expect(normalisePredictionBody('nba', GLEAGUE_BODY).gameId).toBeUndefined();
+    expect(normalisePredictionBody('nba', GLEAGUE_BODY).prediction).toBeUndefined();
   });
 });

@@ -10,6 +10,7 @@ const HEALTH = { dataAsOf: '2026-04-12', daysBehind: 161, stale: true };
 const TODAY = '2026-04-13';
 
 const FIXTURE = {
+  leagueSlug: 'nba',
   homeTeamId: 1610612738,
   homeTeamAbbr: 'BOS',
   homeTeamName: 'Boston Celtics',

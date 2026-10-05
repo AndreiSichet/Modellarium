@@ -30,6 +30,7 @@ const NBA_DATE = '2026-04-13';
 const WNBA_DATE = '2026-09-25';
 
 const NBA_FIXTURE = {
+  leagueSlug: 'nba',
   homeTeamId: 1610612737,
   homeTeamAbbr: 'ATL',
   homeTeamName: 'Atlanta Hawks',
@@ -231,13 +232,18 @@ describe('the WNBA empty state says what is true', () => {
     expect(panel.textContent).not.toMatch(/2027-\d\d-\d\d/);
   });
 
-  test('it does not imply predictions appear on their own', async () => {
+  test('it says predictions return on their own, which A4 made true', async () => {
     const panel = await wnbaEmptyState();
 
-    // WNBA data is baked into the image and only advances when its pipeline
-    // is run by hand, so the season resuming and predictions returning are
-    // two separate events.
-    expect(panel.textContent).toMatch(/not refreshed automatically/);
+    // THIS TEST PINNED THE OPPOSITE SENTENCE UNTIL A4, and the assertion was
+    // corrected rather than deleted. WNBA data used to be baked into the
+    // inference image and only advanced when someone ran its pipeline, so
+    // the copy said it was "not refreshed automatically" and this pinned
+    // that. Served data now lives on a volume refreshed daily for all three
+    // leagues, so that sentence became false - and a test whose sentence
+    // went stale still earns its place, it just needs the right sentence.
+    expect(panel.textContent).toMatch(/refreshed daily/);
+    expect(panel.textContent).not.toMatch(/not refreshed automatically/);
   });
 
   test("it shows the WNBA's own cutoff, not the NBA's", async () => {

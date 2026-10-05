@@ -4,7 +4,7 @@ A personal sportsbook, in active development.
 
 For each NBA game it predicts the winner, the margin, and the totals for points, rebounds and assists — the same again for the first quarter and the first half — plus five stats for each player expected to play. Every number comes from models trained here on eleven seasons of real results. Nothing is scraped from a bookmaker.
 
-**The WNBA was added as a second league in October 2026**, with its own pipeline, its own models, its own three markets and its own pages in the app.
+**Two more leagues were added in October 2026** — the WNBA and the NBA G League — each with its own pipeline, its own models, its own three markets and its own pages in the app.
 
 ---
 
@@ -18,6 +18,7 @@ Three families, all reachable in the running app.
 | **First quarter and first half** | 6 | Winner, margin and total for each period. Q1 and 1H only, not all four quarters |
 | **Player props** | 5 per player | Points, rebounds, assists, three-pointers made, and the three combined. Up to 10 players per team |
 | **WNBA** | 3 | Winner, margin and total points. Twelve seasons, its own models, selected and scored separately |
+| **G League** | 3 | The same three. Twenty-three seasons — the least predictable of the three leagues, which its Elo level said in advance |
 
 Two of the markets carry qualifiers that travel all the way to the screen rather than being hidden: the quarter and half winner probabilities are conditional on the period not being tied, and the first-quarter winner is labelled low confidence because it measurably is. A third was considered for the WNBA winner and dropped — the gap it would have described has a confidence interval spanning zero, so it is recorded in the model's manifest rather than shown as if it were a finding.
 
@@ -85,7 +86,7 @@ basketball-predictor/
 ├── inference-service/      FastAPI — /health, schedules, four /predict routes
 ├── backend/                Spring Boot REST API + PostgreSQL
 │   └── src/                   Spring Boot application
-├── frontend/               React — four routes, both leagues, a game detail
+├── frontend/               React — four routes, three leagues, a game detail
 │                           page whose tabs follow the league's markets
 ├── infra/                  Terraform (not started)
 ├── .github/workflows/      ci.yml, continuous-retrain.yml
@@ -139,6 +140,19 @@ Three outcomes, all legible: **advanced**, **nothing new** (an off-day or a
 league between seasons — green, not a failure), and **failed** (red, with the
 previous snapshot still serving).
 
+**Only open seasons are fetched** — the current one and the one before it.
+Every completed season is reused from the file already on disk, so historical
+rows are fixed between snapshots rather than rebuilt each morning from a
+source that is free to answer differently. That is not hypothetical: the first
+scheduled run failed because a 2005-06 G League season came back with its rows
+in a different order. It also took the G League's fetch from 481 seconds to 5.
+
+The cost is that the job no longer notices if the source corrects old data, so
+that is visible on demand instead: run `daily-refresh` with **`full_refetch`**
+set and it re-fetches every season and reports how the result differs from
+what is being served, **swapping nothing**. Adopting a historical change is a
+decision, not something a morning job should take on its own.
+
 
 ## Rebuilding the data and models
 
@@ -162,7 +176,7 @@ Working end to end, locally and under Docker Compose.
 - [x] Inference service — three prediction endpoints, health and schedule
 - [x] Backend — Spring Boot, PostgreSQL persistence, cached fixture sync
 - [x] Frontend — browse and detail views over all three NBA prediction families
-- [x] A second league — WNBA pipeline, models, inference, backend and frontend
+- [x] A second and third league — WNBA and G League, each end to end
 - [x] Docker and Compose — all five services
 - [x] CI — four parallel jobs, all green
 - [x] Continuous retraining with a promotion gate
@@ -173,7 +187,7 @@ Working end to end, locally and under Docker Compose.
 
 Serving roster availability is the highest-value remaining work — it is the only change so far that measurably beat the accuracy ceiling — but it cannot be verified until the 2026-27 season opens and real injury reports exist. Cloud deployment and CD are the last two items on the original milestone list.
 
-The WNBA has no automated data refresh — the NBA's weekly retrain has no WNBA counterpart, so its data only advances when the pipeline is run by hand. That matters from May 2027, and the interface is written so as not to promise otherwise.
+All three leagues' data now refreshes daily, so a season opening is enough for predictions to appear — there is no longer a pipeline run to remember. The interface says so; it used to say the opposite about the WNBA, correctly at the time, and that sentence was corrected rather than left to rot.
 
 Longer term: market odds as a measuring stick, drift monitoring across a season, and a second sport.
 

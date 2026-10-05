@@ -16,6 +16,11 @@ const HEALTH = { dataAsOf: '2026-04-12', daysBehind: 161, stale: true };
 const TODAY = '2026-04-13';
 
 const FIXTURE = {
+  // Every fixture now names its league. getSchedule maps the wire's
+  // `league` onto `leagueSlug` and drops anything it cannot route, so a
+  // fixture reaching a component always has one - there is no NBA default
+  // left to lean on.
+  leagueSlug: 'nba',
   homeTeamId: 1610612738,
   homeTeamAbbr: 'BOS',
   homeTeamName: 'Boston Celtics',

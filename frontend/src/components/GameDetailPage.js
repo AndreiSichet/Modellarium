@@ -139,7 +139,7 @@ function GameHeader({ game }) {
   return (
     <header className="game-header">
       <div className="game-header-side">
-        <TeamBadge teamId={game.awayTeamId} />
+        <TeamBadge teamId={game.awayTeamId} abbr={game.awayTeamAbbr} />
         <span className="game-header-team">{game.awayTeamName}</span>
       </div>
 
@@ -150,7 +150,7 @@ function GameHeader({ game }) {
 
       <div className="game-header-side game-header-side--home">
         <span className="game-header-team">{game.homeTeamName}</span>
-        <TeamBadge teamId={game.homeTeamId} />
+        <TeamBadge teamId={game.homeTeamId} abbr={game.homeTeamAbbr} />
       </div>
     </header>
   );

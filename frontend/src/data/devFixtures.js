@@ -1,7 +1,20 @@
 export const DEV_FIXTURES_ON = process.env.REACT_APP_DEV_FIXTURES === '1';
 
+/**
+ * Fixtures in the WIRE shape, so dev exercises the same mapping production
+ * does.
+ *
+ * `league`, not `leagueSlug`, because that is what `ScheduledGameDto`
+ * actually sends. These used to say `leagueSlug` and so agreed with the
+ * components while disagreeing with the server - which is precisely how the
+ * field-name mismatch survived: every component test mocks `getSchedule` and
+ * supplied the internal name, so nothing pinned the wire one. The layout
+ * runs this through `normaliseSchedule` for the same reason it runs the
+ * prediction fixtures through `normalisePredictionBody`.
+ */
 export const DEV_SCHEDULE = [
   {
+    league: 'nba',
     homeTeamId: 1610612749,
     homeTeamAbbr: 'MIL',
     homeTeamName: 'Milwaukee Bucks',
@@ -11,6 +24,7 @@ export const DEV_SCHEDULE = [
     gameDate: '2026-04-12',
   },
   {
+    league: 'nba',
     homeTeamId: 1610612738,
     homeTeamAbbr: 'BOS',
     homeTeamName: 'Boston Celtics',
@@ -20,6 +34,7 @@ export const DEV_SCHEDULE = [
     gameDate: '2026-04-13',
   },
   {
+    league: 'nba',
     homeTeamId: 1610612757,
     homeTeamAbbr: 'POR',
     homeTeamName: 'Portland Trail Blazers',
@@ -29,6 +44,7 @@ export const DEV_SCHEDULE = [
     gameDate: '2026-04-13',
   },
   {
+    league: 'nba',
     homeTeamId: 1610612761,
     homeTeamAbbr: 'TOR',
     homeTeamName: 'Toronto Raptors',
@@ -38,6 +54,7 @@ export const DEV_SCHEDULE = [
     gameDate: '2026-04-11',
   },
   {
+    league: 'nba',
     homeTeamId: 1610612744,
     homeTeamAbbr: 'GSW',
     homeTeamName: 'Golden State Warriors',
@@ -47,6 +64,7 @@ export const DEV_SCHEDULE = [
     gameDate: '2026-04-13',
   },
   {
+    league: 'nba',
     homeTeamId: 1610612999,
     homeTeamAbbr: 'XXX',
     homeTeamName: 'Relocated Franchise',
@@ -56,6 +74,7 @@ export const DEV_SCHEDULE = [
     gameDate: '2026-04-13',
   },
   {
+    league: 'nba',
     homeTeamId: 1610612745,
     homeTeamAbbr: 'HOU',
     homeTeamName: 'Houston Rockets',
@@ -65,6 +84,7 @@ export const DEV_SCHEDULE = [
     gameDate: '2026-04-12',
   },
   {
+    league: 'nba',
     homeTeamId: 1610612752,
     homeTeamAbbr: 'NYK',
     homeTeamName: 'New York Knicks',
@@ -74,6 +94,7 @@ export const DEV_SCHEDULE = [
     gameDate: '2026-04-13',
   },
   {
+    league: 'nba',
     homeTeamId: 1610612743,
     homeTeamAbbr: 'DEN',
     homeTeamName: 'Denver Nuggets',
@@ -87,7 +108,7 @@ export const DEV_SCHEDULE = [
   // judged these by NBA freshness would show them on the wrong date or not
   // at all.
   {
-    leagueSlug: 'wnba',
+    league: 'wnba',
     homeTeamId: 1611661317,
     homeTeamAbbr: 'PHX',
     homeTeamName: 'Phoenix Mercury',
@@ -100,7 +121,7 @@ export const DEV_SCHEDULE = [
     // ATL and CHI both exist in the NBA too. Rendered side by side with the
     // Hawks or the Bulls, a lookup that resolved teams by abbreviation would
     // show identical badges here.
-    leagueSlug: 'wnba',
+    league: 'wnba',
     homeTeamId: 1611661330,
     homeTeamAbbr: 'ATL',
     homeTeamName: 'Atlanta Dream',
@@ -160,7 +181,7 @@ const PREDICTIONS = {
  * mapping breaks dev too instead of dev agreeing with itself.
  */
 export function devPredictionFor(game, index) {
-  if ((game.leagueSlug || 'nba') === 'wnba') {
+  if (game.leagueSlug === 'wnba') {
     const values = WNBA_PREDICTIONS[game.homeTeamId] || WNBA_PREDICTIONS[1611661317];
 
     return {

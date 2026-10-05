@@ -2,7 +2,7 @@ import { Link, useOutletContext, useParams } from 'react-router-dom';
 
 import Breadcrumb from './Breadcrumb';
 
-import { findLeague } from '../data/leagues';
+import { findLeague, leagueCopy } from '../data/leagues';
 import { dataAsOfFor } from '../dates';
 import GameList from './GameList';
 import { byDate } from './GamesPage';
@@ -13,7 +13,7 @@ function LeaguePage() {
   const { sport: sportSlug, league: leagueSlug } = useParams();
   const sport = findSport(sportSlug);
   const league = findLeague(sportSlug, leagueSlug);
-  const { games, health } = useOutletContext();
+  const { games, schedule, health } = useOutletContext();
 
   if (!sport || !league) {
     return <NotFound sportSlug={sportSlug} leagueSlug={leagueSlug} sport={sport} />;
@@ -34,7 +34,11 @@ function LeaguePage() {
       <h1 className="league-page-title">{league.label} Predictions</h1>
 
       {listed.length === 0 ? (
-        <SeasonEmptyState league={league} health={health} />
+        <SeasonEmptyState
+          league={league}
+          health={health}
+          schedule={schedule}
+        />
       ) : (
         <GameList games={listed} league={league} />
       )}
@@ -51,12 +55,17 @@ function LeaguePage() {
  * sentence would state the wrong mechanism for one of the two leagues. The
  * cutoff shown is also that league's own, from its entry in /api/health.
  */
-export function SeasonEmptyState({ league, health }) {
+export function SeasonEmptyState({ league, health, schedule }) {
   const dataAsOf = dataAsOfFor(health, league);
+
+  // Resolved against the schedule, because one league's copy needs a date
+  // only the data has: the G League's regular-season start comes from its
+  // first cached fixture rather than from a typed-in guess.
+  const note = leagueCopy(league.seasonNote, { schedule });
 
   return (
     <div className="predictions-message">
-      {league.seasonNote.map((line) => (
+      {note.map((line) => (
         <p className="predictions-message-body" key={line}>
           {line}
         </p>

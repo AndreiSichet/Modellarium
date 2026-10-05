@@ -32,3 +32,25 @@ export function dataAsOfFor(health, league) {
 export function predictableDateFor(health, league) {
   return latestPredictableDate(dataAsOfFor(health, league));
 }
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/**
+ * An ISO date as "27 December 2026", matching the hand-written copy.
+ *
+ * Parsed by hand rather than through Date, because `new Date('2026-12-27')`
+ * is treated as UTC midnight and then rendered in local time, which moves
+ * the day backwards for anyone west of Greenwich. A date shown in copy must
+ * not depend on where the reader is.
+ */
+export function formatLongDate(isoDate) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate || '');
+  if (!match) return null;
+
+  const [, year, month, day] = match;
+  const name = MONTHS[Number(month) - 1];
+  return name ? `${Number(day)} ${name} ${year}` : null;
+}

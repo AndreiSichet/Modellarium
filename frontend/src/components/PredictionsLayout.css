@@ -49,6 +49,28 @@
   color: var(--ink-muted);
 }
 
+/* One league's note and its own data date, grouped so the date reads as
+   belonging to that league rather than to the page. */
+.predictions-message-league {
+  margin: 0 0 var(--space-3);
+}
+
+.predictions-message-league .predictions-message-meta {
+  margin: 0;
+}
+
+/* THE `More <league>` LINKS, SPACED BY GAP RATHER THAN BY TEXT.
+   Anchors are inline, so three of them in a paragraph render as
+   "More NBAMore WNBAMore G League". A flex row with a token gap separates
+   them without a typed space or a separator character, and wraps instead of
+   overflowing at narrow widths. */
+.predictions-message-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-3) 0 0;
+}
+
 .predictions-error-detail {
   margin: 0 0 var(--space-3);
   font-family: var(--font-mono);

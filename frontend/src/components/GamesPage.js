@@ -1,6 +1,7 @@
 import { Link, useOutletContext, useParams } from 'react-router-dom';
 
-import { LEAGUES, leaguesForSport } from '../data/leagues';
+import { LEAGUES, leagueCopy, leaguesForSport } from '../data/leagues';
+import { dataAsOfFor } from '../dates';
 import GameList from './GameList';
 import LeagueShortcuts, { useActiveSection } from './LeagueShortcuts';
 import { findSport } from './SportsRail';
@@ -25,7 +26,7 @@ function sectionId(league) {
 function GamesPage() {
   const { sport: slug } = useParams();
   const sport = slug ? findSport(slug) : null;
-  const { games, predictableDateFor } = useOutletContext();
+  const { games, schedule, predictableDateFor } = useOutletContext();
 
   const unknownSport = Boolean(slug) && !sport;
 
@@ -77,7 +78,11 @@ function GamesPage() {
           />
 
           {sections.map((section) => (
-            <LeagueSection key={section.id} section={section} />
+            <LeagueSection
+              key={section.id}
+              section={section}
+              schedule={schedule}
+            />
           ))}
         </>
       )}
@@ -85,7 +90,7 @@ function GamesPage() {
   );
 }
 
-function LeagueSection({ section }) {
+function LeagueSection({ section, schedule }) {
   const { league, games, date } = section;
 
   return (
@@ -112,7 +117,9 @@ function LeagueSection({ section }) {
         // defeats having built it; a line is cheaper than an undiscoverable
         // page. It is not a placeholder for a league with no capability -
         // this league serves predictions, it just has no games today.
-        <p className="league-section-empty">{league.seasonStatus}</p>
+        <p className="league-section-empty">
+          {leagueCopy(league.seasonStatus, { schedule })}
+        </p>
       )}
     </section>
   );
@@ -131,28 +138,53 @@ function UnknownSport({ slug }) {
 }
 
 function NothingPredictable({ sport, leagues }) {
-  const { health } = useOutletContext();
+  const { health, schedule } = useOutletContext();
 
   return (
     <div className="predictions-message">
       <h1 className="predictions-message-title">No predictions yet</h1>
 
-      {leagues.map((league) => (
-        <p className="predictions-message-body" key={league.slug}>
-          <strong>{league.label}:</strong> {league.seasonNote[0]}
-        </p>
-      ))}
+      {/* EACH LEAGUE STATES ITS OWN DATA DATE, beside its own note. This
+          used to print one shared `health.dataAsOf` under all of them, which
+          is the NBA's cutoff - so the WNBA's line was followed by a date ten
+          weeks wrong, and the G League's would be wrong again differently.
+          Same principle as the per-league predictability filter, applied to
+          what the page SAYS rather than to what it requests. */}
+      {leagues.map((league) => {
+        const dataAsOf = dataAsOfFor(health, league);
+        const note = leagueCopy(league.seasonNote, { schedule });
 
-      {health?.dataAsOf ? (
+        return (
+          <div className="predictions-message-league" key={league.slug}>
+            <p className="predictions-message-body">
+              <strong>{league.label}:</strong> {note[0]}
+            </p>
+
+            {dataAsOf ? (
+              <p className="predictions-message-meta">
+                {league.label} model data is current to {dataAsOf}.
+              </p>
+            ) : null}
+          </div>
+        );
+      })}
+
+      {sport ? (
         <p className="predictions-message-meta">
-          Model data is current to {health.dataAsOf}
-          {sport ? `, and nothing is scheduled for ${sport.label} today` : ''}.
+          Nothing is scheduled for {sport.label} today.
         </p>
       ) : null}
 
       {/* Links, so no league page is reachable only by a typed URL while
-          every league happens to be between seasons. */}
-      <p className="predictions-message-body">
+          every league happens to be between seasons.
+
+          A NAV WITH A TOKEN GAP, NOT INLINE TEXT. These rendered as
+          "More NBAMore WNBA" - three links running together once the G
+          League joined - because anchors are inline and nothing separated
+          them. Spaced by flex gap rather than by a typed space or a
+          separator character, so each stays one distinct target for a
+          keyboard and a screen reader. */}
+      <nav className="predictions-message-links" aria-label="Leagues">
         {leagues.map((league) => (
           <Link
             className="league-section-more"
@@ -162,7 +194,7 @@ function NothingPredictable({ sport, leagues }) {
             More {league.label}
           </Link>
         ))}
-      </p>
+      </nav>
     </div>
   );
 }

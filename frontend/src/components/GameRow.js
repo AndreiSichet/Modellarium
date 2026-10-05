@@ -5,11 +5,11 @@ import { teamFor } from '../data/teams';
 import TeamBadge from './TeamBadge';
 import './GameRow.css';
 
-function TeamLine({ teamId, name, spread, win }) {
+function TeamLine({ teamId, name, abbr, spread, win }) {
   return (
     <>
       <div className="game-row-team">
-        <TeamBadge teamId={teamId} />
+        <TeamBadge teamId={teamId} abbr={abbr} />
         <span className="game-row-team-name">{name || teamFor(teamId).name}</span>
       </div>
       <div className="game-row-cell">{spread}</div>
@@ -36,6 +36,7 @@ function GameRow({ game, league }) {
         <TeamLine
           teamId={game.homeTeamId}
           name={game.homeTeamName}
+          abbr={game.homeTeamAbbr}
           spread={formatSpread(margin, true)}
           win={formatWin(probability, true)}
         />
@@ -45,6 +46,7 @@ function GameRow({ game, league }) {
         <TeamLine
           teamId={game.awayTeamId}
           name={game.awayTeamName}
+          abbr={game.awayTeamAbbr}
           spread={formatSpread(margin, false)}
           win={formatWin(probability, false)}
         />
