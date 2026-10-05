@@ -1,0 +1,333 @@
+{
+  "league": "gleague",
+  "built": "2026-10-04",
+  "span": "full",
+  "span_start": "2003-04",
+  "seasons_trained_on": [
+    "2003-04",
+    "2004-05",
+    "2005-06",
+    "2006-07",
+    "2007-08",
+    "2008-09",
+    "2009-10",
+    "2010-11",
+    "2011-12",
+    "2012-13",
+    "2013-14",
+    "2014-15",
+    "2015-16",
+    "2016-17",
+    "2017-18",
+    "2018-19",
+    "2019-20",
+    "2020-21",
+    "2021-22",
+    "2022-23",
+    "2023-24",
+    "2024-25",
+    "2025-26"
+  ],
+  "elo": {
+    "k": 20,
+    "carryover": 0.3333333333333333,
+    "baseline_rating": 1500.0,
+    "expansion_offset": 0.0,
+    "replay_starts": "2003-04",
+    "fitted_on": "every season in the span, test included",
+    "per_fold_values": [
+      {
+        "validation": "2018-19",
+        "k": 20,
+        "carryover": 0.2
+      },
+      {
+        "validation": "2021-22",
+        "k": 20,
+        "carryover": 0.2
+      },
+      {
+        "validation": "2022-23",
+        "k": 20,
+        "carryover": 0.2
+      },
+      {
+        "validation": "2023-24",
+        "k": 20,
+        "carryover": 0.2
+      }
+    ]
+  },
+  "rolling_metrics": [
+    "WIN_PCT",
+    "PTS",
+    "PLUS_MINUS",
+    "FG_PCT",
+    "REB",
+    "AST",
+    "TOV"
+  ],
+  "context_features": [
+    "REST_DAYS",
+    "IS_LONG_BREAK",
+    "TEAM_ELO"
+  ],
+  "requires_complete_features": true,
+  "targets": {
+    "moneyline": {
+      "artifact": "moneyline.joblib",
+      "family": "linear",
+      "window": "CARRY10",
+      "metric": "log_loss",
+      "label": "HOME_WIN",
+      "features": [
+        "HOME_CARRY10_WIN_PCT",
+        "HOME_CARRY10_PTS",
+        "HOME_CARRY10_PLUS_MINUS",
+        "HOME_CARRY10_FG_PCT",
+        "HOME_CARRY10_REB",
+        "HOME_CARRY10_AST",
+        "HOME_CARRY10_TOV",
+        "AWAY_CARRY10_WIN_PCT",
+        "AWAY_CARRY10_PTS",
+        "AWAY_CARRY10_PLUS_MINUS",
+        "AWAY_CARRY10_FG_PCT",
+        "AWAY_CARRY10_REB",
+        "AWAY_CARRY10_AST",
+        "AWAY_CARRY10_TOV",
+        "HOME_REST_DAYS",
+        "HOME_IS_LONG_BREAK",
+        "HOME_TEAM_ELO",
+        "AWAY_REST_DAYS",
+        "AWAY_IS_LONG_BREAK",
+        "AWAY_TEAM_ELO"
+      ],
+      "rows_fitted_on": 9006,
+      "validation": {
+        "folds": [
+          "2018-19",
+          "2021-22",
+          "2022-23",
+          "2023-24"
+        ],
+        "mean": 0.666160308064927,
+        "sd": 0.006787064559026448,
+        "naive_mean": 0.6904482764447613,
+        "elo_mean": 0.670725284449098,
+        "runner_up": {
+          "family": "linear",
+          "window": "CUP10",
+          "validation_mean": 0.6662111126063576
+        },
+        "gap_pct": 0.0076258922238364385,
+        "fold_spread_pct": 1.018833526533819,
+        "cup_vs_carry_pct": -0.007626473810509706
+      },
+      "tied_with": [
+        "linear/CARRY5",
+        "linear/CUP10",
+        "linear/CUP5",
+        "xgboost/CARRY10",
+        "xgboost/CARRY5",
+        "xgboost/CUP10",
+        "xgboost/CUP5"
+      ],
+      "test": {
+        "seasons": [
+          "2024-25",
+          "2025-26"
+        ],
+        "model": 0.667076540437013,
+        "naive": 0.6898122313593589,
+        "elo": 0.6774455771566751,
+        "rows": 1075,
+        "vs_naive": {
+          "difference": -0.022735690922345855,
+          "low": -0.03596896666751088,
+          "high": -0.008628130064899911
+        },
+        "vs_elo": {
+          "difference": -0.010369036719662179,
+          "low": -0.020240004715274203,
+          "high": -0.0004181616011851043
+        }
+      }
+    },
+    "spread": {
+      "artifact": "spread.joblib",
+      "family": "linear",
+      "window": "CARRY10",
+      "metric": "mae",
+      "label": "HOME_MARGIN",
+      "features": [
+        "HOME_CARRY10_WIN_PCT",
+        "HOME_CARRY10_PTS",
+        "HOME_CARRY10_PLUS_MINUS",
+        "HOME_CARRY10_FG_PCT",
+        "HOME_CARRY10_REB",
+        "HOME_CARRY10_AST",
+        "HOME_CARRY10_TOV",
+        "AWAY_CARRY10_WIN_PCT",
+        "AWAY_CARRY10_PTS",
+        "AWAY_CARRY10_PLUS_MINUS",
+        "AWAY_CARRY10_FG_PCT",
+        "AWAY_CARRY10_REB",
+        "AWAY_CARRY10_AST",
+        "AWAY_CARRY10_TOV",
+        "HOME_REST_DAYS",
+        "HOME_IS_LONG_BREAK",
+        "HOME_TEAM_ELO",
+        "AWAY_REST_DAYS",
+        "AWAY_IS_LONG_BREAK",
+        "AWAY_TEAM_ELO"
+      ],
+      "rows_fitted_on": 9007,
+      "validation": {
+        "folds": [
+          "2018-19",
+          "2021-22",
+          "2022-23",
+          "2023-24"
+        ],
+        "mean": 10.81372321453991,
+        "sd": 0.37380177658539554,
+        "naive_mean": 12.235454372256733,
+        "elo_mean": null,
+        "runner_up": {
+          "family": "linear",
+          "window": "CARRY10",
+          "validation_mean": 10.813911809192106
+        },
+        "gap_pct": 0.001744000279669854,
+        "fold_spread_pct": 3.456735198130366,
+        "cup_vs_carry_pct": 0.001744000279669854
+      },
+      "tied_with": [
+        "linear/CARRY10",
+        "linear/CARRY5",
+        "linear/CUP5",
+        "xgboost/CARRY10",
+        "xgboost/CARRY5",
+        "xgboost/CUP10",
+        "xgboost/CUP5"
+      ],
+      "test": {
+        "seasons": [
+          "2024-25",
+          "2025-26"
+        ],
+        "model": 11.209044334455347,
+        "naive": 12.300921658986175,
+        "elo": null,
+        "rows": 1085,
+        "vs_naive": {
+          "difference": -1.0918773245308266,
+          "low": -1.4571083479228695,
+          "high": -0.7169247152992688
+        },
+        "vs_elo": null
+      }
+    },
+    "totals": {
+      "artifact": "totals.joblib",
+      "family": "linear",
+      "window": "CARRY10",
+      "metric": "mae",
+      "label": "TOTAL_PTS",
+      "features": [
+        "HOME_CARRY10_WIN_PCT",
+        "HOME_CARRY10_PTS",
+        "HOME_CARRY10_PLUS_MINUS",
+        "HOME_CARRY10_FG_PCT",
+        "HOME_CARRY10_REB",
+        "HOME_CARRY10_AST",
+        "HOME_CARRY10_TOV",
+        "AWAY_CARRY10_WIN_PCT",
+        "AWAY_CARRY10_PTS",
+        "AWAY_CARRY10_PLUS_MINUS",
+        "AWAY_CARRY10_FG_PCT",
+        "AWAY_CARRY10_REB",
+        "AWAY_CARRY10_AST",
+        "AWAY_CARRY10_TOV",
+        "HOME_REST_DAYS",
+        "HOME_IS_LONG_BREAK",
+        "HOME_TEAM_ELO",
+        "AWAY_REST_DAYS",
+        "AWAY_IS_LONG_BREAK",
+        "AWAY_TEAM_ELO"
+      ],
+      "rows_fitted_on": 9007,
+      "validation": {
+        "folds": [
+          "2018-19",
+          "2021-22",
+          "2022-23",
+          "2023-24"
+        ],
+        "mean": 15.266242150384178,
+        "sd": 0.4887015463723675,
+        "naive_mean": 15.610148104887134,
+        "elo_mean": null,
+        "runner_up": {
+          "family": "linear",
+          "window": "CARRY10",
+          "validation_mean": 15.347652745446322
+        },
+        "gap_pct": 0.530443295873359,
+        "fold_spread_pct": 3.201190846825846,
+        "cup_vs_carry_pct": 0.530443295873359
+      },
+      "tied_with": [
+        "linear/CARRY10",
+        "linear/CARRY5",
+        "linear/CUP5",
+        "xgboost/CARRY10",
+        "xgboost/CARRY5",
+        "xgboost/CUP10",
+        "xgboost/CUP5"
+      ],
+      "test": {
+        "seasons": [
+          "2024-25",
+          "2025-26"
+        ],
+        "model": 15.00437549130579,
+        "naive": 15.35935483870968,
+        "elo": null,
+        "rows": 1085,
+        "vs_naive": {
+          "difference": -0.35497934740388604,
+          "low": -0.5890398340539932,
+          "high": -0.13662494426550487
+        },
+        "vs_elo": null
+      }
+    }
+  },
+  "engineering_notes": {
+    "no_holdout": "These artifacts are retrained on every season in the span, so they cannot be evaluated themselves. The validation and test numbers below belong to the held-out versions. A future retrain gate must RE-FIT this architecture on the candidate's own training rows rather than scoring these weights - see CLAUDE.md section 24.",
+    "elo_is_also_no_holdout": "K and carryover above are fitted on every season in the span, test included, so they are a no-holdout quantity like the model weights. They differ from the per-fold values recorded under elo.per_fold_values - every validation fold fitted carryover 0.200 and the full span fits 0.333, which is more data finding a different optimum rather than a defect. A retrain gate must refit these too.",
+    "selection_was_a_tie": "Every window and family combination landed inside the fold-to-fold spread on all three targets, so the selected configuration is not measurably better than the ones listed in tied_with. It is a defensible pick, not a demonstrated winner.",
+    "audience": "Written for engineers. Nothing in this file is intended for display; any user-facing text is phase 5's explicit decision."
+  },
+  "serving_tiebreak": {
+    "spread": {
+      "selected": "CUP10",
+      "shipped": "CARRY10",
+      "reason": "every candidate tied on validation, so serving cost decides: a CUP window would make a served form feature depend on live Showcase Cup results for no measured gain",
+      "validation_mean_selected": 10.81372321453991,
+      "validation_mean_shipped": 10.813911809192106,
+      "validation_gap_pct": 0.0017440306955700622,
+      "test_numbers_belong_to": "CUP10"
+    },
+    "totals": {
+      "selected": "CUP10",
+      "shipped": "CARRY10",
+      "reason": "every candidate tied on validation, so serving cost decides: a CUP window would make a served form feature depend on live Showcase Cup results for no measured gain",
+      "validation_mean_selected": 15.266242150384178,
+      "validation_mean_shipped": 15.347652745446322,
+      "validation_gap_pct": 0.5332720014538406,
+      "test_numbers_belong_to": "CUP10"
+    }
+  }
+}

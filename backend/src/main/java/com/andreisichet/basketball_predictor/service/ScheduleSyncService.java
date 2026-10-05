@@ -70,6 +70,25 @@ public class ScheduleSyncService {
         syncLeague("WNBA", inferenceClient::fetchWnbaSchedule);
     }
 
+    /**
+     * The G League schedule, independently.
+     *
+     * THE FIRST NEW LEAGUE WITH FIXTURES TO CACHE RIGHT NOW. The NBA's and
+     * the WNBA's were both out of season when they were added; the G League's
+     * 2026-27 season is already scheduled, so this populates on the first
+     * tick rather than waiting months - which means a mistake here reaches a
+     * live browse view in weeks rather than next May.
+     *
+     * Showcase Cup fixtures must not arrive, and the filter is on the Python
+     * side: Cup games carry type digit 5 and `upcoming_regular_season` keeps
+     * only digit 2. A cached Cup fixture would show as predictable and the
+     * backend would then reject it, because no shipped model has seen one.
+     */
+    @Transactional
+    public void syncGleague() {
+        syncLeague("GLEAGUE", inferenceClient::fetchGleagueSchedule);
+    }
+
     private void syncLeague(
             String league, IntFunction<List<InferenceScheduledGame>> fetch) {
         List<InferenceScheduledGame> fixtures;

@@ -10,7 +10,8 @@ public record HealthDto(
         LocalDate dataAsOf,
         int daysBehind,
         boolean stale,
-        LeagueFreshnessDto wnba) {
+        LeagueFreshnessDto wnba,
+        LeagueFreshnessDto gleague) {
     /** Per-league freshness in the camelCase shape clients read. */
     public record LeagueFreshnessDto(
             LocalDate dataAsOf,
@@ -37,6 +38,7 @@ public record HealthDto(
                 health.dataAsOf(),
                 health.daysBehind(),
                 health.stale(),
-                LeagueFreshnessDto.from(health.wnba()));
+                LeagueFreshnessDto.from(health.wnba()),
+                LeagueFreshnessDto.from(health.gleague()));
     }
 }

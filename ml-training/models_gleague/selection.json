@@ -1,0 +1,144 @@
+{
+  "span": "full",
+  "span_start": "2003-04",
+  "stage_order": [
+    "A: training span, at one fixed reference configuration",
+    "B: window and model family, under the span A chose"
+  ],
+  "stage_a_reference": {
+    "window": "CARRY5",
+    "family": "linear"
+  },
+  "stage_a": {
+    "moneyline": {
+      "best": "full",
+      "gap_pct": 0.19298023209594636,
+      "fold_spread_pct": 0.3434283908145134
+    },
+    "spread": {
+      "best": "full",
+      "gap_pct": 0.32347512045979765,
+      "fold_spread_pct": 3.156663140946729
+    },
+    "totals": {
+      "best": "full",
+      "gap_pct": 0.34891665080425993,
+      "fold_spread_pct": 2.754962477149734
+    }
+  },
+  "window_candidates": [
+    "CARRY5",
+    "CARRY10",
+    "CUP5",
+    "CUP10"
+  ],
+  "model_families": [
+    "linear",
+    "xgboost"
+  ],
+  "validation_folds": [
+    "2018-19",
+    "2021-22",
+    "2022-23",
+    "2023-24"
+  ],
+  "elo_per_fold": [
+    {
+      "validation": "2018-19",
+      "k": 20,
+      "carryover": 0.2
+    },
+    {
+      "validation": "2021-22",
+      "k": 20,
+      "carryover": 0.2
+    },
+    {
+      "validation": "2022-23",
+      "k": 20,
+      "carryover": 0.2
+    },
+    {
+      "validation": "2023-24",
+      "k": 20,
+      "carryover": 0.2
+    }
+  ],
+  "selected": {
+    "moneyline": {
+      "tied_with": [
+        "linear/CARRY5",
+        "linear/CUP10",
+        "linear/CUP5",
+        "xgboost/CARRY10",
+        "xgboost/CARRY5",
+        "xgboost/CUP10",
+        "xgboost/CUP5"
+      ],
+      "family": "linear",
+      "window": "CARRY10",
+      "validation_mean": 0.666160308064927,
+      "validation_sd": 0.006787064559026448,
+      "runner_up": {
+        "family": "linear",
+        "window": "CUP10",
+        "validation_mean": 0.6662111126063576
+      },
+      "gap_pct": 0.0076258922238364385,
+      "fold_spread_pct": 1.018833526533819,
+      "naive_mean": 0.6904482764447613,
+      "elo_mean": 0.670725284449098,
+      "cup_vs_carry_pct": -0.007626473810509706
+    },
+    "spread": {
+      "tied_with": [
+        "linear/CARRY10",
+        "linear/CARRY5",
+        "linear/CUP5",
+        "xgboost/CARRY10",
+        "xgboost/CARRY5",
+        "xgboost/CUP10",
+        "xgboost/CUP5"
+      ],
+      "family": "linear",
+      "window": "CUP10",
+      "validation_mean": 10.81372321453991,
+      "validation_sd": 0.37380177658539554,
+      "runner_up": {
+        "family": "linear",
+        "window": "CARRY10",
+        "validation_mean": 10.813911809192106
+      },
+      "gap_pct": 0.001744000279669854,
+      "fold_spread_pct": 3.456735198130366,
+      "naive_mean": 12.235454372256733,
+      "elo_mean": null,
+      "cup_vs_carry_pct": 0.001744000279669854
+    },
+    "totals": {
+      "tied_with": [
+        "linear/CARRY10",
+        "linear/CARRY5",
+        "linear/CUP5",
+        "xgboost/CARRY10",
+        "xgboost/CARRY5",
+        "xgboost/CUP10",
+        "xgboost/CUP5"
+      ],
+      "family": "linear",
+      "window": "CUP10",
+      "validation_mean": 15.266242150384178,
+      "validation_sd": 0.4887015463723675,
+      "runner_up": {
+        "family": "linear",
+        "window": "CARRY10",
+        "validation_mean": 15.347652745446322
+      },
+      "gap_pct": 0.530443295873359,
+      "fold_spread_pct": 3.201190846825846,
+      "naive_mean": 15.610148104887134,
+      "elo_mean": null,
+      "cup_vs_carry_pct": 0.530443295873359
+    }
+  }
+}

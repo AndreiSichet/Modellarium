@@ -156,10 +156,18 @@ jobs:
           # editing this line, which is the right way round; a check that
           # tolerated a new family silently would also tolerate a missing one.
           #
-          # wnba: 3 was added in phase 4. The service refuses to boot unless
-          # models_wnba/ matches its own manifest, so a wrong count here means
-          # the manifest and the directory agreed on something unexpected.
-          python -c "import json; h = json.load(open('health.json')); assert h['status'] == 'ok', h; m = h['models_loaded']; assert m == {'team': 7, 'quarter_half': 6, 'player_props': 10, 'wnba': 3}, m; print('health OK:', h)"
+          # wnba: 3 and gleague: 3 were added by each league's phase 4. Both
+          # services refuse to boot unless their directory matches their own
+          # manifest, so a wrong count here means the manifest and the
+          # directory agreed on something unexpected.
+          #
+          # The G League entry also makes this job a COLD-START test for the
+          # third league: a broken artifact takes NBA and WNBA serving down
+          # with it, which is deliberate but acceptable only because it fails
+          # here rather than on a live day. Negative-tested by renaming an
+          # artifact in the running container - the service refused to start
+          # and named the missing one.
+          python -c "import json; h = json.load(open('health.json')); assert h['status'] == 'ok', h; m = h['models_loaded']; assert m == {'team': 7, 'quarter_half': 6, 'player_props': 10, 'wnba': 3, 'gleague': 3}, m; print('health OK:', h)"
 
           kill "$UVICORN_PID"
 

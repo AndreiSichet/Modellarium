@@ -98,6 +98,40 @@ COPY ml-training/models_wnba/ ./ml-training/models_wnba/
 COPY data-pipeline/data/wnba/processed/wnba_games_final.csv \
      ./data-pipeline/data/wnba/processed/
 
+# --- G League, the fifth model family -------------------------------------
+#
+# THE SHOWCASE CUP TABLE IS THE ONE THAT LOOKS OPTIONAL AND IS NOT. REST_DAYS
+# is computed across the Cup boundary, so a team's first regular-season game
+# of a Cup season reads rest from its last Cup game. Serving without this
+# table would give that row a value the models never saw for it - one game
+# per team per season, silently, and invisible to any check that does not
+# look specifically at a post-Cup opener.
+#
+# Both tables sat inside data-pipeline/data/gleague/processed/* and were
+# un-ignored in the SAME change that added these lines. 2.8 MB and 356 KB, so
+# no LFS: the 50 MB threshold in CLAUDE.md section 4 is not close.
+#
+# The features table and the model dataset are deliberately NOT copied.
+# Serving replays rolling, rest and Elo from the raw tables under
+# manifest.json's parameters, so the image carries no precomputed feature
+# column that could drift - and here it certainly would, since phase 2's
+# diagnostic Elo fitted carryover 0.200 while the artifacts were fitted
+# under 0.333.
+COPY ml-training/gleague/live_gleague_features.py ./ml-training/gleague/
+COPY data-pipeline/gleague/preprocessing/build_gleague_elo.py \
+     data-pipeline/gleague/preprocessing/clean_gleague_rows.py \
+     ./data-pipeline/gleague/preprocessing/
+# fetch_gleague_games is here for its season helpers alone - the G League's
+# NOVEMBER boundary, which is neither the NBA's October nor the WNBA's May.
+# Restating it in app.py would be a fourth copy of a rule four scripts
+# already disagree about on purpose.
+COPY data-pipeline/gleague/ingestion/fetch_gleague_games.py \
+     ./data-pipeline/gleague/ingestion/
+COPY ml-training/models_gleague/ ./ml-training/models_gleague/
+COPY data-pipeline/data/gleague/processed/gleague_games_final.csv \
+     data-pipeline/data/gleague/processed/gleague_showcase_games.csv \
+     ./data-pipeline/data/gleague/processed/
+
 WORKDIR /app/inference-service
 
 EXPOSE 8000

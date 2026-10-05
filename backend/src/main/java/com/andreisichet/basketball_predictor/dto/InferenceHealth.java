@@ -12,7 +12,8 @@ public record InferenceHealth(
         @JsonProperty("data_as_of") LocalDate dataAsOf,
         @JsonProperty("days_behind") int daysBehind,
         boolean stale,
-        LeagueFreshness wnba) {
+        LeagueFreshness wnba,
+        LeagueFreshness gleague) {
     /**
      * The WNBA's own cutoff, which is a different date from the NBA's.
      *

@@ -35,6 +35,73 @@ from gleague_common import (  # noqa: E402
 from select_gleague_models import build_model  # noqa: E402
 
 
+def apply_serving_tiebreak(selection: dict) -> dict:
+    """Switch any CUP window to its CARRY equivalent, and say why.
+
+    PHASE 3 SHIPPED A TIE ON EVERY TARGET, so nothing measurable distinguishes
+    the eight candidates and the choice falls to a cost that selection never
+    scored: a CUP window makes a served form feature depend on live Showcase
+    Cup results, which is a second live dependency for no measured gain.
+
+    The selection record is left alone - it is phase 3's honest account of
+    what validation chose. This is a SERVING decision applied on top, recorded
+    as its own manifest block so the two cannot be confused.
+
+    What this costs in honesty, stated rather than hidden: test was scored on
+    the CUP variant, so the shipped window's test numbers are its tied twin's.
+    The manifest says so per target.
+    """
+    section("THE SERVING TIE-BREAK")
+    out = {}
+    for target, pick in selection["selected"].items():
+        window = pick["window"]
+        if not window.startswith("CUP"):
+            print(f"  {target:<11}{window:<9}already a CARRY window, "
+                  f"nothing to switch")
+            continue
+
+        carry = window.replace("CUP", "CARRY")
+        runner = pick["runner_up"]
+        if runner["window"] != carry or runner["family"] != pick["family"]:
+            raise SystemExit(
+                f"{target}: the CARRY equivalent {carry} is not the recorded "
+                f"runner-up ({runner['family']}/{runner['window']}), so its "
+                f"validation score is not available without re-selecting - "
+                f"which this must not do.")
+
+        out[target] = {
+            "selected": window,
+            "shipped": carry,
+            "reason": ("every candidate tied on validation, so serving cost "
+                       "decides: a CUP window would make a served form "
+                       "feature depend on live Showcase Cup results for no "
+                       "measured gain"),
+            "validation_mean_selected": pick["validation_mean"],
+            "validation_mean_shipped": runner["validation_mean"],
+            "validation_gap_pct": (
+                (runner["validation_mean"] - pick["validation_mean"])
+                / pick["validation_mean"] * 100),
+            "test_numbers_belong_to": window,
+        }
+        print(f"  {target:<11}{window} -> {carry}   validation "
+              f"{pick['validation_mean']:.4f} -> "
+              f"{runner['validation_mean']:.4f} "
+              f"({out[target]['validation_gap_pct']:+.2f}%)")
+
+    if out:
+        print(f"""
+  {len(out)} of {len(selection['selected'])} target(s) switched. The cost is
+  {max(abs(o['validation_gap_pct']) for o in out.values()):.2f}% on validation at worst, inside the fold spread that made
+  these ties in the first place - and the gain is that serving reads no Cup
+  result to build a form feature.
+
+  REST DAYS STILL NEED THE CUP, and that is a separate matter settled in
+  phase 2: REST_DAYS was computed across the Cup boundary, so a team's first
+  regular-season game reads rest from its last Cup game. Serving must do the
+  same or that row gets a value the model never saw for it.""")
+    return out
+
+
 def main() -> int:
     print(__doc__)
     selection = json.loads(
@@ -116,9 +183,13 @@ def main() -> int:
         },
     }
 
+    overrides = apply_serving_tiebreak(selection)
+    manifest["serving_tiebreak"] = overrides
+
     for target, pick in selection["selected"].items():
         spec = TARGETS[target]
-        window, family = pick["window"], pick["family"]
+        family = pick["family"]
+        window = overrides.get(target, {}).get("shipped", pick["window"])
         columns = feature_columns(window)
 
         rows = frame[usable(frame, window, target)]

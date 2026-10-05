@@ -6,11 +6,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.andreisichet.basketball_predictor.dto.GameSummaryDto;
+import com.andreisichet.basketball_predictor.dto.GleagueSummaryDto;
 import com.andreisichet.basketball_predictor.dto.PlayerPropsResponseDto;
 import com.andreisichet.basketball_predictor.dto.PredictionRequest;
 import com.andreisichet.basketball_predictor.dto.QuarterHalfSummaryDto;
 import com.andreisichet.basketball_predictor.dto.WnbaSummaryDto;
 import com.andreisichet.basketball_predictor.service.PlayerPropPredictionService;
+import com.andreisichet.basketball_predictor.service.GleaguePredictionService;
 import com.andreisichet.basketball_predictor.service.PredictionService;
 import com.andreisichet.basketball_predictor.service.QuarterHalfPredictionService;
 import com.andreisichet.basketball_predictor.service.WnbaPredictionService;
@@ -22,16 +24,19 @@ public class PredictionController {
     private final QuarterHalfPredictionService quarterHalfPredictionService;
     private final PlayerPropPredictionService playerPropPredictionService;
     private final WnbaPredictionService wnbaPredictionService;
+    private final GleaguePredictionService gleaguePredictionService;
 
     public PredictionController(
             PredictionService predictionService,
             QuarterHalfPredictionService quarterHalfPredictionService,
             PlayerPropPredictionService playerPropPredictionService,
-            WnbaPredictionService wnbaPredictionService) {
+            WnbaPredictionService wnbaPredictionService,
+            GleaguePredictionService gleaguePredictionService) {
         this.predictionService = predictionService;
         this.quarterHalfPredictionService = quarterHalfPredictionService;
         this.playerPropPredictionService = playerPropPredictionService;
         this.wnbaPredictionService = wnbaPredictionService;
+        this.gleaguePredictionService = gleaguePredictionService;
     }
 
     @PostMapping
@@ -61,5 +66,19 @@ public class PredictionController {
     @PostMapping("/wnba")
     public WnbaSummaryDto createWnba(@RequestBody PredictionRequest request) {
         return wnbaPredictionService.predict(request);
+    }
+
+    /**
+     * The G League's three markets. A fourth sibling, not a league parameter.
+     *
+     * No existing endpoint gained a league argument, which is the same call
+     * the WNBA phase made: the three leagues' responses carry different
+     * markets and different season labels - "2025-26" here against 2025 for
+     * the WNBA - so a shared endpoint would return a mostly-null union and
+     * would have to vary its own field types by league.
+     */
+    @PostMapping("/gleague")
+    public GleagueSummaryDto createGleague(@RequestBody PredictionRequest request) {
+        return gleaguePredictionService.predict(request);
     }
 }

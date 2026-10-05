@@ -61,7 +61,12 @@ public class ScheduleService {
         Team home = teamsById.get(game.getHomeTeam().getId());
         Team away = teamsById.get(game.getAwayTeam().getId());
 
+        // Both sides are in the same league by construction - the sync
+        // resolves a fixture's teams from one league's rows - so the home
+        // team's league is the fixture's.
         return new ScheduledGameDto(
+                home.getLeague() == null
+                        ? null : home.getLeague().toLowerCase(),
                 home.getId(),
                 home.getAbbreviation(),
                 home.getName(),

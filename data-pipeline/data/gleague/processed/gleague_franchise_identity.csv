@@ -1,0 +1,453 @@
+TEAM_ID,SEASON,abbr,name,games,previous_abbr,previous_name,identity_changed,first_season
+1612709889.0,2003-04,ASH,Asheville Altitude,46,,,False,True
+1612709889.0,2004-05,TUL,Tulsa 66er,48,ASH,Asheville Altitude,True,False
+1612709889.0,2005-06,TUL,Tulsa 66ers,47,TUL,Tulsa 66er,True,False
+1612709889.0,2006-07,TUL,Tulsa 66ers,50,TUL,Tulsa 66ers,False,False
+1612709889.0,2007-08,TUL,Tulsa 66ers,50,TUL,Tulsa 66ers,False,False
+1612709889.0,2008-09,TUL,Tulsa 66ers,50,TUL,Tulsa 66ers,False,False
+1612709889.0,2009-10,TUL,Tulsa 66ers,50,TUL,Tulsa 66ers,False,False
+1612709889.0,2010-11,TUL,Tulsa 66ers,50,TUL,Tulsa 66ers,False,False
+1612709889.0,2011-12,TUL,Tulsa 66ers,50,TUL,Tulsa 66ers,False,False
+1612709889.0,2012-13,TUL,Tulsa 66ers,50,TUL,Tulsa 66ers,False,False
+1612709889.0,2013-14,TUL,Tulsa 66ers,50,TUL,Tulsa 66ers,False,False
+1612709889.0,2014-15,OKL,Oklahoma City Blue,50,TUL,Tulsa 66ers,True,False
+1612709889.0,2015-16,OKL,Oklahoma City Blue,50,OKL,Oklahoma City Blue,False,False
+1612709889.0,2016-17,OKL,Oklahoma City Blue,50,OKL,Oklahoma City Blue,False,False
+1612709889.0,2017-18,OKL,Oklahoma City Blue,50,OKL,Oklahoma City Blue,False,False
+1612709889.0,2018-19,OKL,Oklahoma City Blue,50,OKL,Oklahoma City Blue,False,False
+1612709889.0,2019-20,OKL,Oklahoma City Blue,42,OKL,Oklahoma City Blue,False,False
+1612709889.0,2020-21,OKL,Oklahoma City Blue,15,OKL,Oklahoma City Blue,False,False
+1612709889.0,2021-22,OKL,Oklahoma City Blue,35,OKL,Oklahoma City Blue,False,False
+1612709889.0,2022-23,OKL,Oklahoma City Blue,32,OKL,Oklahoma City Blue,False,False
+1612709889.0,2023-24,OKL,Oklahoma City Blue,34,OKL,Oklahoma City Blue,False,False
+1612709889.0,2024-25,OKL,Oklahoma City Blue,34,OKL,Oklahoma City Blue,False,False
+1612709889.0,2025-26,OKL,Oklahoma City Blue,36,OKL,Oklahoma City Blue,False,False
+1612709890.0,2003-04,COL,Columbus Riverdragons,46,,,False,True
+1612709890.0,2004-05,AUS,Austin Toros,47,COL,Columbus Riverdragons,True,False
+1612709890.0,2005-06,AUS,Austin Toros,48,AUS,Austin Toros,False,False
+1612709890.0,2006-07,AUS,Austin Toros,50,AUS,Austin Toros,False,False
+1612709890.0,2007-08,AUS,Austin Toros,50,AUS,Austin Toros,False,False
+1612709890.0,2008-09,AUS,Austin Toros,50,AUS,Austin Toros,False,False
+1612709890.0,2009-10,AUS,Austin Toros,50,AUS,Austin Toros,False,False
+1612709890.0,2010-11,AUS,Austin Toros,50,AUS,Austin Toros,False,False
+1612709890.0,2011-12,AUS,Austin Toros,50,AUS,Austin Toros,False,False
+1612709890.0,2012-13,AUS,Austin Toros,50,AUS,Austin Toros,False,False
+1612709890.0,2013-14,AUS,Austin Toros,50,AUS,Austin Toros,False,False
+1612709890.0,2014-15,AUS,Austin Spurs,50,AUS,Austin Toros,True,False
+1612709890.0,2015-16,AUS,Austin Spurs,50,AUS,Austin Spurs,False,False
+1612709890.0,2016-17,AUS,Austin Spurs,50,AUS,Austin Spurs,False,False
+1612709890.0,2017-18,AUS,Austin Spurs,50,AUS,Austin Spurs,False,False
+1612709890.0,2018-19,AUS,Austin Spurs,50,AUS,Austin Spurs,False,False
+1612709890.0,2019-20,AUS,Austin Spurs,42,AUS,Austin Spurs,False,False
+1612709890.0,2020-21,AUS,Austin Spurs,15,AUS,Austin Spurs,False,False
+1612709890.0,2021-22,AUS,Austin Spurs,32,AUS,Austin Spurs,False,False
+1612709890.0,2022-23,AUS,Austin Spurs,32,AUS,Austin Spurs,False,False
+1612709890.0,2023-24,AUS,Austin Spurs,34,AUS,Austin Spurs,False,False
+1612709890.0,2024-25,AUS,Austin Spurs,34,AUS,Austin Spurs,False,False
+1612709890.0,2025-26,AUS,Austin Spurs,36,AUS,Austin Spurs,False,False
+1612709891.0,2003-04,FAY,Fayetteville Patriots,46,,,False,True
+1612709891.0,2004-05,FAY,Fayetteville Patriots,48,FAY,Fayetteville Patriots,False,False
+1612709891.0,2005-06,FAY,Fayetteville Patriots,48,FAY,Fayetteville Patriots,False,False
+1612709893.0,2003-04,HUN,Huntsville Flight,45,,,False,True
+1612709893.0,2004-05,ABQ,Albuquerque Thunderbirds,47,HUN,Huntsville Flight,True,False
+1612709893.0,2005-06,ABQ,Albuquerque Thunderbirds,47,ABQ,Albuquerque Thunderbirds,False,False
+1612709893.0,2006-07,ABQ,Albuquerque Thunderbirds,50,ABQ,Albuquerque Thunderbirds,False,False
+1612709893.0,2007-08,ABQ,Albuquerque Thunderbirds,50,ABQ,Albuquerque Thunderbirds,False,False
+1612709893.0,2008-09,ABQ,Albuquerque Thunderbirds,50,ABQ,Albuquerque Thunderbirds,False,False
+1612709893.0,2009-10,ABQ,Albuquerque Thunderbirds,50,ABQ,Albuquerque Thunderbirds,False,False
+1612709893.0,2010-11,NMX,New Mexico Thunderbirds,50,ABQ,Albuquerque Thunderbirds,True,False
+1612709893.0,2011-12,CTN,Canton Charge,50,NMX,New Mexico Thunderbirds,True,False
+1612709893.0,2012-13,CTN,Canton Charge,50,CTN,Canton Charge,False,False
+1612709893.0,2013-14,CTN,Canton Charge,50,CTN,Canton Charge,False,False
+1612709893.0,2014-15,CTN,Canton Charge,50,CTN,Canton Charge,False,False
+1612709893.0,2015-16,CTN,Canton Charge,50,CTN,Canton Charge,False,False
+1612709893.0,2016-17,CTN,Canton Charge,50,CTN,Canton Charge,False,False
+1612709893.0,2017-18,CTN,Canton Charge,50,CTN,Canton Charge,False,False
+1612709893.0,2018-19,CTN,Canton Charge,50,CTN,Canton Charge,False,False
+1612709893.0,2019-20,CTN,Canton Charge,43,CTN,Canton Charge,False,False
+1612709893.0,2020-21,CTN,Canton Charge,15,CTN,Canton Charge,False,False
+1612709893.0,2021-22,CLC,Cleveland Charge,32,CTN,Canton Charge,True,False
+1612709893.0,2022-23,CLC,Cleveland Charge,32,CLC,Cleveland Charge,False,False
+1612709893.0,2023-24,CLC,Cleveland Charge,34,CLC,Cleveland Charge,False,False
+1612709893.0,2024-25,CLC,Cleveland Charge,34,CLC,Cleveland Charge,False,False
+1612709893.0,2025-26,CLC,Cleveland Charge,36,CLC,Cleveland Charge,False,False
+1612709895.0,2003-04,CHA,North Charleston Lowgators,45,,,False,True
+1612709895.0,2004-05,CHA,North Charleston Lowgators,48,CHA,North Charleston Lowgators,False,False
+1612709895.0,2005-06,FLA,Florida Flame,48,CHA,North Charleston Lowgators,True,False
+1612709896.0,2003-04,ROA,Roanoke Dazzle,46,,,False,True
+1612709896.0,2004-05,ROA,Roanoke Dazzle,46,ROA,Roanoke Dazzle,False,False
+1612709896.0,2005-06,ROA,Roanoke Dazzle,48,ROA,Roanoke Dazzle,False,False
+1612709897.0,2005-06,FTW,Fort Worth Flyers,48,,,False,True
+1612709897.0,2006-07,FTW,Fort Worth Flyers,50,FTW,Fort Worth Flyers,False,False
+1612709898.0,2005-06,ARK,Arkansas RimRockers,48,,,False,True
+1612709898.0,2006-07,ARK,Arkansas RimRockers,50,ARK,Arkansas RimRockers,False,False
+1612709899.0,2006-07,ANA,Anaheim Arsenal,50,,,False,True
+1612709899.0,2007-08,ANA,Anaheim Arsenal,50,ANA,Anaheim Arsenal,False,False
+1612709899.0,2008-09,ANA,Anaheim Arsenal,50,ANA,Anaheim Arsenal,False,False
+1612709900.0,2006-07,BAK,Bakersfield Jam,50,,,False,True
+1612709900.0,2007-08,BAK,Bakersfield Jam,50,BAK,Bakersfield Jam,False,False
+1612709900.0,2008-09,BAK,Bakersfield Jam,50,BAK,Bakersfield Jam,False,False
+1612709900.0,2009-10,BAK,Bakersfield Jam,50,BAK,Bakersfield Jam,False,False
+1612709900.0,2010-11,BAK,Bakersfield Jam,50,BAK,Bakersfield Jam,False,False
+1612709900.0,2011-12,BAK,Bakersfield Jam,50,BAK,Bakersfield Jam,False,False
+1612709900.0,2012-13,BAK,Bakersfield Jam,50,BAK,Bakersfield Jam,False,False
+1612709900.0,2013-14,BAK,Bakersfield Jam,50,BAK,Bakersfield Jam,False,False
+1612709900.0,2014-15,BAK,Bakersfield Jam,51,BAK,Bakersfield Jam,False,False
+1612709900.0,2015-16,BAK,Bakersfield Jam,50,BAK,Bakersfield Jam,False,False
+1612709900.0,2016-17,NAS,Northern Arizona Suns,50,BAK,Bakersfield Jam,True,False
+1612709900.0,2017-18,NAS,Northern Arizona Suns,50,NAS,Northern Arizona Suns,False,False
+1612709900.0,2018-19,NAS,Northern Arizona Suns,50,NAS,Northern Arizona Suns,False,False
+1612709900.0,2019-20,NAS,Northern Arizona Suns,42,NAS,Northern Arizona Suns,False,False
+1612709901.0,2006-07,COL,Colorado 14ers,50,,,False,True
+1612709901.0,2007-08,COL,Colorado 14ers,50,COL,Colorado 14ers,False,False
+1612709901.0,2008-09,COL,Colorado 14ers,50,COL,Colorado 14ers,False,False
+1612709902.0,2006-07,DAK,Dakota Wizards,50,,,False,True
+1612709902.0,2007-08,DAK,Dakota Wizards,50,DAK,Dakota Wizards,False,False
+1612709902.0,2008-09,DAK,Dakota Wizards,50,DAK,Dakota Wizards,False,False
+1612709902.0,2009-10,DAK,Dakota Wizards,50,DAK,Dakota Wizards,False,False
+1612709902.0,2010-11,DAK,Dakota Wizards,50,DAK,Dakota Wizards,False,False
+1612709902.0,2011-12,DAK,Dakota Wizards,50,DAK,Dakota Wizards,False,False
+1612709902.0,2012-13,SCW,Santa Cruz Warriors,50,DAK,Dakota Wizards,True,False
+1612709902.0,2013-14,SCW,Santa Cruz Warriors,50,SCW,Santa Cruz Warriors,False,False
+1612709902.0,2014-15,SCW,Santa Cruz Warriors,50,SCW,Santa Cruz Warriors,False,False
+1612709902.0,2015-16,SCW,Santa Cruz Warriors,50,SCW,Santa Cruz Warriors,False,False
+1612709902.0,2016-17,SCW,Santa Cruz Warriors,50,SCW,Santa Cruz Warriors,False,False
+1612709902.0,2017-18,SCW,Santa Cruz Warriors,50,SCW,Santa Cruz Warriors,False,False
+1612709902.0,2018-19,SCW,Santa Cruz Warriors,50,SCW,Santa Cruz Warriors,False,False
+1612709902.0,2019-20,SCW,Santa Cruz Warriors,42,SCW,Santa Cruz Warriors,False,False
+1612709902.0,2020-21,SCW,Santa Cruz Warriors,15,SCW,Santa Cruz Warriors,False,False
+1612709902.0,2021-22,SCW,Santa Cruz Warriors,32,SCW,Santa Cruz Warriors,False,False
+1612709902.0,2022-23,SCW,Santa Cruz Warriors,32,SCW,Santa Cruz Warriors,False,False
+1612709902.0,2023-24,SCW,Santa Cruz Warriors,34,SCW,Santa Cruz Warriors,False,False
+1612709902.0,2024-25,SCW,Santa Cruz Warriors,34,SCW,Santa Cruz Warriors,False,False
+1612709902.0,2025-26,SCW,Santa Cruz Warriors,36,SCW,Santa Cruz Warriors,False,False
+1612709903.0,2006-07,IDA,Idaho Stampede,50,,,False,True
+1612709903.0,2007-08,IDA,Idaho Stampede,50,IDA,Idaho Stampede,False,False
+1612709903.0,2008-09,IDA,Idaho Stampede,50,IDA,Idaho Stampede,False,False
+1612709903.0,2009-10,IDA,Idaho Stampede,50,IDA,Idaho Stampede,False,False
+1612709903.0,2010-11,IDA,Idaho Stampede,50,IDA,Idaho Stampede,False,False
+1612709903.0,2011-12,IDA,Idaho Stampede,50,IDA,Idaho Stampede,False,False
+1612709903.0,2012-13,IDA,Idaho Stampede,50,IDA,Idaho Stampede,False,False
+1612709903.0,2013-14,IDA,Idaho Stampede,50,IDA,Idaho Stampede,False,False
+1612709903.0,2014-15,IDA,Idaho Stampede,50,IDA,Idaho Stampede,False,False
+1612709903.0,2015-16,IDA,Idaho Stampede,50,IDA,Idaho Stampede,False,False
+1612709903.0,2016-17,SLC,Salt Lake City Stars,50,IDA,Idaho Stampede,True,False
+1612709903.0,2017-18,SLC,Salt Lake City Stars,50,SLC,Salt Lake City Stars,False,False
+1612709903.0,2018-19,SLC,Salt Lake City Stars,50,SLC,Salt Lake City Stars,False,False
+1612709903.0,2019-20,SLC,Salt Lake City Stars,42,SLC,Salt Lake City Stars,False,False
+1612709903.0,2020-21,SLC,Salt Lake City Stars,15,SLC,Salt Lake City Stars,False,False
+1612709903.0,2021-22,SLC,Salt Lake City Stars,32,SLC,Salt Lake City Stars,False,False
+1612709903.0,2022-23,SLC,Salt Lake City Stars,32,SLC,Salt Lake City Stars,False,False
+1612709903.0,2023-24,SLC,Salt Lake City Stars,34,SLC,Salt Lake City Stars,False,False
+1612709903.0,2024-25,SLC,Salt Lake City Stars,34,SLC,Salt Lake City Stars,False,False
+1612709903.0,2025-26,SLC,Salt Lake City Stars,36,SLC,Salt Lake City Stars,False,False
+1612709904.0,2006-07,SFL,Sioux Falls Skyforce,50,,,False,True
+1612709904.0,2007-08,SIF,Sioux Falls Skyforce,50,SFL,Sioux Falls Skyforce,True,False
+1612709904.0,2008-09,SIF,Sioux Falls Skyforce,50,SIF,Sioux Falls Skyforce,False,False
+1612709904.0,2009-10,SXF,Sioux Falls Skyforce,50,SIF,Sioux Falls Skyforce,True,False
+1612709904.0,2010-11,SXF,Sioux Falls Skyforce,50,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2011-12,SXF,Sioux Falls Skyforce,50,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2012-13,SXF,Sioux Falls Skyforce,50,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2013-14,SXF,Sioux Falls Skyforce,50,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2014-15,SXF,Sioux Falls Skyforce,50,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2015-16,SXF,Sioux Falls Skyforce,50,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2016-17,SXF,Sioux Falls Skyforce,50,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2017-18,SXF,Sioux Falls Skyforce,50,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2018-19,SXF,Sioux Falls Skyforce,50,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2019-20,SXF,Sioux Falls Skyforce,42,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2021-22,SXF,Sioux Falls Skyforce,35,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2022-23,SXF,Sioux Falls Skyforce,32,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2023-24,SXF,Sioux Falls Skyforce,34,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2024-25,SXF,Sioux Falls Skyforce,34,SXF,Sioux Falls Skyforce,False,False
+1612709904.0,2025-26,SXF,Sioux Falls Skyforce,36,SXF,Sioux Falls Skyforce,False,False
+1612709905.0,2006-07,LAD,Los Angeles D-Fenders,50,,,False,True
+1612709905.0,2007-08,LAD,Los Angeles D-Fenders,50,LAD,Los Angeles D-Fenders,False,False
+1612709905.0,2008-09,LAD,Los Angeles D-Fenders,50,LAD,Los Angeles D-Fenders,False,False
+1612709905.0,2009-10,LAD,Los Angeles D-Fenders,50,LAD,Los Angeles D-Fenders,False,False
+1612709905.0,2011-12,LAD,Los Angeles D-Fenders,50,LAD,Los Angeles D-Fenders,False,False
+1612709905.0,2012-13,LAD,Los Angeles D-Fenders,50,LAD,Los Angeles D-Fenders,False,False
+1612709905.0,2013-14,LAD,Los Angeles D-Fenders,50,LAD,Los Angeles D-Fenders,False,False
+1612709905.0,2014-15,LAD,Los Angeles D-Fenders,50,LAD,Los Angeles D-Fenders,False,False
+1612709905.0,2015-16,LAD,Los Angeles D-Fenders,50,LAD,Los Angeles D-Fenders,False,False
+1612709905.0,2016-17,LAD,Los Angeles D-Fenders,50,LAD,Los Angeles D-Fenders,False,False
+1612709905.0,2017-18,SBL,South Bay Lakers,50,LAD,Los Angeles D-Fenders,True,False
+1612709905.0,2018-19,SBL,South Bay Lakers,50,SBL,South Bay Lakers,False,False
+1612709905.0,2019-20,SBL,South Bay Lakers,44,SBL,South Bay Lakers,False,False
+1612709905.0,2021-22,SBL,South Bay Lakers,32,SBL,South Bay Lakers,False,False
+1612709905.0,2022-23,SBL,South Bay Lakers,32,SBL,South Bay Lakers,False,False
+1612709905.0,2023-24,SBL,South Bay Lakers,34,SBL,South Bay Lakers,False,False
+1612709905.0,2024-25,SBL,South Bay Lakers,34,SBL,South Bay Lakers,False,False
+1612709905.0,2025-26,SBL,South Bay Lakers,36,SBL,South Bay Lakers,False,False
+1612709908.0,2007-08,RGV,Rio Grande Valley Vipers,50,,,False,True
+1612709908.0,2008-09,RGV,Rio Grande Valley Vipers,50,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2009-10,RGV,Rio Grande Valley Vipers,50,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2010-11,RGV,Rio Grande Valley Vipers,50,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2011-12,RGV,Rio Grande Valley Vipers,50,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2012-13,RGV,Rio Grande Valley Vipers,50,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2013-14,RGV,Rio Grande Valley Vipers,50,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2014-15,RGV,Rio Grande Valley Vipers,50,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2015-16,RGV,Rio Grande Valley Vipers,50,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2016-17,RGV,Rio Grande Valley Vipers,50,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2017-18,RGV,Rio Grande Valley Vipers,50,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2018-19,RGV,Rio Grande Valley Vipers,50,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2019-20,RGV,Rio Grande Valley Vipers,42,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2020-21,RGV,Rio Grande Valley Vipers,15,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2021-22,RGV,Rio Grande Valley Vipers,34,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2022-23,RGV,Rio Grande Valley Vipers,32,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2023-24,RGV,Rio Grande Valley Vipers,34,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2024-25,RGV,Rio Grande Valley Vipers,34,RGV,Rio Grande Valley Vipers,False,False
+1612709908.0,2025-26,RGV,Rio Grande Valley Vipers,36,RGV,Rio Grande Valley Vipers,False,False
+1612709909.0,2007-08,UTA,Utah Flash,50,,,False,True
+1612709909.0,2008-09,UTA,Utah Flash,50,UTA,Utah Flash,False,False
+1612709909.0,2009-10,UTA,Utah Flash,50,UTA,Utah Flash,False,False
+1612709909.0,2010-11,UTA,Utah Flash,50,UTA,Utah Flash,False,False
+1612709909.0,2013-14,DEL,Delaware 87ers,50,UTA,Utah Flash,True,False
+1612709909.0,2014-15,DEL,Delaware 87ers,50,DEL,Delaware 87ers,False,False
+1612709909.0,2015-16,DEL,Delaware 87ers,50,DEL,Delaware 87ers,False,False
+1612709909.0,2016-17,DEL,Delaware 87ers,50,DEL,Delaware 87ers,False,False
+1612709909.0,2017-18,DEL,Delaware 87ers,50,DEL,Delaware 87ers,False,False
+1612709909.0,2018-19,DEL,Delaware Blue Coats,50,DEL,Delaware 87ers,True,False
+1612709909.0,2019-20,DEL,Delaware Blue Coats,43,DEL,Delaware Blue Coats,False,False
+1612709909.0,2020-21,DEL,Delaware Blue Coats,15,DEL,Delaware Blue Coats,False,False
+1612709909.0,2021-22,DEL,Delaware Blue Coats,32,DEL,Delaware Blue Coats,False,False
+1612709909.0,2022-23,DEL,Delaware Blue Coats,32,DEL,Delaware Blue Coats,False,False
+1612709909.0,2023-24,DEL,Delaware Blue Coats,34,DEL,Delaware Blue Coats,False,False
+1612709909.0,2024-25,DEL,Delaware Blue Coats,34,DEL,Delaware Blue Coats,False,False
+1612709909.0,2025-26,DEL,Delaware Blue Coats,36,DEL,Delaware Blue Coats,False,False
+1612709910.0,2007-08,FWN,Fort Wayne Mad Ants,50,,,False,True
+1612709910.0,2008-09,FWN,Fort Wayne Mad Ants,50,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2009-10,FWN,Fort Wayne Mad Ants,50,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2010-11,FWN,Fort Wayne Mad Ants,50,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2011-12,FWN,Fort Wayne Mad Ants,50,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2012-13,FWN,Fort Wayne Mad Ants,50,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2013-14,FWN,Fort Wayne Mad Ants,50,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2014-15,FWN,Fort Wayne Mad Ants,50,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2015-16,FWN,Fort Wayne Mad Ants,50,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2016-17,FWN,Fort Wayne Mad Ants,50,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2017-18,FWN,Fort Wayne Mad Ants,50,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2018-19,FWN,Fort Wayne Mad Ants,50,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2019-20,FWN,Fort Wayne Mad Ants,43,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2020-21,FWN,Fort Wayne Mad Ants,15,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2021-22,FWN,Fort Wayne Mad Ants,34,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2022-23,FWN,Fort Wayne Mad Ants,32,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2023-24,FWN,Fort Wayne Mad Ants,34,FWN,Fort Wayne Mad Ants,False,False
+1612709910.0,2024-25,IMA,Indiana Mad Ants,34,FWN,Fort Wayne Mad Ants,True,False
+1612709910.0,2025-26,NOB,Noblesville Boom,36,IMA,Indiana Mad Ants,True,False
+1612709911.0,2007-08,IOW,Iowa Energy,50,,,False,True
+1612709911.0,2008-09,IOW,Iowa Energy,50,IOW,Iowa Energy,False,False
+1612709911.0,2009-10,IWA,Iowa Energy,50,IOW,Iowa Energy,True,False
+1612709911.0,2010-11,IWA,Iowa Energy,50,IWA,Iowa Energy,False,False
+1612709911.0,2011-12,IWA,Iowa Energy,50,IWA,Iowa Energy,False,False
+1612709911.0,2012-13,IWA,Iowa Energy,50,IWA,Iowa Energy,False,False
+1612709911.0,2013-14,IWA,Iowa Energy,50,IWA,Iowa Energy,False,False
+1612709911.0,2014-15,IWA,Iowa Energy,50,IWA,Iowa Energy,False,False
+1612709911.0,2015-16,IWA,Iowa Energy,50,IWA,Iowa Energy,False,False
+1612709911.0,2016-17,IWA,Iowa Energy,50,IWA,Iowa Energy,False,False
+1612709911.0,2017-18,IWA,Iowa Wolves,50,IWA,Iowa Energy,True,False
+1612709911.0,2018-19,IWA,Iowa Wolves,50,IWA,Iowa Wolves,False,False
+1612709911.0,2019-20,IWA,Iowa Wolves,44,IWA,Iowa Wolves,False,False
+1612709911.0,2020-21,IWA,Iowa Wolves,15,IWA,Iowa Wolves,False,False
+1612709911.0,2021-22,IWA,Iowa Wolves,32,IWA,Iowa Wolves,False,False
+1612709911.0,2022-23,IWA,Iowa Wolves,32,IWA,Iowa Wolves,False,False
+1612709911.0,2023-24,IWA,Iowa Wolves,34,IWA,Iowa Wolves,False,False
+1612709911.0,2024-25,IWA,Iowa Wolves,34,IWA,Iowa Wolves,False,False
+1612709911.0,2025-26,IWA,Iowa Wolves,36,IWA,Iowa Wolves,False,False
+1612709913.0,2008-09,ERI,Erie BayHawks,50,,,False,True
+1612709913.0,2009-10,ERI,Erie BayHawks,50,ERI,Erie BayHawks,False,False
+1612709913.0,2010-11,ERI,Erie BayHawks,50,ERI,Erie BayHawks,False,False
+1612709913.0,2011-12,ERI,Erie BayHawks,50,ERI,Erie BayHawks,False,False
+1612709913.0,2012-13,ERI,Erie BayHawks,50,ERI,Erie BayHawks,False,False
+1612709913.0,2013-14,ERI,Erie BayHawks,50,ERI,Erie BayHawks,False,False
+1612709913.0,2014-15,ERI,Erie BayHawks,50,ERI,Erie BayHawks,False,False
+1612709913.0,2015-16,ERI,Erie BayHawks,50,ERI,Erie BayHawks,False,False
+1612709913.0,2016-17,ERI,Erie BayHawks,50,ERI,Erie BayHawks,False,False
+1612709913.0,2017-18,ERI,Erie BayHawks,50,ERI,Erie BayHawks,False,False
+1612709913.0,2018-19,ERI,Erie BayHawks,50,ERI,Erie BayHawks,False,False
+1612709913.0,2019-20,ERI,Erie BayHawks,43,ERI,Erie BayHawks,False,False
+1612709913.0,2020-21,ERI,Erie BayHawks,15,ERI,Erie BayHawks,False,False
+1612709913.0,2021-22,BIR,Birmingham Squadron,32,ERI,Erie BayHawks,True,False
+1612709913.0,2022-23,BHM,Birmingham Squadron,32,BIR,Birmingham Squadron,True,False
+1612709913.0,2023-24,BHM,Birmingham Squadron,34,BHM,Birmingham Squadron,False,False
+1612709913.0,2024-25,BHM,Birmingham Squadron,34,BHM,Birmingham Squadron,False,False
+1612709913.0,2025-26,BHM,Birmingham Squadron,36,BHM,Birmingham Squadron,False,False
+1612709914.0,2008-09,REN,Reno Bighorns,50,,,False,True
+1612709914.0,2009-10,RNO,Reno Bighorns,50,REN,Reno Bighorns,True,False
+1612709914.0,2010-11,RNO,Reno Bighorns,50,RNO,Reno Bighorns,False,False
+1612709914.0,2011-12,RNO,Reno Bighorns,50,RNO,Reno Bighorns,False,False
+1612709914.0,2012-13,RNO,Reno Bighorns,50,RNO,Reno Bighorns,False,False
+1612709914.0,2013-14,RNO,Reno Bighorns,50,RNO,Reno Bighorns,False,False
+1612709914.0,2014-15,RNO,Reno Bighorns,50,RNO,Reno Bighorns,False,False
+1612709914.0,2015-16,RNO,Reno Bighorns,50,RNO,Reno Bighorns,False,False
+1612709914.0,2016-17,RNO,Reno Bighorns,50,RNO,Reno Bighorns,False,False
+1612709914.0,2017-18,RNO,Reno Bighorns,50,RNO,Reno Bighorns,False,False
+1612709914.0,2018-19,STO,Stockton Kings,50,RNO,Reno Bighorns,True,False
+1612709914.0,2019-20,STO,Stockton Kings,43,STO,Stockton Kings,False,False
+1612709914.0,2021-22,STO,Stockton Kings,33,STO,Stockton Kings,False,False
+1612709914.0,2022-23,STO,Stockton Kings,32,STO,Stockton Kings,False,False
+1612709914.0,2023-24,STO,Stockton Kings,34,STO,Stockton Kings,False,False
+1612709914.0,2024-25,STO,Stockton Kings,34,STO,Stockton Kings,False,False
+1612709914.0,2025-26,STO,Stockton Kings,36,STO,Stockton Kings,False,False
+1612709915.0,2009-10,MNE,Maine Red Claws,50,,,False,True
+1612709915.0,2010-11,MNE,Maine Red Claws,50,MNE,Maine Red Claws,False,False
+1612709915.0,2011-12,MNE,Maine Red Claws,50,MNE,Maine Red Claws,False,False
+1612709915.0,2012-13,MNE,Maine Red Claws,50,MNE,Maine Red Claws,False,False
+1612709915.0,2013-14,MNE,Maine Red Claws,50,MNE,Maine Red Claws,False,False
+1612709915.0,2014-15,MNE,Maine Red Claws,50,MNE,Maine Red Claws,False,False
+1612709915.0,2015-16,MNE,Maine Red Claws,50,MNE,Maine Red Claws,False,False
+1612709915.0,2016-17,MNE,Maine Red Claws,50,MNE,Maine Red Claws,False,False
+1612709915.0,2017-18,MNE,Maine Red Claws,50,MNE,Maine Red Claws,False,False
+1612709915.0,2018-19,MNE,Maine Red Claws,50,MNE,Maine Red Claws,False,False
+1612709915.0,2019-20,MNE,Maine Red Claws,42,MNE,Maine Red Claws,False,False
+1612709915.0,2021-22,MNE,Maine Celtics,32,MNE,Maine Red Claws,True,False
+1612709915.0,2022-23,MNE,Maine Celtics,32,MNE,Maine Celtics,False,False
+1612709915.0,2023-24,MNE,Maine Celtics,34,MNE,Maine Celtics,False,False
+1612709915.0,2024-25,MNE,Maine Celtics,34,MNE,Maine Celtics,False,False
+1612709915.0,2025-26,MNE,Maine Celtics,36,MNE,Maine Celtics,False,False
+1612709917.0,2009-10,SPG,Springfield Armor,50,,,False,True
+1612709917.0,2010-11,SPG,Springfield Armor,50,SPG,Springfield Armor,False,False
+1612709917.0,2011-12,SPG,Springfield Armor,50,SPG,Springfield Armor,False,False
+1612709917.0,2012-13,SPG,Springfield Armor,50,SPG,Springfield Armor,False,False
+1612709917.0,2013-14,SPG,Springfield Armor,50,SPG,Springfield Armor,False,False
+1612709917.0,2014-15,GRD,Grand Rapids Drive,51,SPG,Springfield Armor,True,False
+1612709917.0,2015-16,GRD,Grand Rapids Drive,50,GRD,Grand Rapids Drive,False,False
+1612709917.0,2016-17,GRD,Grand Rapids Drive,50,GRD,Grand Rapids Drive,False,False
+1612709917.0,2017-18,GRD,Grand Rapids Drive,50,GRD,Grand Rapids Drive,False,False
+1612709917.0,2018-19,GRD,Grand Rapids Drive,50,GRD,Grand Rapids Drive,False,False
+1612709917.0,2019-20,GRD,Grand Rapids Drive,43,GRD,Grand Rapids Drive,False,False
+1612709917.0,2021-22,GRG,Grand Rapids Gold,32,GRD,Grand Rapids Drive,True,False
+1612709917.0,2022-23,GRG,Grand Rapids Gold,32,GRG,Grand Rapids Gold,False,False
+1612709917.0,2023-24,GRG,Grand Rapids Gold,34,GRG,Grand Rapids Gold,False,False
+1612709917.0,2024-25,GRG,Grand Rapids Gold,34,GRG,Grand Rapids Gold,False,False
+1612709917.0,2025-26,GRG,Grand Rapids Gold,36,GRG,Grand Rapids Gold,False,False
+1612709918.0,2010-11,TEX,Texas Legends,50,,,False,True
+1612709918.0,2011-12,TEX,Texas Legends,50,TEX,Texas Legends,False,False
+1612709918.0,2012-13,TEX,Texas Legends,50,TEX,Texas Legends,False,False
+1612709918.0,2013-14,TEX,Texas Legends,50,TEX,Texas Legends,False,False
+1612709918.0,2014-15,TEX,Texas Legends,50,TEX,Texas Legends,False,False
+1612709918.0,2015-16,TEX,Texas Legends,50,TEX,Texas Legends,False,False
+1612709918.0,2016-17,TEX,Texas Legends,50,TEX,Texas Legends,False,False
+1612709918.0,2017-18,TEX,Texas Legends,50,TEX,Texas Legends,False,False
+1612709918.0,2018-19,TEX,Texas Legends,50,TEX,Texas Legends,False,False
+1612709918.0,2019-20,TEX,Texas Legends,43,TEX,Texas Legends,False,False
+1612709918.0,2021-22,TEX,Texas Legends,34,TEX,Texas Legends,False,False
+1612709918.0,2022-23,TEX,Texas Legends,32,TEX,Texas Legends,False,False
+1612709918.0,2023-24,TEX,Texas Legends,34,TEX,Texas Legends,False,False
+1612709918.0,2024-25,TEX,Texas Legends,34,TEX,Texas Legends,False,False
+1612709918.0,2025-26,TEX,Texas Legends,36,TEX,Texas Legends,False,False
+1612709919.0,2014-15,WES,Westchester Knicks,50,,,False,True
+1612709919.0,2015-16,WES,Westchester Knicks,50,WES,Westchester Knicks,False,False
+1612709919.0,2016-17,WES,Westchester Knicks,50,WES,Westchester Knicks,False,False
+1612709919.0,2017-18,WES,Westchester Knicks,50,WES,Westchester Knicks,False,False
+1612709919.0,2018-19,WES,Westchester Knicks,50,WES,Westchester Knicks,False,False
+1612709919.0,2019-20,WES,Westchester Knicks,41,WES,Westchester Knicks,False,False
+1612709919.0,2020-21,WES,Westchester Knicks,15,WES,Westchester Knicks,False,False
+1612709919.0,2021-22,WES,Westchester Knicks,32,WES,Westchester Knicks,False,False
+1612709919.0,2022-23,WES,Westchester Knicks,32,WES,Westchester Knicks,False,False
+1612709919.0,2023-24,WES,Westchester Knicks,34,WES,Westchester Knicks,False,False
+1612709919.0,2024-25,WES,Westchester Knicks,34,WES,Westchester Knicks,False,False
+1612709919.0,2025-26,WES,Westchester Knicks,36,WES,Westchester Knicks,False,False
+1612709920.0,2015-16,RAP,Raptors 905,50,,,False,True
+1612709920.0,2016-17,RAP,Raptors 905,50,RAP,Raptors 905,False,False
+1612709920.0,2017-18,RAP,Raptors 905,50,RAP,Raptors 905,False,False
+1612709920.0,2018-19,RAP,Raptors 905,50,RAP,Raptors 905,False,False
+1612709920.0,2019-20,RAP,Raptors 905,43,RAP,Raptors 905,False,False
+1612709920.0,2020-21,RAP,Raptors 905,15,RAP,Raptors 905,False,False
+1612709920.0,2021-22,RAP,Raptors 905,32,RAP,Raptors 905,False,False
+1612709920.0,2022-23,RAP,Raptors 905,32,RAP,Raptors 905,False,False
+1612709920.0,2023-24,RAP,Raptors 905,34,RAP,Raptors 905,False,False
+1612709920.0,2024-25,RAP,Raptors 905,34,RAP,Raptors 905,False,False
+1612709920.0,2025-26,RAP,Raptors 905,36,RAP,Raptors 905,False,False
+1612709921.0,2016-17,LIN,Long Island Nets,50,,,False,True
+1612709921.0,2017-18,LIN,Long Island Nets,50,LIN,Long Island Nets,False,False
+1612709921.0,2018-19,LIN,Long Island Nets,50,LIN,Long Island Nets,False,False
+1612709921.0,2019-20,LIN,Long Island Nets,42,LIN,Long Island Nets,False,False
+1612709921.0,2020-21,LIN,Long Island Nets,15,LIN,Long Island Nets,False,False
+1612709921.0,2021-22,LIN,Long Island Nets,33,LIN,Long Island Nets,False,False
+1612709921.0,2022-23,LIN,Long Island Nets,32,LIN,Long Island Nets,False,False
+1612709921.0,2023-24,LIN,Long Island Nets,34,LIN,Long Island Nets,False,False
+1612709921.0,2024-25,LIN,Long Island Nets,34,LIN,Long Island Nets,False,False
+1612709921.0,2025-26,LIN,Long Island Nets,36,LIN,Long Island Nets,False,False
+1612709922.0,2016-17,GBO,Greensboro Swarm,50,,,False,True
+1612709922.0,2017-18,GBO,Greensboro Swarm,50,GBO,Greensboro Swarm,False,False
+1612709922.0,2018-19,GBO,Greensboro Swarm,50,GBO,Greensboro Swarm,False,False
+1612709922.0,2019-20,GBO,Greensboro Swarm,43,GBO,Greensboro Swarm,False,False
+1612709922.0,2020-21,GBO,Greensboro Swarm,15,GBO,Greensboro Swarm,False,False
+1612709922.0,2021-22,GBO,Greensboro Swarm,33,GBO,Greensboro Swarm,False,False
+1612709922.0,2022-23,GBO,Greensboro Swarm,32,GBO,Greensboro Swarm,False,False
+1612709922.0,2023-24,GBO,Greensboro Swarm,34,GBO,Greensboro Swarm,False,False
+1612709922.0,2024-25,GBO,Greensboro Swarm,34,GBO,Greensboro Swarm,False,False
+1612709922.0,2025-26,GBO,Greensboro Swarm,36,GBO,Greensboro Swarm,False,False
+1612709923.0,2016-17,WCB,Windy City Bulls,50,,,False,True
+1612709923.0,2017-18,WCB,Windy City Bulls,50,WCB,Windy City Bulls,False,False
+1612709923.0,2018-19,WCB,Windy City Bulls,50,WCB,Windy City Bulls,False,False
+1612709923.0,2019-20,WCB,Windy City Bulls,43,WCB,Windy City Bulls,False,False
+1612709923.0,2021-22,WCB,Windy City Bulls,34,WCB,Windy City Bulls,False,False
+1612709923.0,2022-23,WCB,Windy City Bulls,32,WCB,Windy City Bulls,False,False
+1612709923.0,2023-24,WCB,Windy City Bulls,34,WCB,Windy City Bulls,False,False
+1612709923.0,2024-25,WCB,Windy City Bulls,34,WCB,Windy City Bulls,False,False
+1612709923.0,2025-26,WCB,Windy City Bulls,36,WCB,Windy City Bulls,False,False
+1612709924.0,2017-18,ACC,Agua Caliente Clippers,50,,,False,True
+1612709924.0,2018-19,ACC,Agua Caliente Clippers,50,ACC,Agua Caliente Clippers,False,False
+1612709924.0,2019-20,ACC,Agua Caliente Clippers,44,ACC,Agua Caliente Clippers,False,False
+1612709924.0,2020-21,ACC,Agua Caliente Clippers,15,ACC,Agua Caliente Clippers,False,False
+1612709924.0,2021-22,ACC,Agua Caliente Clippers,33,ACC,Agua Caliente Clippers,False,False
+1612709924.0,2022-23,ONT,Ontario Clippers,32,ACC,Agua Caliente Clippers,True,False
+1612709924.0,2023-24,ONT,Ontario Clippers,34,ONT,Ontario Clippers,False,False
+1612709924.0,2024-25,SDC,San Diego Clippers,34,ONT,Ontario Clippers,True,False
+1612709924.0,2025-26,SDC,San Diego Clippers,36,SDC,San Diego Clippers,False,False
+1612709925.0,2017-18,LAK,Lakeland Magic,50,,,False,True
+1612709925.0,2018-19,LAK,Lakeland Magic,50,LAK,Lakeland Magic,False,False
+1612709925.0,2019-20,LAK,Lakeland Magic,42,LAK,Lakeland Magic,False,False
+1612709925.0,2020-21,LAK,Lakeland Magic,15,LAK,Lakeland Magic,False,False
+1612709925.0,2021-22,LAK,Lakeland Magic,32,LAK,Lakeland Magic,False,False
+1612709925.0,2022-23,OSC,Osceola Magic,32,LAK,Lakeland Magic,True,False
+1612709925.0,2023-24,OSC,Osceola Magic,34,OSC,Osceola Magic,False,False
+1612709925.0,2024-25,OSC,Osceola Magic,34,OSC,Osceola Magic,False,False
+1612709925.0,2025-26,OSC,Osceola Magic,36,OSC,Osceola Magic,False,False
+1612709926.0,2017-18,MHU,Memphis Hustle,50,,,False,True
+1612709926.0,2018-19,MHU,Memphis Hustle,50,MHU,Memphis Hustle,False,False
+1612709926.0,2019-20,MHU,Memphis Hustle,42,MHU,Memphis Hustle,False,False
+1612709926.0,2020-21,MHU,Memphis Hustle,15,MHU,Memphis Hustle,False,False
+1612709926.0,2021-22,MHU,Memphis Hustle,34,MHU,Memphis Hustle,False,False
+1612709926.0,2022-23,MHU,Memphis Hustle,32,MHU,Memphis Hustle,False,False
+1612709926.0,2023-24,MHU,Memphis Hustle,34,MHU,Memphis Hustle,False,False
+1612709926.0,2024-25,MHU,Memphis Hustle,34,MHU,Memphis Hustle,False,False
+1612709926.0,2025-26,MHU,Memphis Hustle,36,MHU,Memphis Hustle,False,False
+1612709927.0,2017-18,WIS,Wisconsin Herd,50,,,False,True
+1612709927.0,2018-19,WIS,Wisconsin Herd,50,WIS,Wisconsin Herd,False,False
+1612709927.0,2019-20,WIS,Wisconsin Herd,43,WIS,Wisconsin Herd,False,False
+1612709927.0,2021-22,WIS,Wisconsin Herd,32,WIS,Wisconsin Herd,False,False
+1612709927.0,2022-23,WIS,Wisconsin Herd,32,WIS,Wisconsin Herd,False,False
+1612709927.0,2023-24,WIS,Wisconsin Herd,34,WIS,Wisconsin Herd,False,False
+1612709927.0,2024-25,WIS,Wisconsin Herd,34,WIS,Wisconsin Herd,False,False
+1612709927.0,2025-26,WIS,Wisconsin Herd,36,WIS,Wisconsin Herd,False,False
+1612709928.0,2018-19,CAP,Capital City Go-Go,50,,,False,True
+1612709928.0,2019-20,CAP,Capital City Go-Go,43,CAP,Capital City Go-Go,False,False
+1612709928.0,2021-22,CCG,Capital City Go-Go,31,CAP,Capital City Go-Go,True,False
+1612709928.0,2022-23,CCG,Capital City Go-Go,32,CCG,Capital City Go-Go,False,False
+1612709928.0,2023-24,CCG,Capital City Go-Go,34,CCG,Capital City Go-Go,False,False
+1612709928.0,2024-25,CCG,Capital City Go-Go,34,CCG,Capital City Go-Go,False,False
+1612709928.0,2025-26,CCG,Capital City Go-Go,36,CCG,Capital City Go-Go,False,False
+1612709929.0,2019-20,CPS,College Park Skyhawks,43,,,False,True
+1612709929.0,2021-22,CPS,College Park Skyhawks,33,CPS,College Park Skyhawks,False,False
+1612709929.0,2022-23,CPS,College Park Skyhawks,32,CPS,College Park Skyhawks,False,False
+1612709929.0,2023-24,CPS,College Park Skyhawks,34,CPS,College Park Skyhawks,False,False
+1612709929.0,2024-25,CPS,College Park Skyhawks,34,CPS,College Park Skyhawks,False,False
+1612709929.0,2025-26,CPS,College Park Skyhawks,36,CPS,College Park Skyhawks,False,False
+1612709930.0,2020-21,GLI,G League Ignite,15,,,False,True
+1612709930.0,2022-23,GLI,G League Ignite,32,GLI,G League Ignite,False,False
+1612709930.0,2023-24,GLI,G League Ignite,34,GLI,G League Ignite,False,False
+1612709931.0,2022-23,MXC,Mexico City Capitanes,32,,,False,True
+1612709931.0,2023-24,MXC,Mexico City Capitanes,34,MXC,Mexico City Capitanes,False,False
+1612709931.0,2024-25,MXC,Mexico City Capitanes,34,MXC,Mexico City Capitanes,False,False
+1612709931.0,2025-26,MXC,Mexico City Capitanes,36,MXC,Mexico City Capitanes,False,False
+1612709932.0,2021-22,MCC,Motor City Cruise,32,,,False,True
+1612709932.0,2022-23,MCC,Motor City Cruise,32,MCC,Motor City Cruise,False,False
+1612709932.0,2023-24,MCC,Motor City Cruise,34,MCC,Motor City Cruise,False,False
+1612709932.0,2024-25,MCC,Motor City Cruise,34,MCC,Motor City Cruise,False,False
+1612709932.0,2025-26,MCC,Motor City Cruise,36,MCC,Motor City Cruise,False,False
+1612709933.0,2023-24,RCR,Rip City Remix,34,,,False,True
+1612709933.0,2024-25,RCR,Rip City Remix,34,RCR,Rip City Remix,False,False
+1612709933.0,2025-26,RCR,Rip City Remix,36,RCR,Rip City Remix,False,False
+1612709934.0,2024-25,VAL,Valley Suns,34,,,False,True
+1612709934.0,2025-26,VAL,Valley Suns,36,VAL,Valley Suns,False,False

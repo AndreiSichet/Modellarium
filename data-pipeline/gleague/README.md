@@ -1,8 +1,11 @@
 # G League pipeline — phases 1 and 2
 
+> Phases 3 (selection) and 4 (serving) live under
+> `ml-training/gleague/`. See CLAUDE.md sections 49 and 50.
+
 A third parallel pipeline, beside `data-pipeline/` (NBA) and
-`data-pipeline/wnba/`. Ingestion, validation and features; no models, no
-serving.
+`data-pipeline/wnba/`. Ingestion, validation and features. Models and serving
+are phases 3 and 4, under `ml-training/gleague/`.
 
 ```
 gleague/
@@ -19,8 +22,13 @@ gleague/
     └── verify_gleague_features.py              26 of 26
 ```
 
-Run in that order. Outputs all gitignored — nothing reads them at runtime
-until serving exists:
+Run in that order. **Three of these outputs are now committed runtime
+dependencies**, un-ignored in the same change that added them to the inference
+image's COPY list — the standing rule in CLAUDE.md section 4, whose count that
+made five. The Showcase Cup table is the one that looks optional and is not:
+`REST_DAYS` is computed across the Cup boundary, so without it a team's first
+regular-season game of a Cup season is served a value the models never saw for
+it.
 
 | file | rows | games |
 |---|---|---|

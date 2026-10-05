@@ -1,0 +1,331 @@
+{
+  "backend_health": {
+    "dataAsOf": "2026-04-12",
+    "modelsLoaded": {
+      "player_props": 10,
+      "quarter_half": 6,
+      "team": 7,
+      "wnba": 3
+    },
+    "stale": true,
+    "status": "ok",
+    "wnba": {
+      "dataAsOf": "2026-09-24",
+      "stale": true
+    }
+  },
+  "inference_health": {
+    "data_as_of": "2026-04-12",
+    "models_loaded": {
+      "player_props": 10,
+      "quarter_half": 6,
+      "team": 7,
+      "wnba": 3
+    },
+    "stale": true,
+    "status": "ok",
+    "wnba": {
+      "data_as_of": "2026-09-24",
+      "stale": true
+    }
+  },
+  "player_props": {
+    "awayTeam": {
+      "availabilityKnown": false,
+      "availabilityNote": "17 players (17 via linear, 0 via xgb).  AVAILABILITY UNKNOWN - no injury report was available, so nobody has been excluded. This is not a clean bill of health.",
+      "players": [
+        {
+          "modelUsed": "linear",
+          "playerId": 1627759,
+          "playerName": "Jaylen Brown",
+          "predictedAssists": 4.904388573450726,
+          "predictedPoints": 28.10797718167896,
+          "predictedPra": 39.076722011547304,
+          "predictedRebounds": 6.064356256417592,
+          "predictedThreesMade": 2.0078605930881386
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1628369,
+          "playerName": "Jayson Tatum",
+          "predictedAssists": 5.898287642138256,
+          "predictedPoints": 21.587789392726666,
+          "predictedPra": 37.518043119495665,
+          "predictedRebounds": 10.03196608463072,
+          "predictedThreesMade": 2.4890027933139347
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1628401,
+          "playerName": "Derrick White",
+          "predictedAssists": 3.6500468539005757,
+          "predictedPoints": 10.615166828522351,
+          "predictedPra": 17.640304758851958,
+          "predictedRebounds": 3.3750910764290247,
+          "predictedThreesMade": 1.8624170442912813
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1630202,
+          "playerName": "Payton Pritchard",
+          "predictedAssists": 4.285103837781808,
+          "predictedPoints": 18.136326557411312,
+          "predictedPra": 25.579518689266255,
+          "predictedRebounds": 3.1580882940731216,
+          "predictedThreesMade": 3.071193011204433
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1629674,
+          "playerName": "Neemias Queta",
+          "predictedAssists": 2.3290951400846964,
+          "predictedPoints": 12.083458092688648,
+          "predictedPra": 22.511897810927216,
+          "predictedRebounds": 8.099344578153868,
+          "predictedThreesMade": 0.20406038144230843
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1630573,
+          "playerName": "Sam Hauser",
+          "predictedAssists": 1.561208782569504,
+          "predictedPoints": 10.453314779464831,
+          "predictedPra": 15.455809465833344,
+          "predictedRebounds": 3.4412859037990025,
+          "predictedThreesMade": 2.4789893557780864
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1629014,
+          "playerName": "Anfernee Simons",
+          "predictedAssists": 2.388653274858283,
+          "predictedPoints": 14.758262025183924,
+          "predictedPra": 19.77088014161233,
+          "predictedRebounds": 2.623964841570119,
+          "predictedThreesMade": 2.4863923942351223
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1631248,
+          "playerName": "Baylor Scheierman",
+          "predictedAssists": 2.2444884771517666,
+          "predictedPoints": 9.790708423431763,
+          "predictedPra": 15.174311410156466,
+          "predictedRebounds": 3.139114509572933,
+          "predictedThreesMade": 2.1471068695187996
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1631169,
+          "playerName": "Josh Minott",
+          "predictedAssists": 1.1143706993564484,
+          "predictedPoints": 13.382508285848079,
+          "predictedPra": 17.457832657027033,
+          "predictedRebounds": 2.9609536718225002,
+          "predictedThreesMade": 2.3010297524078394
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1641775,
+          "playerName": "Jordan Walsh",
+          "predictedAssists": 1.072027953467503,
+          "predictedPoints": 6.03492704131285,
+          "predictedPra": 10.53424944610819,
+          "predictedRebounds": 3.427294451327839,
+          "predictedThreesMade": 0.8675713447601696
+        }
+      ],
+      "teamAbbreviation": "BOS",
+      "teamId": 1610612738
+    },
+    "dataAsOf": "2026-04-12",
+    "gameDate": "2026-04-13",
+    "homeTeam": {
+      "availabilityKnown": false,
+      "availabilityNote": "21 players (21 via linear, 0 via xgb).  AVAILABILITY UNKNOWN - no injury report was available, so nobody has been excluded. This is not a clean bill of health.",
+      "players": [
+        {
+          "modelUsed": "linear",
+          "playerId": 1629638,
+          "playerName": "Nickeil Alexander-Walker",
+          "predictedAssists": 3.711617752945157,
+          "predictedPoints": 22.477595340281667,
+          "predictedPra": 29.577643889836146,
+          "predictedRebounds": 3.388430796609306,
+          "predictedThreesMade": 3.535938657494989
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1630552,
+          "playerName": "Jalen Johnson",
+          "predictedAssists": 5.566418679715634,
+          "predictedPoints": 19.302496360174516,
+          "predictedPra": 33.465623385017,
+          "predictedRebounds": 8.596708345126828,
+          "predictedThreesMade": 1.7461173001255537
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1630700,
+          "playerName": "Dyson Daniels",
+          "predictedAssists": 5.102145950743583,
+          "predictedPoints": 14.274212026888192,
+          "predictedPra": 27.04140218206442,
+          "predictedRebounds": 7.665044204432638,
+          "predictedThreesMade": 1.0436180151356296
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 203468,
+          "playerName": "CJ McCollum",
+          "predictedAssists": 4.901505835530111,
+          "predictedPoints": 18.071131179936607,
+          "predictedPra": 25.907220971970247,
+          "predictedRebounds": 2.934583956503515,
+          "predictedThreesMade": 2.6668726119980546
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1630168,
+          "playerName": "Onyeka Okongwu",
+          "predictedAssists": 2.3248801607679552,
+          "predictedPoints": 12.324872865804162,
+          "predictedPra": 20.608219422298152,
+          "predictedRebounds": 5.958466395726031,
+          "predictedThreesMade": 1.445875875309233
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1628379,
+          "playerName": "Luke Kennard",
+          "predictedAssists": 4.201367157280637,
+          "predictedPoints": 11.133523713490767,
+          "predictedPra": 18.92874081067488,
+          "predictedRebounds": 3.593849939903471,
+          "predictedThreesMade": 1.2752999416803519
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 204001,
+          "playerName": "Kristaps Porzi\u0146\u0123is",
+          "predictedAssists": 2.1491544116537025,
+          "predictedPoints": 14.61603311617697,
+          "predictedPra": 22.782750387095437,
+          "predictedRebounds": 6.017562859264756,
+          "predictedThreesMade": 1.433603246544613
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1630228,
+          "playerName": "Jonathan Kuminga",
+          "predictedAssists": 1.830282336628227,
+          "predictedPoints": 10.942881445250334,
+          "predictedPra": 16.883252749925855,
+          "predictedRebounds": 4.110088968047291,
+          "predictedThreesMade": 1.115353658839832
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1629111,
+          "playerName": "Jock Landale",
+          "predictedAssists": 2.1625740182729354,
+          "predictedPoints": 9.097179049710876,
+          "predictedPra": 15.622148845660588,
+          "predictedRebounds": 4.362395777676774,
+          "predictedThreesMade": 0.920531030418727
+        },
+        {
+          "modelUsed": "linear",
+          "playerId": 1630249,
+          "playerName": "V\u00edt Krej\u010d\u00ed",
+          "predictedAssists": 1.4248695619460727,
+          "predictedPoints": 5.409950447331184,
+          "predictedPra": 9.692341874370728,
+          "predictedRebounds": 2.8575218650934704,
+          "predictedThreesMade": 1.0703138066142783
+        }
+      ],
+      "teamAbbreviation": "ATL",
+      "teamId": 1610612737
+    },
+    "stale": true
+  },
+  "predictions": {
+    "awayTeamAbbreviation": "BOS",
+    "gameDate": "2026-04-13",
+    "homeTeamAbbreviation": "ATL",
+    "latestPrediction": {
+      "assistMargin": 1.986781120300293,
+      "dataAsOf": "2026-04-12",
+      "homeMargin": 1.4149187803268433,
+      "homeWinProbability": 0.42541608214378357,
+      "reboundMargin": 1.5239256620407104,
+      "stale": true,
+      "totalAssists": 50.692169189453125,
+      "totalPoints": 232.93231201171875,
+      "totalRebounds": 89.01725769042969
+    },
+    "played": false
+  },
+  "quarter_half": {
+    "awayTeamAbbreviation": "BOS",
+    "gameDate": "2026-04-13",
+    "homeTeamAbbreviation": "ATL",
+    "prediction": {
+      "dataAsOf": "2026-04-12",
+      "half1Spread": -1.1725223199629748,
+      "half1Total": 117.88749888276107,
+      "half1WinnerConfidence": "medium",
+      "half1WinnerInterpretation": "P(home leads | not tied)",
+      "half1WinnerProbability": 0.45369307064976155,
+      "q1Spread": -1.124112908717173,
+      "q1Total": 59.26116643514509,
+      "q1WinnerConfidence": "low",
+      "q1WinnerInterpretation": "P(home leads | not tied)",
+      "q1WinnerProbability": 0.4469873035961624,
+      "stale": true
+    }
+  },
+  "schedule_count": 718,
+  "teams_count": 30,
+  "wnba_inference": {
+    "away_team_id": 1611661319,
+    "data_as_of": "2026-09-24",
+    "game_date": "2026-09-25",
+    "home_team_id": 1611661317,
+    "markets": {
+      "moneyline": {
+        "metric": "log_loss",
+        "value": 0.18193019489666626,
+        "window": "CARRY5"
+      },
+      "spread": {
+        "metric": "mae",
+        "value": -8.403725674288566,
+        "window": "CARRY5"
+      },
+      "totals": {
+        "metric": "mae",
+        "value": 178.40689601339275,
+        "window": "CARRY10"
+      }
+    },
+    "season": 2026,
+    "stale": true
+  },
+  "wnba_prediction": {
+    "awayTeamAbbreviation": "LVA",
+    "gameDate": "2026-09-25",
+    "homeTeamAbbreviation": "PHX",
+    "prediction": {
+      "dataAsOf": "2026-09-24",
+      "homeMargin": -8.403725674288566,
+      "homeWinProbability": 0.18193019489666626,
+      "moneylineWindow": "CARRY5",
+      "spreadWindow": "CARRY5",
+      "stale": true,
+      "totalPoints": 178.40689601339275,
+      "totalsWindow": "CARRY10"
+    }
+  }
+}

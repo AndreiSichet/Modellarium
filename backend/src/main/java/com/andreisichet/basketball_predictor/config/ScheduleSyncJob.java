@@ -23,13 +23,13 @@ public class ScheduleSyncJob {
     /** Every six hours. */
     @Scheduled(cron = "${schedule.sync.cron:0 0 */6 * * *}")
     public void run() {
-        syncBothLeagues();
+        syncAllLeagues();
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void syncOnStartup() {
         log.info("Running the initial schedule sync so a fresh database is not empty.");
-        syncBothLeagues();
+        syncAllLeagues();
     }
 
     /**
@@ -42,7 +42,7 @@ public class ScheduleSyncJob {
      * wrapped, so a failure there cannot stop the NBA sync on a later tick or
      * take the startup listener down with it.
      */
-    private void syncBothLeagues() {
+    private void syncAllLeagues() {
         try {
             scheduleSyncService.syncNba();
         } catch (Exception error) {
@@ -52,6 +52,11 @@ public class ScheduleSyncJob {
             scheduleSyncService.syncWnba();
         } catch (Exception error) {
             log.warn("WNBA schedule sync failed: {}", error.getMessage());
+        }
+        try {
+            scheduleSyncService.syncGleague();
+        } catch (Exception error) {
+            log.warn("G League schedule sync failed: {}", error.getMessage());
         }
     }
 }

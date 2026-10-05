@@ -1,1 +1,1 @@
-{"status":"ok","models_loaded":{"team":7,"quarter_half":6,"player_props":10,"wnba":3},"data_as_of":"2026-04-12","days_behind":174,"stale":true,"wnba":{"data_as_of":"2026-09-24","days_behind":9,"stale":true}}
+{"status":"ok","models_loaded":{"team":7,"quarter_half":6,"player_props":10,"wnba":3,"gleague":3},"data_as_of":"2026-04-12","days_behind":175,"stale":true,"wnba":{"data_as_of":"2026-09-24","days_behind":10,"stale":true},"gleague":{"data_as_of":"2026-03-28","days_behind":190,"stale":true}}

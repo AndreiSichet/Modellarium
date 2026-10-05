@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.json.JsonTest;
 
+import com.andreisichet.basketball_predictor.model.GleaguePrediction;
 import com.andreisichet.basketball_predictor.model.WnbaPrediction;
 
 import tools.jackson.core.type.TypeReference;
@@ -36,8 +37,8 @@ class InferenceWireShapeTest {
      * test cross-references the two, so they are allowed to differ rather
      * than one being edited to match the other.
      */
-    private static final int HEALTH_DAYS_BEHIND = 174;
     private static final LocalDate WNBA_DATA_AS_OF = LocalDate.of(2026, 9, 24);
+    private static final LocalDate GLEAGUE_DATA_AS_OF = LocalDate.of(2026, 3, 28);
 
     @Nested
     class Health {
@@ -48,11 +49,23 @@ class InferenceWireShapeTest {
 
             assertThat(health.status()).isEqualTo("ok");
             assertThat(health.dataAsOf()).isEqualTo(DATA_AS_OF);
-            assertThat(health.daysBehind()).isEqualTo(HEALTH_DAYS_BEHIND);
+            // daysBehind is DATE-DERIVED, so it is checked for type and
+            // plausibility rather than pinned to a literal. It is computed
+            // from datetime.now() against a fixed cutoff, so it increments
+            // every midnight and changes whenever this fixture is recaptured
+            // - which is exactly what broke this assertion when the G League
+            // block was added and the capture moved 174 -> 175.
+            //
+            // The regression gate classifies the same field as volatile for
+            // the same reason. Pinning it here would be pinning the CAPTURE
+            // DATE, which is not what a wire-shape test is for; dataAsOf
+            // above is the stable value and is pinned.
+            assertThat(health.daysBehind()).isGreaterThan(0);
             assertThat(health.stale()).isTrue();
 
             assertThat(health.modelsLoaded()).containsExactlyInAnyOrderEntriesOf(
-                    Map.of("team", 7, "quarter_half", 6, "player_props", 10, "wnba", 3));
+                    Map.of("team", 7, "quarter_half", 6, "player_props", 10,
+                            "wnba", 3, "gleague", 3));
         }
 
         @Test
@@ -85,6 +98,139 @@ class InferenceWireShapeTest {
             // it, which is the additive shape section 21's outage argued for.
             assertThat(dto.wnba()).isNotNull();
             assertThat(dto.wnba().dataAsOf()).isEqualTo(WNBA_DATA_AS_OF);
+            assertThat(dto.gleague()).isNotNull();
+            assertThat(dto.gleague().dataAsOf()).isEqualTo(GLEAGUE_DATA_AS_OF);
+        }
+
+        @Test
+        void deserialisesTheGleagueBlockAsItsOwnCutoff() {
+            InferenceHealth health =
+                    mapper.readValue(Fixture.read("health.json"), InferenceHealth.class);
+
+            assertThat(health.gleague()).isNotNull();
+            assertThat(health.gleague().dataAsOf()).isEqualTo(GLEAGUE_DATA_AS_OF);
+            assertThat(health.gleague().stale()).isTrue();
+
+            // THREE DISTINCT CUTOFFS, ASSERTED PAIRWISE. The regression gate
+            // caught this block being dropped by these records while the
+            // Python side sent it, exactly as it caught the WNBA's a day
+            // earlier - so the inequalities are asserted rather than left
+            // implied by three literals that happen to differ.
+            assertThat(health.gleague().dataAsOf()).isNotEqualTo(health.dataAsOf());
+            assertThat(health.gleague().dataAsOf())
+                    .isNotEqualTo(health.wnba().dataAsOf());
+        }
+    }
+
+    @Nested
+    class Gleague {
+        @Test
+        void deserialisesAllThreeMarketsAndTheirProvenance() {
+            InferenceGleagueResponse response = mapper.readValue(
+                    Fixture.read("predict-gleague.json"),
+                    InferenceGleagueResponse.class);
+
+            assertThat(response.dataAsOf()).isEqualTo(GLEAGUE_DATA_AS_OF);
+            assertThat(response.stale()).isTrue();
+            assertThat(response.markets())
+                    .containsOnlyKeys("moneyline", "spread", "totals");
+
+            // SEASON IS A STRING HERE AND AN INT FOR THE WNBA, and that is
+            // the shape difference most likely to be "tidied" into a single
+            // type. A G League season spans two calendar years and is
+            // labelled "2025-26"; a WNBA season sits inside one. Declaring
+            // this int would fail deserialisation outright.
+            assertThat(response.season()).isEqualTo("2025-26");
+
+            // Pinned, not merely present: these three were reproduced by
+            // float equality against phase 3's own artifacts offline, so a
+            // drift here means the serving path moved.
+            assertThat(response.market("moneyline").value())
+                    .isEqualTo(0.5908580792747549);
+            assertThat(response.market("spread").value())
+                    .isEqualTo(2.927269925841589);
+            assertThat(response.market("totals").value())
+                    .isEqualTo(244.46527901729075);
+
+            // All three ship CARRY10 after the serving tie-break switched two
+            // CUP picks to their CARRY equivalents. Asserted per market
+            // rather than once, because they are three independent selection
+            // outputs that happen to agree.
+            assertThat(response.market("moneyline").window()).isEqualTo("CARRY10");
+            assertThat(response.market("spread").window()).isEqualTo("CARRY10");
+            assertThat(response.market("totals").window()).isEqualTo("CARRY10");
+        }
+
+        @Test
+        void theResponseCarriesNoEngineeringNote() {
+            // The G League manifest records that every candidate tied on
+            // validation, so the shipped configuration is "defensible, not
+            // demonstrated". True, useful to whoever retrains this, and NOT a
+            // property of any one prediction - so it must not reach the wire.
+            // The WNBA phase shipped that kind of note and had to withdraw it
+            // from three layers.
+            //
+            // Asserted on the RAW JSON rather than through the record,
+            // because the record does not declare such a field - reading it
+            // back would check that something this class cannot see is
+            // absent, which passes whatever Python sends.
+            String body = Fixture.read("predict-gleague.json");
+
+            assertThat(body).doesNotContain("tied_with");
+            assertThat(body).doesNotContain("defensible");
+            assertThat(body).doesNotContain("demonstrated");
+            assertThat(body).doesNotContain("caveat");
+
+            // And the fixture is a real capture rather than an edited one.
+            assertThat(body).contains("\"window\":\"CARRY10\"");
+        }
+
+        @Test
+        void aRenamedMarketThrowsRatherThanReadingAsZero() {
+            // The negative test. A market Python renames must fail loudly,
+            // not arrive as 0.0 and be stored as a prediction - which is what
+            // a plain map lookup would do.
+            String renamed = Fixture.read("predict-gleague.json")
+                    .replace("\"totals\"", "\"total_points\"");
+
+            InferenceGleagueResponse response =
+                    mapper.readValue(renamed, InferenceGleagueResponse.class);
+
+            assertThatThrownBy(() -> response.market("totals"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("no G League market named totals");
+        }
+
+        @Test
+        void mapsThroughToTheClientDto() {
+            InferenceGleagueResponse response = mapper.readValue(
+                    Fixture.read("predict-gleague.json"),
+                    InferenceGleagueResponse.class);
+
+            GleaguePrediction saved = new GleaguePrediction();
+            saved.setHomeWinProbability(response.market("moneyline").value());
+            saved.setHomeMargin(response.market("spread").value());
+            saved.setTotalPoints(response.market("totals").value());
+            saved.setDataAsOf(response.dataAsOf());
+            saved.setStale(response.stale());
+            saved.setPredictedAt(Instant.parse("2026-10-04T00:00:00Z"));
+
+            GleagueSummaryDto.Prediction dto = GleagueSummaryDto.Prediction.of(
+                    saved,
+                    response,
+                    response.market("moneyline"),
+                    response.market("spread"),
+                    response.market("totals"));
+
+            assertThat(dto.homeWinProbability()).isEqualTo(0.5908580792747549);
+            assertThat(dto.homeMargin()).isEqualTo(2.927269925841589);
+            assertThat(dto.totalPoints()).isEqualTo(244.46527901729075);
+            assertThat(dto.season()).isEqualTo("2025-26");
+            assertThat(dto.moneylineWindow()).isEqualTo("CARRY10");
+            assertThat(dto.dataAsOf()).isEqualTo(GLEAGUE_DATA_AS_OF);
+            // daysBehind comes from the inference body rather than the saved
+            // row, which is the one field here that could silently read 0.
+            assertThat(dto.daysBehind()).isEqualTo(190);
         }
     }
 

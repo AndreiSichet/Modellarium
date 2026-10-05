@@ -13,6 +13,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import com.andreisichet.basketball_predictor.dto.InferenceHealth;
 import com.andreisichet.basketball_predictor.dto.InferencePlayerPropsResponse;
+import com.andreisichet.basketball_predictor.dto.InferenceGleagueResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceQuarterHalfResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceRequest;
 import com.andreisichet.basketball_predictor.dto.InferenceResponse;
@@ -47,6 +48,16 @@ public class InferenceClient {
     /** The three WNBA models: moneyline, spread and totals. */
     public InferenceWnbaResponse predictWnba(InferenceRequest body) {
         return post("/predict/wnba", body, InferenceWnbaResponse.class);
+    }
+
+    /** The three G League models: moneyline, spread and totals. */
+    public InferenceGleagueResponse predictGleague(InferenceRequest body) {
+        return post("/predict/gleague", body, InferenceGleagueResponse.class);
+    }
+
+    /** Upcoming G League regular-season fixtures. */
+    public List<InferenceScheduledGame> fetchGleagueSchedule(int daysAhead) {
+        return fetchSchedule("/schedule/gleague", daysAhead);
     }
 
     /** Both teams' prop boards in one call. */

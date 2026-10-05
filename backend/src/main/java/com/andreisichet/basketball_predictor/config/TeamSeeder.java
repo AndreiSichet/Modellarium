@@ -37,47 +37,113 @@ public class TeamSeeder implements CommandLineRunner {
     @Override
     public void run(String... args) {
         assertNoIdCollision();
-        seed(NBA, NBA_TEAMS);
-        seed(WNBA, WNBA_TEAMS);
+        seed(NBA, NBA_TEAMS, false);
+        seed(WNBA, WNBA_TEAMS, false);
+        seed(GLEAGUE, GLEAGUE_TEAMS, true);
     }
 
-    private void seed(String league, List<Team> teams) {
+    private void seed(String league, List<Team> teams, boolean reconcileNames) {
         long existing = teamRepository.countByLeague(league);
-        if (existing > 0) {
+        if (existing == 0) {
+            teamRepository.saveAll(teams);
+            log.info("Seeded {} {} teams", teams.size(), league);
+            return;
+        }
+        if (!reconcileNames) {
             log.debug("{} already has {} teams; skipping seed.", league, existing);
             return;
         }
-        teamRepository.saveAll(teams);
-        log.info("Seeded {} {} teams", teams.size(), league);
+        reconcile(league, teams);
     }
 
     /**
-     * The two leagues' ids must be disjoint, because Team.id is the primary
-     * key and both leagues share the table.
+     * Bring existing rows' names and abbreviations up to date.
      *
-     * Checked rather than assumed. They are disjoint today by a wide margin -
-     * NBA 1610612737-1610612766 against WNBA 1611661313-1611661332 - but the
-     * ids come from nba_api and nothing in this codebase controls them, so a
-     * future expansion team landing on an existing id would otherwise surface
-     * as one league's row silently overwriting the other's.
+     * ON FOR THE G LEAGUE AND OFF FOR THE OTHER TWO, decided on measurement
+     * rather than on symmetry. Phase 1's identity table records that 19 of 40
+     * G League franchises changed name or abbreviation at least once under a
+     * stable id - Asheville Altitude became Tulsa 66ers and then Oklahoma
+     * City Blue, all on 1612709889 - against 3 of 15 for the WNBA and 0 of 30
+     * for the NBA.
+     *
+     * An insert-only seeder would therefore keep a franchise's OLD name for
+     * as long as the row exists, and a stale name on a live fixture is a
+     * visible error. Reconciling costs 31 reads and usually zero writes.
+     *
+     * Off for the NBA and WNBA deliberately: their names are stable, and the
+     * regression gate forbids this change touching their serving at all. A
+     * per-league flag rather than a special case, so a fourth league has to
+     * state its own answer.
+     */
+    private void reconcile(String league, List<Team> teams) {
+        int updated = 0;
+        for (Team wanted : teams) {
+            Team current = teamRepository.findById(wanted.getId()).orElse(null);
+            if (current == null) {
+                teamRepository.save(wanted);
+                updated++;
+                continue;
+            }
+            boolean nameChanged = !wanted.getName().equals(current.getName());
+            boolean abbrChanged =
+                    !wanted.getAbbreviation().equals(current.getAbbreviation());
+            if (nameChanged || abbrChanged) {
+                log.info("{} team {} renamed: {} ({}) -> {} ({})", league,
+                        current.getId(), current.getName(),
+                        current.getAbbreviation(), wanted.getName(),
+                        wanted.getAbbreviation());
+                current.setName(wanted.getName());
+                current.setAbbreviation(wanted.getAbbreviation());
+                teamRepository.save(current);
+                updated++;
+            }
+        }
+        if (updated > 0) {
+            log.info("Reconciled {} {} team row(s)", updated, league);
+        } else {
+            log.debug("{} teams already current; nothing reconciled", league);
+        }
+    }
+
+    /**
+     * All three leagues' ids must be pairwise disjoint, because Team.id is
+     * the primary key and every league shares the table.
+     *
+     * Checked rather than assumed, and all three pairs rather than the one
+     * that used to exist. They are disjoint today by a wide margin - NBA
+     * 1610612737-1610612766, WNBA 1611661313-1611661332, G League
+     * 1612709889-1612709934 - but the ids come from nba_api and nothing in
+     * this codebase controls them, so a future expansion team landing on an
+     * existing id would otherwise surface as one league's row silently
+     * overwriting another's.
      */
     private void assertNoIdCollision() {
-        Set<Long> nbaIds = NBA_TEAMS.stream().map(Team::getId).collect(Collectors.toSet());
-        Set<Long> overlap = WNBA_TEAMS.stream()
+        checkDisjoint(NBA, NBA_TEAMS, WNBA, WNBA_TEAMS);
+        checkDisjoint(NBA, NBA_TEAMS, GLEAGUE, GLEAGUE_TEAMS);
+        checkDisjoint(WNBA, WNBA_TEAMS, GLEAGUE, GLEAGUE_TEAMS);
+    }
+
+    private void checkDisjoint(String leftName, List<Team> left,
+            String rightName, List<Team> right) {
+        Set<Long> leftIds = left.stream().map(Team::getId)
+                .collect(Collectors.toSet());
+        Set<Long> overlap = right.stream()
                 .map(Team::getId)
-                .filter(nbaIds::contains)
+                .filter(leftIds::contains)
                 .collect(Collectors.toSet());
         if (!overlap.isEmpty()) {
             throw new IllegalStateException(
-                    "NBA and WNBA team ids collide on " + overlap
-                            + ". Team.id is the primary key and both leagues share"
-                            + " the table, so one league's row would overwrite the"
-                            + " other's.");
+                    leftName + " and " + rightName + " team ids collide on "
+                            + overlap
+                            + ". Team.id is the primary key and all leagues share"
+                            + " the table, so one league's row would overwrite"
+                            + " another's.");
         }
     }
 
     private static final String NBA = "NBA";
     private static final String WNBA = "WNBA";
+    private static final String GLEAGUE = "GLEAGUE";
 
     private static Team nba(long id, String name, String abbreviation) {
         return new Team(id, name, abbreviation, NBA);
@@ -86,6 +152,51 @@ public class TeamSeeder implements CommandLineRunner {
     private static Team wnba(long id, String name, String abbreviation) {
         return new Team(id, name, abbreviation, WNBA);
     }
+
+    private static Team gleague(long id, String name, String abbreviation) {
+        return new Team(id, name, abbreviation, GLEAGUE);
+    }
+
+    /**
+     * The 31 franchises active in 2025-26, generated from phase 1's identity
+     * table rather than typed from memory.
+     *
+     * Historical ids that no longer play are deliberately absent: nothing
+     * references them, and a Game row can only be created for a team the
+     * schedule sync resolved. If one is ever needed, it is a row here.
+     */
+    private static final List<Team> GLEAGUE_TEAMS = List.of(
+            gleague(1612709890L, "Austin Spurs", "AUS"),
+            gleague(1612709913L, "Birmingham Squadron", "BHM"),
+            gleague(1612709928L, "Capital City Go-Go", "CCG"),
+            gleague(1612709893L, "Cleveland Charge", "CLC"),
+            gleague(1612709929L, "College Park Skyhawks", "CPS"),
+            gleague(1612709909L, "Delaware Blue Coats", "DEL"),
+            gleague(1612709922L, "Greensboro Swarm", "GBO"),
+            gleague(1612709917L, "Grand Rapids Gold", "GRG"),
+            gleague(1612709911L, "Iowa Wolves", "IWA"),
+            gleague(1612709921L, "Long Island Nets", "LIN"),
+            gleague(1612709932L, "Motor City Cruise", "MCC"),
+            gleague(1612709926L, "Memphis Hustle", "MHU"),
+            gleague(1612709915L, "Maine Celtics", "MNE"),
+            gleague(1612709931L, "Mexico City Capitanes", "MXC"),
+            gleague(1612709910L, "Noblesville Boom", "NOB"),
+            gleague(1612709889L, "Oklahoma City Blue", "OKL"),
+            gleague(1612709925L, "Osceola Magic", "OSC"),
+            gleague(1612709920L, "Raptors 905", "RAP"),
+            gleague(1612709933L, "Rip City Remix", "RCR"),
+            gleague(1612709908L, "Rio Grande Valley Vipers", "RGV"),
+            gleague(1612709905L, "South Bay Lakers", "SBL"),
+            gleague(1612709902L, "Santa Cruz Warriors", "SCW"),
+            gleague(1612709924L, "San Diego Clippers", "SDC"),
+            gleague(1612709903L, "Salt Lake City Stars", "SLC"),
+            gleague(1612709914L, "Stockton Kings", "STO"),
+            gleague(1612709904L, "Sioux Falls Skyforce", "SXF"),
+            gleague(1612709918L, "Texas Legends", "TEX"),
+            gleague(1612709934L, "Valley Suns", "VAL"),
+            gleague(1612709923L, "Windy City Bulls", "WCB"),
+            gleague(1612709919L, "Westchester Knicks", "WES"),
+            gleague(1612709927L, "Wisconsin Herd", "WIS"));
 
     private static final List<Team> NBA_TEAMS = List.of(
             nba(1610612737L, "Atlanta Hawks", "ATL"),

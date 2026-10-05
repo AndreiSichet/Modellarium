@@ -14,7 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from xgboost import XGBClassifier, XGBRegressor
 
 ML_TRAINING_DIR = Path(__file__).resolve().parents[1] / "ml-training"
-for _directory in (ML_TRAINING_DIR, ML_TRAINING_DIR / "wnba"):
+for _directory in (ML_TRAINING_DIR, ML_TRAINING_DIR / "wnba",
+                   ML_TRAINING_DIR / "gleague"):
     if str(_directory) not in sys.path:
         sys.path.insert(0, str(_directory))
 
@@ -35,6 +36,11 @@ from live_player_features import (  # noqa: E402
     get_live_player_features,
     load_player_history,
 )
+from live_gleague_features import (  # noqa: E402
+    NotScoreable as GleagueNotScoreable,
+    get_live_features as get_live_gleague_features,
+    load_state as load_gleague_state,
+)
 from live_wnba_features import (  # noqa: E402
     NotScoreable as WnbaNotScoreable,
     get_live_features as get_live_wnba_features,
@@ -46,6 +52,7 @@ MODELS_DIR = ML_TRAINING_DIR / "models"
 QH_MODELS_DIR = ML_TRAINING_DIR / "models_quarter_half"
 PP_MODELS_DIR = ML_TRAINING_DIR / "models_player_props"
 WNBA_MODELS_DIR = ML_TRAINING_DIR / "models_wnba"
+GLEAGUE_MODELS_DIR = ML_TRAINING_DIR / "models_gleague"
 
 STALE_AFTER_DAYS = 2
 
@@ -58,6 +65,7 @@ REGULAR_SEASON_GAME_ID_DIGIT = "2"
 
 NBA_LEAGUE_ID = "00"
 WNBA_LEAGUE_ID = "10"
+GLEAGUE_LEAGUE_ID = "20"
 
 GAME_STATUS_SCHEDULED = 1
 
@@ -192,6 +200,40 @@ class WnbaResponse(BaseModel):
     season: int
     markets: dict[str, WnbaMarket]
 
+class GleagueMarket(BaseModel):
+    """One G League market, with the provenance a thin model needs carried.
+
+    NO ENGINEERING NOTE IS CARRIED, and the manifest has one that invites it:
+    it records that every candidate tied on validation, so the shipped
+    configuration is "defensible, not demonstrated". That is a true and
+    useful statement for whoever retrains this, and it is NOT a property of
+    any one prediction - which is the test CLAUDE.md section 8 sets for what a
+    response may carry. The WNBA phase shipped exactly this kind of note over
+    the wire and had to withdraw it from three layers.
+
+    `window` is carried because it varies per market by selection and a
+    client comparing two markets should be able to see it. That is a fact
+    about this response, not a caveat about the project.
+    """
+
+    value: float
+    metric: str
+    window: str
+
+
+class GleagueResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    home_team_id: int
+    away_team_id: int
+    game_date: date
+    data_as_of: date
+    stale: bool
+    days_behind: int
+    season: str
+    markets: dict[str, GleagueMarket]
+
+
 class ServiceState:
     """Everything loaded once at startup and shared across requests."""
 
@@ -212,6 +254,12 @@ class ServiceState:
     wnba_manifest: dict
     wnba_known_team_ids: set
     wnba_data_as_of: pd.Timestamp
+
+    gleague_state: dict
+    gleague_models: dict
+    gleague_manifest: dict
+    gleague_known_team_ids: set
+    gleague_data_as_of: pd.Timestamp
 
 state = ServiceState()
 
@@ -336,6 +384,47 @@ def load_wnba_models() -> tuple:
         models[target] = joblib.load(WNBA_MODELS_DIR / f"{target}.joblib")
     return models, manifest
 
+def load_gleague_models() -> tuple:
+    """The G League Pipelines and their manifest, checked against each other.
+
+    THE REGISTRY IS THE MANIFEST, as it is for the WNBA and for the same
+    reason: the window, feature order and Elo parameters are selection
+    outputs, so a literal list here would be a fifth place that has to agree
+    with phase 3.
+
+    THIS CHECK NOW REFUSES THE WHOLE SERVICE FOR THREE LEAGUES. A broken G
+    League artifact takes NBA and WNBA serving down with it at boot. That is
+    deliberate - partial loading that serves some families silently is worse,
+    because a client cannot tell a missing family from a league with no
+    fixtures - and it is acceptable only because it fails at BUILD rather
+    than on a live day. The cold start in the regression gate is what keeps
+    that true.
+    """
+    manifest_path = GLEAGUE_MODELS_DIR / "manifest.json"
+    if not manifest_path.exists():
+        raise RuntimeError(
+            f"{manifest_path} is missing. It carries the window choice, the "
+            f"feature order and the Elo parameters, and a G League model "
+            f"cannot be served without them."
+        )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    expected = set(manifest["targets"])
+    on_disk = {path.stem for path in GLEAGUE_MODELS_DIR.glob("*.joblib")}
+    if on_disk != expected:
+        raise RuntimeError(
+            f"models_gleague/ does not match manifest.json.\n"
+            f"  missing from disk: {sorted(expected - on_disk) or 'none'}\n"
+            f"  present but unregistered: {sorted(on_disk - expected) or 'none'}"
+        )
+
+    models = {}
+    for target in sorted(expected):
+        entry = manifest["targets"][target]
+        models[target] = joblib.load(GLEAGUE_MODELS_DIR / entry["artifact"])
+    return models, manifest
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     state.games_final_df = load_games_final()
@@ -358,6 +447,11 @@ async def lifespan(_app: FastAPI):
     state.wnba_known_team_ids = set(wnba_games["TEAM_ID"].unique())
     state.wnba_models, state.wnba_manifest = load_wnba_models()
 
+    state.gleague_state = load_gleague_state()
+    state.gleague_data_as_of = state.gleague_state["data_as_of"]
+    state.gleague_known_team_ids = state.gleague_state["known_team_ids"]
+    state.gleague_models, state.gleague_manifest = load_gleague_models()
+
     print(
         f"Loaded {len(state.games_final_df)} team-game rows, "
         f"{len(state.known_team_ids)} teams, {len(state.models)} team models. "
@@ -378,6 +472,12 @@ async def lifespan(_app: FastAPI):
         f"{len(state.wnba_known_team_ids)} teams, "
         f"data as of {state.wnba_data_as_of.date()}."
     )
+    print(
+        f"G League: {len(state.gleague_models)} models "
+        f"({', '.join(sorted(state.gleague_models))}), "
+        f"{len(state.gleague_known_team_ids)} teams, "
+        f"data as of {state.gleague_data_as_of.date()}."
+    )
     yield
 
 app = FastAPI(
@@ -397,6 +497,7 @@ def health():
     """Liveness plus freshness, so monitoring can alert on stale data."""
     days_behind, stale = freshness()
     wnba_days_behind, wnba_stale = wnba_freshness()
+    gleague_days_behind, gleague_stale = gleague_freshness()
     return {
         "status": "ok",
         "models_loaded": {
@@ -404,6 +505,7 @@ def health():
             "quarter_half": len(state.qh_models),
             "player_props": len(state.pp_models),
             "wnba": len(state.wnba_models),
+            "gleague": len(state.gleague_models),
         },
         "data_as_of": state.data_as_of.date().isoformat(),
         "days_behind": days_behind,
@@ -417,6 +519,11 @@ def health():
             "data_as_of": state.wnba_data_as_of.date().isoformat(),
             "days_behind": wnba_days_behind,
             "stale": wnba_stale,
+        },
+        "gleague": {
+            "data_as_of": state.gleague_data_as_of.date().isoformat(),
+            "days_behind": gleague_days_behind,
+            "stale": gleague_stale,
         },
     }
 
@@ -455,6 +562,45 @@ def season_string(today: date) -> str:
     """Season as ScheduleLeagueV2 wants it: "2026-27"."""
     start_year = season_of(pd.Timestamp(today))
     return f"{start_year}-{str(start_year + 1)[2:]}"
+
+def gleague_schedule_seasons(today: date) -> list:
+    """Which seasons to ask for upcoming G League fixtures, in order.
+
+    A FIFTH QUESTION, AND THE EXISTING BOUNDARIES DO NOT ANSWER IT. The four
+    on record map a game date to its season, or today to which seasons exist
+    in the data. This asks which season's schedule holds fixtures that have
+    not been played - and between March and November those are different
+    seasons, because the G League season that "exists" by its November
+    boundary is the one that finished in March.
+
+    Measured rather than reasoned: on 2026-10-04 the 2025-26 schedule returns
+    558 regular-season fixtures and 0 unplayed, while 2026-27 returns 527
+    regular-season fixtures and all 527 unplayed. Asking only for the current
+    season by the November boundary served an empty list while a full season
+    sat one label away.
+
+    DERIVED BY PROBING RATHER THAN BY A FIFTH CONSTANT. The caller takes the
+    first season that yields fixtures, so the answer comes from the schedule
+    itself and self-corrects across the boundary - no new calendar rule to get
+    wrong, which is section 35's lesson. The cost is one extra upstream call
+    in the pre-season window, and both are cached for six hours.
+    """
+    from fetch_gleague_games import current_season_start_year, season_label
+    start = current_season_start_year(today)
+    return [season_label(start), season_label(start + 1)]
+
+
+def gleague_season_string(today: date) -> str:
+    """The G League labels a season across two years: "2025-26".
+
+    Taken from the G League fetcher's own boundary rather than restated. Its
+    season tips off in NOVEMBER, which is neither the NBA's October nor the
+    WNBA's May - four boundaries now exist in this project and they answer
+    four different questions.
+    """
+    from fetch_gleague_games import current_season_start_year, season_label
+    return season_label(current_season_start_year(today))
+
 
 def wnba_season_string(today: date) -> str:
     """The WNBA labels a season by its single calendar year: "2026".
@@ -568,6 +714,32 @@ def schedule_wnba(
     frame = fetch_schedule_frame(
         wnba_season_string(datetime.now().date()), WNBA_LEAGUE_ID)
     return upcoming_regular_season(frame, days_ahead)
+
+@app.get("/schedule/gleague", response_model=list[ScheduledGame])
+def schedule_gleague(
+    days_ahead: int = Query(SCHEDULE_DAYS_AHEAD_DEFAULT, ge=1, le=365),
+):
+    """Upcoming G League REGULAR-SEASON fixtures.
+
+    A sibling endpoint for the same two reasons the WNBA's is: the season
+    label has a different shape per league, and the NBA's response must stay
+    byte-identical while a third league is added.
+
+    THE REGULAR-SEASON FILTER IS LOAD-BEARING HERE, NOT DECORATIVE. The G
+    League plays a Showcase Cup before its regular season, and those games
+    carry type digit 5 - which in the NBA's scheme means the play-in. A
+    cached Cup fixture would show as a predictable game that the backend then
+    rejects, because no shipped model has seen one. `upcoming_regular_season`
+    keeps only digit 2, the same filter the training pull used.
+    """
+    today = datetime.now().date()
+    for season in gleague_schedule_seasons(today):
+        frame = fetch_schedule_frame(season, GLEAGUE_LEAGUE_ID)
+        fixtures = upcoming_regular_season(frame, days_ahead)
+        if fixtures:
+            return fixtures
+    return []
+
 
 @app.post("/predict", response_model=PredictionResponse)
 def predict(request: PredictionRequest):
@@ -772,6 +944,106 @@ def validate_wnba_matchup(request: "PredictionRequest") -> pd.Timestamp:
         )
 
     return game_date
+
+def gleague_freshness() -> tuple:
+    """The G League's own staleness, against its own cutoff."""
+    days_behind = (pd.Timestamp(datetime.now().date())
+                   - state.gleague_data_as_of).days
+    return days_behind, days_behind > STALE_AFTER_DAYS
+
+
+def validate_gleague_matchup(request: "PredictionRequest") -> pd.Timestamp:
+    """The G League counterpart, against G League state.
+
+    A separate function rather than a league flag on the NBA one, for the
+    reason the WNBA's records: the three id universes are disjoint, so a
+    shared validator taking a flag would accept the wrong league's id
+    whenever the flag was wrong, and the error would surface much later as a
+    feature row of NaN.
+    """
+    game_date = pd.Timestamp(request.game_date)
+
+    if request.home_team_id == request.away_team_id:
+        raise HTTPException(400, "home_team_id and away_team_id must differ.")
+
+    unknown = [
+        team_id
+        for team_id in (request.home_team_id, request.away_team_id)
+        if team_id not in state.gleague_known_team_ids
+    ]
+    if unknown:
+        raise HTTPException(
+            400,
+            f"No G League history for team id(s) {unknown}. The NBA, WNBA "
+            f"and G League id universes are disjoint, so another league's id "
+            f"reaches this endpoint as an unknown team rather than as a "
+            f"wrong league.",
+        )
+
+    latest_allowed = state.gleague_data_as_of + pd.DateOffset(
+        days=MAX_DAYS_AHEAD)
+    if game_date > latest_allowed:
+        raise HTTPException(
+            400,
+            f"game_date {request.game_date} is more than {MAX_DAYS_AHEAD} "
+            f"day past the newest G League game in the data "
+            f"({state.gleague_data_as_of.date()}). Rest-day features would "
+            f"be computed against the wrong prior game, and in this league "
+            f"that prior game may be a Showcase Cup game. Latest accepted "
+            f"date is {latest_allowed.date()}.",
+        )
+
+    return game_date
+
+
+@app.post("/predict/gleague", response_model=GleagueResponse)
+def predict_gleague(request: PredictionRequest):
+    """Three G League markets for one fixture: moneyline, spread and totals.
+
+    Refuses rather than degrades when a feature row cannot be completed: the
+    shipped models are linear Pipelines with requires_complete_features set,
+    so unlike the NBA's XGBoost they cannot score a NaN at all.
+    """
+    game_date = validate_gleague_matchup(request)
+
+    try:
+        features = get_live_gleague_features(
+            request.home_team_id, request.away_team_id, game_date,
+            state.gleague_state,
+        )
+    except GleagueNotScoreable as error:
+        raise HTTPException(400, str(error)) from error
+    except (ValueError, KeyError) as error:
+        raise HTTPException(
+            400, f"Could not build features: {error}") from error
+
+    markets = {}
+    for target, model in state.gleague_models.items():
+        entry = state.gleague_manifest["targets"][target]
+        row = pd.DataFrame([features["rows"][target]],
+                           columns=entry["features"])
+        if entry["metric"] == "log_loss":
+            value = float(model.predict_proba(row)[0][1])
+        else:
+            value = float(model.predict(row)[0])
+        markets[target] = GleagueMarket(
+            value=value,
+            metric=entry["metric"],
+            window=entry["window"],
+        )
+
+    days_behind, stale = gleague_freshness()
+    return GleagueResponse(
+        home_team_id=request.home_team_id,
+        away_team_id=request.away_team_id,
+        game_date=request.game_date,
+        data_as_of=state.gleague_data_as_of.date(),
+        stale=stale,
+        days_behind=days_behind,
+        season=features["season"],
+        markets=markets,
+    )
+
 
 @app.post("/predict/wnba", response_model=WnbaResponse)
 def predict_wnba(request: PredictionRequest):

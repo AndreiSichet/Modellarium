@@ -1,0 +1,64 @@
+{
+  "evaluated_at": "2026-10-04T15:59:25.890009+00:00",
+  "span": "full",
+  "test_seasons": [
+    "2024-25",
+    "2025-26"
+  ],
+  "results": {
+    "moneyline": {
+      "family": "linear",
+      "window": "CARRY10",
+      "rows": 1075,
+      "model": 0.667076540437013,
+      "naive": 0.6898122313593589,
+      "validation_mean": 0.666160308064927,
+      "vs_naive": {
+        "difference": -0.022735690922345855,
+        "low": -0.03596896666751088,
+        "high": -0.008628130064899911
+      },
+      "elo": 0.6774455771566751,
+      "vs_elo": {
+        "difference": -0.010369036719662179,
+        "low": -0.020240004715274203,
+        "high": -0.0004181616011851043
+      },
+      "excluding_debuts": 0.6680653157129105,
+      "debuts_only": 0.6503497586864149,
+      "debut_rows": 60
+    },
+    "spread": {
+      "family": "linear",
+      "window": "CUP10",
+      "rows": 1085,
+      "model": 11.209044334455347,
+      "naive": 12.300921658986175,
+      "validation_mean": 10.81372321453991,
+      "vs_naive": {
+        "difference": -1.0918773245308266,
+        "low": -1.4571083479228695,
+        "high": -0.7169247152992688
+      },
+      "excluding_debuts": 11.254227638930129,
+      "debuts_only": 10.553886419571054,
+      "debut_rows": 70
+    },
+    "totals": {
+      "family": "linear",
+      "window": "CUP10",
+      "rows": 1085,
+      "model": 15.00437549130579,
+      "naive": 15.35935483870968,
+      "validation_mean": 15.266242150384178,
+      "vs_naive": {
+        "difference": -0.35497934740388604,
+        "low": -0.5890398340539932,
+        "high": -0.13662494426550487
+      },
+      "excluding_debuts": 15.166305180121098,
+      "debuts_only": 12.656395003483834,
+      "debut_rows": 70
+    }
+  }
+}
