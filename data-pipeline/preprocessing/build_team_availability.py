@@ -12,7 +12,22 @@ OUTPUT_PATH = PROCESSED_DATA_DIR / "team_availability.csv"
 ROLLING_COLUMN = "ROLL10_MIN"
 GROUP_KEYS = ["GAME_ID", "TEAM_ID"]
 
-EXPECTED_TEAM_GAMES = 26_398
+def universe_team_games() -> int:
+    """How many team-games exist, read from games_final.csv.
+
+    REPLACES A HARDCODED 26,398. That literal was print-only - a percentage
+    denominator and a MATCH/MISMATCH label - so unlike the one in
+    build_quarter_half_rolling it would not have FAILED anything on the first
+    new NBA day. It would have printed "MISMATCH" and a slightly wrong
+    percentage every run from the 21st onward, which is its own problem: a
+    report that cries mismatch every day is a report people stop reading.
+
+    Derived from the same table the availability rows are built against, so
+    it is right by construction rather than right until the schedule moves.
+    """
+    import pandas as pd
+
+    return len(pd.read_csv(GAMES_FINAL_PATH, usecols=["GAME_ID"]))
 
 def load_players() -> pd.DataFrame:
     """Load the player-game table, keeping GAME_ID padded."""
@@ -76,8 +91,12 @@ def report_unknown_roles(players: pd.DataFrame):
           f"({unknown.sum() / absent.sum() * 100:.1f}% of absences) -> weighted as 0")
 
     affected_team_games = players.loc[unknown, GROUP_KEYS].drop_duplicates()
+    # Denominated by the team-games actually present in this player table,
+    # which is self-contained and needs no second file.
+    all_team_games = len(players[GROUP_KEYS].drop_duplicates())
     print(f"  team-games touched by that     : {len(affected_team_games):,} "
-          f"({len(affected_team_games) / EXPECTED_TEAM_GAMES * 100:.1f}%)")
+          f"({len(affected_team_games) / all_team_games * 100:.1f}% of "
+          f"{all_team_games:,})")
 
 def sanity_check_against_plus_minus(availability: pd.DataFrame):
     """Does missing more, heavier players actually go with playing worse?"""
@@ -117,9 +136,10 @@ def main():
     availability.to_csv(OUTPUT_PATH, index=False, encoding="utf-8")
 
     print(f"\nWrote {OUTPUT_PATH}")
+    expected = universe_team_games()
     print(f"  rows     : {len(availability):,}  "
-          f"(expected {EXPECTED_TEAM_GAMES:,} -> "
-          f"{'MATCH' if len(availability) == EXPECTED_TEAM_GAMES else 'MISMATCH'})")
+          f"(games_final.csv has {expected:,} -> "
+          f"{'MATCH' if len(availability) == expected else 'MISMATCH'})")
     print(f"  games    : {availability['GAME_ID'].nunique():,}")
     print(f"  teams    : {availability['TEAM_ID'].nunique()}")
 
