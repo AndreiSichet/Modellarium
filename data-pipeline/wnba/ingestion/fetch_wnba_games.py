@@ -5,6 +5,7 @@ it - see ../README.md for why. Imports RateLimiter and nothing else from the
 NBA pipeline.
 """
 
+import os
 import sys
 import time
 from datetime import date
@@ -50,6 +51,29 @@ def current_season(today: date = None) -> int:
     return today.year if today.month >= SEASON_START_MONTH else today.year - 1
 
 
+def open_seasons(today: date = None) -> set:
+    """The seasons a refresh still has to ask the source about.
+
+    The current season and the one before it, from the SAME May boundary this
+    module already uses - no new season constant.
+
+    THE BUG THIS FIXES RAN THE OTHER WAY ROUND HERE. main() used to skip any
+    season whose file already existed, with no exception for the live one. So
+    a WNBA season was fetched once, on the first run that saw it, and then
+    frozen forever: the daily refresh could never pick up a second day of
+    games. It never showed, because the regular season was over on every
+    occasion this was exercised and the sync writes nothing either way.
+    Completed seasons are still reused; the open ones are now re-asked.
+    """
+    newest = current_season(today)
+    return {str(year) for year in (newest - 1, newest)}
+
+
+def full_refetch_requested() -> bool:
+    """Env-var escape hatch, set only by the drift report."""
+    return os.environ.get("MODELLARIUM_FULL_REFETCH") == "1"
+
+
 def seasons_through(today: date = None) -> list:
     """Every season in scope, derived rather than listed."""
     return [str(year) for year in range(FIRST_SEASON, current_season(today) + 1)]
@@ -88,15 +112,26 @@ def write_atomically(frame: pd.DataFrame, path: Path) -> None:
 def main() -> int:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     seasons = seasons_through()
+    open_now = open_seasons()
+    force = full_refetch_requested()
     print(f"WNBA seasons in scope: {len(seasons)}  "
           f"({seasons[0]} .. {seasons[-1]})")
+    print(f"Open seasons (fetched): {', '.join(sorted(open_now))}")
+    if force:
+        print("MODELLARIUM_FULL_REFETCH is set - re-fetching every season "
+              "for the drift report.")
     print(f"Writing to {RAW_DIR}\n")
 
     fetched, skipped, empty, failed = [], [], [], []
     for season in seasons:
         path = RAW_DIR / f"wnba_games_{season}.csv"
-        if path.exists():
-            print(f"  {season}: already present, skipped")
+
+        # A COMPLETED SEASON IS REUSED. An OPEN one is re-fetched even though
+        # its file exists, which is the half that was missing: the previous
+        # test was presence alone, so a live season stopped updating after
+        # its first fetch.
+        if not force and season not in open_now and path.exists():
+            print(f"  {season}: completed, reusing {path.name}")
             skipped.append(season)
             continue
 
@@ -125,7 +160,7 @@ def main() -> int:
               f"[{time.monotonic() - started:.1f}s]")
         fetched.append(season)
 
-    print(f"\nfetched {len(fetched)}, skipped {len(skipped)}, "
+    print(f"\nfetched {len(fetched)}, reused {len(skipped)}, "
           f"not started {len(empty)}, failed {len(failed)}")
     if empty:
         print(f"  not started (no file written): {', '.join(empty)}")

@@ -15,6 +15,17 @@ on:
   schedule:
     - cron: "0 7 * * *"
   workflow_dispatch:
+    inputs:
+      full_refetch:
+        description: >-
+          Re-fetch every season, including completed ones, and report how the
+          result differs from what is being served. SWAPS NOTHING. The daily
+          path reuses completed seasons so that historical rows are fixed
+          between snapshots; this is the only way to see the source
+          correcting old data, and adopting such a change is a decision
+          rather than something a morning job should take on its own.
+        type: boolean
+        default: false
 
 # ONE REFRESH AT A TIME. A dispatched run can land on top of the scheduled
 # one, and two refreshes race on the `current` pointer: one swaps to its
@@ -143,9 +154,18 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
 
+          # The drift report is the same job with every season re-fetched
+          # and the swap removed, so it goes through this one step rather
+          # than a second workflow that could drift from it.
+          $extra = @()
+          if ("${{ inputs.full_refetch }}" -eq "true") {
+            Write-Host "FULL RE-FETCH: reporting drift, swapping nothing."
+            $extra += "--full-refetch"
+          }
+
           .\.ct-venv\Scripts\python.exe -W ignore ml-training\daily_refresh.py `
             --volume "D:\modellarium-data" `
-            --outcome-file "refresh-outcome.txt"
+            --outcome-file "refresh-outcome.txt" @extra
           $code = $LASTEXITCODE
 
           $outcome = "failed"
@@ -161,7 +181,10 @@ jobs:
           # can read - the weekly retrain's own lesson, where a crash and a
           # gate refusal shared exit 1 and the wrapper reported the crash as
           # "the guard worked as intended".
-          if ($outcome -eq "advanced") {
+          if ($outcome -eq "drift-report") {
+            "## Drift report" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "Every season was re-fetched and compared against the served snapshot. **Nothing was swapped.** The step log lists any differences per season and per game." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } elseif ($outcome -eq "advanced") {
             "## Advanced" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             "A new snapshot is being served. Dates below." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           } elseif ($outcome -eq "nothing-new") {
@@ -172,7 +195,7 @@ jobs:
             "A pipeline step, validation or the swap failed. **The previous snapshot keeps serving.** The step log says which." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           }
 
-          if ($outcome -eq "failed") { exit 1 }
+          if ($outcome -eq "failed" -or $outcome -eq "drift-report-failed") { exit 1 }
           exit 0
 
       - name: Report what is being served

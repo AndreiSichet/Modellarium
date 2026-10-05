@@ -91,6 +91,14 @@ def clean_season(raw: pd.DataFrame) -> dict:
     """One season's rows, cleaned, with every drop counted and listed."""
     report = {}
 
+    # CANONICAL ORDER FIRST, so cleaning is a function of the row SET and not
+    # of the order the API happened to return. The main-line pick below is
+    # chosen by minutes rather than by position, which fixes the one path
+    # order was known to reach - this sort is what stops a path nobody has
+    # found yet from reintroducing the same class of bug. It costs one sort
+    # per season and removes "it depended on row order" as a possibility.
+    raw = _canonical_order(raw)
+
     # --- class 1
     unidentifiable = raw[raw["TEAM_ID"].isna()]
     frame = raw[raw["TEAM_ID"].notna()].copy()
@@ -132,19 +140,62 @@ def clean_season(raw: pd.DataFrame) -> dict:
     return report
 
 
+def _canonical_order(raw: pd.DataFrame) -> pd.DataFrame:
+    """One fixed row order for a season, independent of how it arrived.
+
+    Sorted on every column rather than on a key, because a team's duplicate
+    rows share (GAME_ID, TEAM_ID) - the very case that needs a stable order -
+    so a key alone would leave their relative order undefined. Stringified
+    for the sort only, so mixed dtypes cannot change the comparison.
+    """
+    if raw.empty:
+        return raw.reset_index(drop=True)
+    columns = sorted(raw.columns, key=str)
+    keys = raw[columns].astype(str)
+    order = keys.sort_values(by=columns, kind="mergesort").index
+    return raw.loc[order].reset_index(drop=True)
+
+
 def _sum_partial_lines(frame: pd.DataFrame) -> pd.DataFrame:
     """Collapse each (GAME_ID, TEAM_ID) to one row, summing counting stats.
 
-    Identity and context columns come from the row carrying a valid WL where
-    one exists, so MATCHUP and the team's labels are taken from the main line
-    rather than from a fragment.
+    Identity and context columns come from the main line - the row carrying
+    the team's real minutes - so MATCHUP, WL and the team's labels are taken
+    from it rather than from a fragment.
+
+    THE MAIN LINE IS CHOSEN BY MINUTES, NOT BY POSITION, AND THAT FIX IS LOAD
+    BEARING. This used to take `main.iloc[0]`, the first row that happened to
+    carry a valid WL - and when MORE THAN ONE row carries one, "first" is
+    whatever order the API returned. That made the whole cleaner a function
+    of row order:
+
+      game 2020500022, 2005-06. Fayetteville has two rows. The main line is
+      'FAY @ TUL', WL 'L', 85 points over 239 minutes. The fragment is
+      'TUL vs. FAY', WL 'W', 0 points over 3 minutes - carrying both the
+      wrong result and the opponent's MATCHUP. Pick the fragment and the game
+      reads as two winners, so WL contradicts PTS, so it is dropped as
+      self-contradicting and the validator fails on an unlisted drop.
+
+    Measured: shuffling that season's rows flipped the outcome on 104 of 200
+    orderings, and the API genuinely does vary row order between fetches
+    while returning identical values. That is what failed the first
+    scheduled daily refresh.
+
+    Minutes are the right discriminator because they are what "main line"
+    means - a 3-minute fragment is not a team's game. Exactly one team-game
+    in the whole corpus has the ambiguity, and the value this produces is the
+    one already committed and served.
     """
     def collapse(group):
         if len(group) == 1:
             return group.iloc[0]
 
         main = group[group["WL"].isin(VALID_WL)]
-        base = (main.iloc[0] if len(main) else group.iloc[0]).copy()
+        candidates = main if len(main) else group
+        if "MIN" in candidates.columns and candidates["MIN"].notna().any():
+            base = candidates.loc[candidates["MIN"].idxmax()].copy()
+        else:
+            base = candidates.iloc[0].copy()
 
         for column in COUNTING_STATS:
             if column in group.columns:

@@ -14,6 +14,7 @@ regular season opener is usually a Cup game and phase 2 needs that date to
 compute rest correctly.
 """
 
+import os
 import sys
 import time
 from datetime import date
@@ -81,6 +82,28 @@ def current_season_start_year(today: date = None) -> int:
 def season_label(start_year: int) -> str:
     """2025 -> '2025-26'. Handles the century roll: 1999 -> '1999-00'."""
     return f"{start_year}-{str(start_year + 1)[-2:].zfill(2)}"
+
+
+def open_seasons(today: date = None) -> set:
+    """The seasons a refresh still has to ask the source about.
+
+    The current season and the one before it, from the SAME November boundary
+    this module already uses - no new season constant.
+
+    THIS IS THE LEAGUE THAT FAILED THE FIRST SCHEDULED REFRESH, and the
+    reason is below in main(): the presence test required BOTH competition
+    files, and the Showcase Cup exists for only 5 of 23 seasons, so 18
+    completed seasons were re-fetched every single morning. 481 seconds of a
+    21-minute run, and one of those re-fetches came back with its rows in a
+    different order, which flipped a game into looking self-contradicting.
+    """
+    newest = current_season_start_year(today)
+    return {season_label(year) for year in (newest - 1, newest)}
+
+
+def full_refetch_requested() -> bool:
+    """Env-var escape hatch, set only by the drift report."""
+    return os.environ.get("MODELLARIUM_FULL_REFETCH") == "1"
 
 
 def seasons_through(today: date = None) -> list:
@@ -162,8 +185,14 @@ def main() -> int:
     RAW_DIR.mkdir(parents=True, exist_ok=True)
 
     seasons = seasons_through()
+    open_now = open_seasons()
+    force = full_refetch_requested()
     print(f"G League seasons in scope: {len(seasons)}  "
           f"({seasons[0]} .. {seasons[-1]})")
+    print(f"Open seasons (fetched): {', '.join(sorted(open_now))}")
+    if force:
+        print("MODELLARIUM_FULL_REFETCH is set - re-fetching every season "
+              "for the drift report.")
     print(f"Writing to {RAW_DIR}\n")
 
     fetched, skipped, empty, failed = [], [], [], []
@@ -171,8 +200,16 @@ def main() -> int:
 
     for season in seasons:
         paths = paths_for(season)
-        if all(p.exists() for p in paths.values()):
-            print(f"  {season}: already present, skipped")
+
+        # PRESENCE IS THE REGULAR-SEASON FILE, NOT BOTH FILES, and that
+        # distinction is the whole bug. The Showcase Cup began in 2021-22, so
+        # `all(p.exists())` is false for all 18 pre-Cup seasons however many
+        # times they are fetched - a condition that can never be satisfied,
+        # re-fetching two decades of finished basketball every morning.
+        # The Cup's absence is normal for a pre-Cup season, so it cannot
+        # stand for "this season is incomplete"; the regular-season file can.
+        if not force and season not in open_now and paths["regular"].exists():
+            print(f"  {season}: completed, reusing {paths['regular'].name}")
             skipped.append(season)
             continue
 
@@ -212,7 +249,7 @@ def main() -> int:
               f"[{time.monotonic() - started:.1f}s]")
         fetched.append(season)
 
-    print(f"\nfetched {len(fetched)}, skipped {len(skipped)}, "
+    print(f"\nfetched {len(fetched)}, reused {len(skipped)}, "
           f"not served {len(empty)}, failed {len(failed)}")
     for name, n in totals.items():
         print(f"  {name:<9} {n:,} rows this run")

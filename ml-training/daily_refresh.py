@@ -41,12 +41,16 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 PROJECT = HERE.parent
 sys.path.insert(0, str(HERE))
+import pandas as pd  # noqa: E402
+import drift_report  # noqa: E402
 from served_data import (  # noqa: E402
     POINTER_FILE, REPO_DATA_ROOT, REQUIRED_FILES, SNAPSHOTS_DIR,
     missing_files, resolve_root, write_snapshot_metadata)
 
 DEFAULT_VOLUME = Path("D:/modellarium-data")
 KEEP_SNAPSHOTS = 7
+
+NEWLINE = chr(10)
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -167,12 +171,13 @@ def cutoffs(root: Path) -> dict:
             for league, spec in LEAGUES.items()}
 
 
-def run_step(script: Path, timeout: int) -> None:
+def run_step(script: Path, timeout: int, env: dict = None) -> None:
     print(f"    {script.name} ...", end=" ", flush=True)
     started = time.monotonic()
     done = subprocess.run([sys.executable, "-W", "ignore", str(script)],
                           capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", timeout=timeout, cwd=PROJECT)
+                          errors="replace", timeout=timeout, cwd=PROJECT,
+                          env=env)
     elapsed = time.monotonic() - started
     if done.returncode != 0:
         print(f"FAILED ({elapsed:.0f}s)")
@@ -182,14 +187,24 @@ def run_step(script: Path, timeout: int) -> None:
     print(f"ok ({elapsed:.0f}s)")
 
 
-def rebuild(leagues: list, timeout: int) -> None:
+def rebuild(leagues: list, timeout: int, full_refetch: bool = False) -> None:
     section("REBUILDING, PER LEAGUE")
+
+    env = None
+    if full_refetch:
+        # The fetchers read this rather than taking a flag, because the steps
+        # are run as subprocesses by path and there is no argument list to
+        # thread an option through.
+        env = dict(os.environ, MODELLARIUM_FULL_REFETCH="1")
+        print("  MODELLARIUM_FULL_REFETCH=1 - every season will be "
+              "re-fetched, including completed ones")
+
     for league in leagues:
         print(f"  {league}")
         for script in LEAGUES[league]["steps"]:
             if not script.is_file():
                 raise RuntimeError(f"{script} does not exist")
-            run_step(script, timeout)
+            run_step(script, timeout, env=env)
 
 
 def stage(volume: Path, identifier: str) -> Path:
@@ -357,6 +372,15 @@ def main() -> int:
     parser.add_argument("--volume", default=str(DEFAULT_VOLUME))
     parser.add_argument("--leagues", default="nba,wnba,gleague")
     parser.add_argument("--step-timeout", type=int, default=5400)
+    parser.add_argument("--full-refetch", action="store_true",
+                        help="re-fetch EVERY season, including completed "
+                             "ones, and report how the result differs from "
+                             "what is being served. SWAPS NOTHING. The "
+                             "daily path reuses completed seasons, so this "
+                             "is the only way to see the source correcting "
+                             "old data - and whether to adopt such a change "
+                             "is a decision, not something a morning job "
+                             "should take on its own.")
     parser.add_argument("--skip-rebuild", action="store_true",
                         help="stage and swap whatever the repo already "
                              "holds; for exercising the swap itself")
@@ -406,6 +430,73 @@ def main() -> int:
         release_lock(lock)
 
 
+def _drift_report(args, volume, leagues, served_root, identifier,
+                  record_outcome) -> int:
+    """Re-fetch everything, report how it differs from what is served, swap
+    nothing.
+
+    THE DAILY PATH REUSES COMPLETED SEASONS, which is what makes historical
+    rows fixed between snapshots - and the cost is that the job stops
+    noticing if the source corrects old data. This is where that becomes
+    visible, on demand, as a report rather than a gate.
+
+    It stages and validates exactly as the real path does, so the comparison
+    is between two snapshots rather than between a snapshot and a working
+    tree. The staging directory is removed afterwards: an unswapped snapshot
+    left on the volume would compete with real ones for the retention
+    window.
+
+    SCOPED TO THE SEASON-LEVEL GAME TABLES, deliberately. Player box scores
+    and quarter scores resume per game by file existence - checked, not
+    assumed: both call `if out_path.exists(): return "skipped"` - so a full
+    re-fetch does not re-pull them and there is nothing of theirs to
+    compare.
+    """
+    section("FULL RE-FETCH DRIFT REPORT - NOTHING WILL BE SWAPPED")
+    print(f"  served snapshot: {served_root.name}")
+
+    staging = None
+    try:
+        rebuild(leagues, args.step_timeout, full_refetch=True)
+        staging = stage(volume, identifier + "-driftcheck")
+        validate(staging)
+    except Exception as error:
+        section("THE RE-FETCH OR ITS VALIDATION FAILED")
+        print(f"  {type(error).__name__}: {error}")
+        print(f"{NEWLINE}  Nothing was swapped - this mode never swaps.")
+        if staging is not None:
+            shutil.rmtree(staging, ignore_errors=True)
+        record_outcome("drift-report-failed")
+        return EXIT_FAILED
+
+    section("DIFFERENCES AGAINST THE SERVED SNAPSHOT")
+    any_difference = False
+    for league in leagues:
+        relative = LEAGUES[league]["cutoff_table"]
+        fresh = pd.read_csv(staging / relative, low_memory=False)
+        served = pd.read_csv(served_root / relative, low_memory=False)
+        if drift_report.render(league, drift_report.compare(fresh, served)):
+            any_difference = True
+
+    section("WHAT THIS MEANS")
+    if any_difference:
+        print("""  The source now answers differently for at least one completed season.
+  NOTHING HAS BEEN ADOPTED. Deciding whether to take a historical change is
+  a judgement about which version is right, and this job does not make it.
+
+  To adopt a change: re-fetch the affected season by hand, rebuild, and let
+  the next ordinary refresh snapshot the result.""")
+    else:
+        print("""  Every re-fetched row matches the snapshot being served, so freezing
+  completed seasons is costing nothing today.""")
+
+    shutil.rmtree(staging, ignore_errors=True)
+    print(f"{NEWLINE}  staged copy removed. "
+          f"{read_pointer(volume)} is serving, untouched.")
+    record_outcome("drift-report")
+    return EXIT_OK
+
+
 def _run(args, volume, leagues, record_outcome) -> int:
     section("BEFORE")
     previous = read_pointer(volume)
@@ -421,6 +512,10 @@ def _run(args, volume, leagues, record_outcome) -> int:
         print(f"  {league:<9}data_as_of {date}")
 
     identifier = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M")
+
+    if args.full_refetch:
+        return _drift_report(args, volume, leagues, previous_root,
+                             identifier, record_outcome)
 
     try:
         if args.skip_rebuild:
