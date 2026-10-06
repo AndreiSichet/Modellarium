@@ -1,9 +1,7 @@
 """XGBoost across the six regression targets."""
 
-import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBRegressor
 
@@ -12,6 +10,7 @@ import mlflow.xgboost
 from mlflow.models import infer_signature
 
 from common import setup_mlflow, split_three_way
+from model_evaluation import regression_metrics
 from train_baseline import (
     FEATURE_COLUMNS,
     REGRESSION_TARGETS,
@@ -42,10 +41,8 @@ def experiment_name(label: str) -> str:
     return label.lower().replace(" ", "_")
 
 def score(y_true, predictions) -> tuple:
-    return (
-        mean_absolute_error(y_true, predictions),
-        np.sqrt(mean_squared_error(y_true, predictions)),
-    )
+    metrics = regression_metrics(y_true, predictions)
+    return metrics["mae"], metrics["rmse"]
 
 def fit_linear_baseline(train, validation, test, target: str):
     """Reproduce train_baseline.py's LinearRegression for this target."""

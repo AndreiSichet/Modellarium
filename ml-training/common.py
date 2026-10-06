@@ -37,6 +37,12 @@ FEATURE_COLUMNS = [f"{side}_{feat}" for side in ("HOME", "AWAY") for feat in PER
 
 ROLLING_FEATURE_COLUMNS = [c for c in FEATURE_COLUMNS if "ROLL5_" in c or "ROLL10_" in c]
 
+# Lives here, not in train_moneyline_xgb, so model_evaluation can read it
+# without importing that script - which would be a cycle once the script
+# scores through the shared module. train_moneyline_xgb re-exports it as
+# TARGET, because eight modules already import that name.
+MONEYLINE_TARGET = "HOME_WIN"
+
 def setup_mlflow(experiment_name: str):
     """Point MLflow at the SQLite store, creating the experiment if needed."""
     import mlflow

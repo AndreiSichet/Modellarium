@@ -12,9 +12,8 @@ from sklearn.metrics import (
 from xgboost import XGBClassifier, XGBRegressor
 
 from calibration import brier_score, expected_calibration_error
-from common import FEATURE_COLUMNS
+from common import FEATURE_COLUMNS, MONEYLINE_TARGET
 from train_baseline import REGRESSION_TARGETS
-from train_moneyline_xgb import TARGET as MONEYLINE_TARGET
 
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 
@@ -36,27 +35,38 @@ def load_model(key: str, classification: bool, directory: Path = None):
     model.load_model(str(path))
     return model
 
+def classification_metrics(y_true, proba, labels) -> dict:
+    """The one definition of the probability metrics, for every caller."""
+    # float64 BEFORE scoring, not after. XGBoost returns float32, and summing
+    # a couple of thousand log terms at that width lands ~4e-08 from the
+    # float64 answer - invisible at four decimals, which is why this module
+    # and the training scripts quietly disagreed in the eighth decimal until
+    # they were brought together. It also keeps a flat segment from wobbling
+    # by an ULP across a calibration bin edge. See measure_calibration.
+    proba = np.asarray(proba, dtype=np.float64)
+    return {
+        "log_loss": float(log_loss(y_true, proba)),
+        "accuracy": float(accuracy_score(y_true, labels)),
+        "brier": brier_score(y_true, proba),
+        "ece": expected_calibration_error(y_true, proba),
+    }
+
+def regression_metrics(y_true, predictions) -> dict:
+    """The one definition of the regression metrics, for every caller."""
+    return {
+        "mae": float(mean_absolute_error(y_true, predictions)),
+        "rmse": float(np.sqrt(mean_squared_error(y_true, predictions))),
+    }
+
 def evaluate(model, frame, target: str, classification: bool) -> dict:
     """Score one model on one dataframe. Never trains, never mutates."""
     x = frame[FEATURE_COLUMNS]
     y = frame[target]
 
     if classification:
-        # float64: an isotonic-style flat segment wobbles by an ULP in float32
-        # and lands in the wrong calibration bin. See measure_calibration.
-        proba = model.predict_proba(x)[:, 1].astype(np.float64)
-        return {
-            "log_loss": float(log_loss(y, proba)),
-            "accuracy": float(accuracy_score(y, model.predict(x))),
-            "brier": brier_score(y, proba),
-            "ece": expected_calibration_error(y, proba),
-        }
+        return classification_metrics(y, model.predict_proba(x)[:, 1], model.predict(x))
 
-    predictions = model.predict(x)
-    return {
-        "mae": float(mean_absolute_error(y, predictions)),
-        "rmse": float(np.sqrt(mean_squared_error(y, predictions))),
-    }
+    return regression_metrics(y, model.predict(x))
 
 def primary(metrics: dict, classification: bool) -> float:
     """The one number the gate compares. See the module docstring."""

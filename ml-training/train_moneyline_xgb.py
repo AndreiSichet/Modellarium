@@ -3,16 +3,17 @@
 import mlflow
 import mlflow.xgboost
 from mlflow.models import infer_signature
-from sklearn.metrics import accuracy_score, log_loss
 from xgboost import XGBClassifier
 
 from common import (
+    MONEYLINE_TARGET,
     TEST_SEASONS,
     TRACKING_URI,
     VALIDATION_SEASON,
     setup_mlflow,
     split_three_way,
 )
+from model_evaluation import classification_metrics
 
 from train_baseline import (
     FEATURE_COLUMNS,
@@ -21,7 +22,7 @@ from train_baseline import (
     section,
 )
 
-TARGET = "HOME_WIN"
+TARGET = MONEYLINE_TARGET
 EXPERIMENT_NAME = "moneyline"
 
 PARAMS = {
@@ -56,9 +57,8 @@ def report_retained_rows(train, validation):
 
 def evaluate(model, split, label):
     x, y = split[FEATURE_COLUMNS], split[TARGET]
-    proba = model.predict_proba(x)[:, 1]
-    accuracy = accuracy_score(y, model.predict(x))
-    loss = log_loss(y, proba)
+    metrics = classification_metrics(y, model.predict_proba(x)[:, 1], model.predict(x))
+    accuracy, loss = metrics["accuracy"], metrics["log_loss"]
     print(f"{label:<44} accuracy {accuracy:.4f}  log loss {loss:.4f}")
     return accuracy, loss
 
