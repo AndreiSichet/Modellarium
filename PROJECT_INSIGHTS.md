@@ -820,6 +820,13 @@ the ceiling.
 | Total points | 15.2685 | 15.2322 | −0.24% |
 | Moneyline (log loss) | 0.6067 | **0.5979** | −1.45% |
 
+> **Every figure in this chapter and the ones that follow was measured before
+> 6 October 2026**, on the uncorrected margin column that A7 later replaced
+> (chapter 4). They are left exactly as measured, because that is what each
+> study was actually run against and a reader comparing a September result with
+> an October one needs to see why they differ. The corrected equivalents moved
+> by between −0.02% and +0.21%.
+
 Confirmed three independent ways: the old result was deterministic and on
 record three times at exactly 11.4013; a direct side-by-side comparison on
 identical settings reproduced the gain; and the feature-importance breakdown
@@ -3135,6 +3142,17 @@ land in the same accuracy band, so the limit is what the features know rather
 than how cleverly they are combined. The obvious response is to go looking for
 new information.
 
+> **All seven were measured on the uncorrected margin column**, before A7
+> replaced it on 6 October 2026 (chapter 4). **They are not being redone, and
+> the reason is a measurement rather than a shrug.** The correction reaches
+> 1.02% of games and moves two of the thirty-eight features by an average of a
+> third of a point; retraining the seven production models on it moved every
+> target by less than a quarter of a percent, with every confidence interval
+> spanning zero. An effect that small cannot rescue an idea that was rejected
+> by margins of 3% and more, nor overturn a null whose interval already spanned
+> zero. If one of these is ever revisited for an unrelated reason, it should be
+> re-measured on corrected data then.
+
 Seven attempts have now been made. **All seven were rejected**, and this chapter
 is the record of what each one was, what it found, and — the part that took
 longest to learn — **why the seven failures are not all the same kind of
@@ -4432,11 +4450,17 @@ Get-NetTCPConnection -LocalPort 8080 -State Listen |
 
 ### Key accuracy figures
 
+> Re-measured on **6 October 2026**, when A7 stopped the NBA pipeline trusting
+> the margin column its data source reports. The figures before that correction
+> were 0.5979, 10.74 and 15.23. The change is tiny and in the unhelpful
+> direction, which is the expected result for a correctness fix: every target's
+> confidence interval spanned zero.
+
 | Target | Best result | Beaten by |
 |---|---|---|
-| Moneyline | 0.5979 log loss | availability features |
-| Margin | 10.74 average error | availability features (−5.8%) |
-| Total points | 15.23 average error | nothing tried |
+| Moneyline | 0.5978 log loss | availability features |
+| Margin | 10.76 average error | availability features (−5.8%) |
+| Total points | 15.25 average error | nothing tried |
 | First-quarter winner | 0.5796 accuracy | nothing — ships labelled *low confidence* |
 | Player points | 4.73 average error | nothing — a player's own average is nearly all of it |
 
