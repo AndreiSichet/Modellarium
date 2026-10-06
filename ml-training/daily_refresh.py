@@ -381,6 +381,15 @@ def main() -> int:
                              "old data - and whether to adopt such a change "
                              "is a decision, not something a morning job "
                              "should take on its own.")
+    parser.add_argument(
+        "--force-swap", action="store_true",
+        help="Swap the staged snapshot in even when no league's cutoff "
+             "advanced. For a correction that changes the CONTENT of the "
+             "served tables without changing any date - A7's margin fix is "
+             "the first - where an ordinary run correctly reports nothing-new "
+             "and correctly swaps nothing. Same validation, same smoke test, "
+             "same lock, same rollback; its own outcome word, because "
+             "borrowing 'advanced' would claim new games arrived.")
     parser.add_argument("--skip-rebuild", action="store_true",
                         help="stage and swap whatever the repo already "
                              "holds; for exercising the swap itself")
@@ -541,7 +550,15 @@ def _run(args, volume, leagues, record_outcome) -> int:
         mark = "ADVANCED" if league in advanced else "unchanged"
         print(f"  {league:<9}{before[league]} -> {after[league]}   {mark}")
 
-    if not advanced:
+    if not advanced and args.force_swap:
+        section("FORCED SWAP")
+        print("""  No league's cutoff moved, so an ordinary run would discard this snapshot
+  and keep serving the previous one. --force-swap was passed, which says the
+  CONTENT changed without any date changing - a correction rather than new
+  games. It has been validated and smoke-tested exactly as any other snapshot;
+  only the decision to swap differs.""")
+
+    if not advanced and not args.force_swap:
         section("NOTHING NEW")
         print(f"""  No league has a game later than the snapshot already being served, so
   there is nothing to swap in. An off-day, an All-Star break, or simply
@@ -563,11 +580,19 @@ def _run(args, volume, leagues, record_outcome) -> int:
     swapped = swap_and_verify(volume, previous, identifier,
                               restart=not args.no_restart)
     if swapped == EXIT_OK and not args.no_restart:
-        section("ADVANCED")
-        for league, (was, now) in advanced.items():
-            print(f"  {league:<9}{was} -> {now}")
+        if advanced:
+            section("ADVANCED")
+            for league, (was, now) in advanced.items():
+                print(f"  {league:<9}{was} -> {now}")
+        else:
+            section("FORCED")
+            print("  content changed, no cutoff moved. Every league's "
+                  "data_as_of is unchanged by design.")
         prune(volume, KEEP_SNAPSHOTS)
-    record_outcome("advanced" if swapped == EXIT_OK else "failed")
+    if swapped != EXIT_OK:
+        record_outcome("failed")
+    else:
+        record_outcome("advanced" if advanced else "forced")
     return swapped
 
 

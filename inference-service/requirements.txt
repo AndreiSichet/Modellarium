@@ -20,6 +20,10 @@
 #
 # Before pinning, both were asked for the same prediction (ATL vs BOS,
 # 2026-04-13) and returned 0.42541608214378357 - bit for bit identical
+# [2026-08-31 record. That value held until A7 corrected the team margin on
+#  2026-10-06; the matchup now returns 0.4191701412200928. The pandas 2/3
+#  finding this comment records is unaffected - it was about two environments
+#  agreeing, not about the number itself.]
 # across the pandas 2/3 boundary. So these pins lock in a state that was
 # measured, not assumed. Had they disagreed, the right pin would have been
 # the host's versions, since that is what every recorded result in this

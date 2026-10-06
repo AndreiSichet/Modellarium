@@ -50,6 +50,82 @@ def drop_unreliable_home_away(df: pd.DataFrame) -> pd.DataFrame:
 
     return df[~df["GAME_ID"].isin(bad_game_ids)]
 
+def recompute_margin(df: pd.DataFrame) -> pd.DataFrame:
+    """Replace PLUS_MINUS with the margin derived from PTS, keeping the source.
+
+    LeagueGameFinder's PLUS_MINUS does not agree with the points it reports on
+    about 1% of NBA games, the two rows of a game do not mirror each other, and
+    neither matches the real margin. PTS and WL are both validated upstream, so
+    the quantity is recoverable exactly. The WNBA and G League builders already
+    do this; the NBA was the last to carry the raw column. See A7.
+
+    Placed here because this is the earliest table everything downstream reads:
+    the rolling features are built from it, and serving recomputes those same
+    windows from the served copy. One implementation, no second arithmetic.
+    """
+    counts = df.groupby("GAME_ID").size()
+    wrong_shape = counts[counts != 2]
+    if len(wrong_shape):
+        raise SystemExit(
+            f"{len(wrong_shape)} game(s) without exactly two team rows, so there "
+            f"is no opponent to take points from: "
+            f"{sorted(int(g) for g in wrong_shape.index)[:10]}"
+        )
+
+    # Two rows per game is guaranteed above, so the other side's points are the
+    # game's total minus this row's.
+    opponent_points = df.groupby("GAME_ID")["PTS"].transform("sum") - df["PTS"]
+    # float64, matching the dtype of the column it replaces. A margin is a whole
+    # number so int64 reads as the honest type, but games_final.csv is a SERVED
+    # artifact and changing a served column's dtype for tidiness is a change
+    # nobody asked for.
+    derived = (df["PTS"] - opponent_points).astype("float64")
+
+    # Tested BEFORE the WL comparison, not after. A tie is unlabelable whatever
+    # WL says, and the G League's 95-95 game walked straight past a WL-validity
+    # guard precisely because WL was absent on both rows.
+    tied = sorted(int(g) for g in df.loc[derived == 0, "GAME_ID"].unique())
+    if tied:
+        raise SystemExit(
+            f"{len(tied)} game(s) with a recomputed margin of zero. Basketball "
+            f"has no draws - overtime decides: {tied[:10]}"
+        )
+
+    disagrees = sorted(
+        int(g) for g in df.loc[(derived > 0) != df["WL"].eq("W"), "GAME_ID"].unique()
+    )
+    if disagrees:
+        raise SystemExit(
+            f"{len(disagrees)} game(s) where the recomputed margin's sign "
+            f"disagrees with WL: {disagrees[:10]}"
+        )
+
+    sums = derived.groupby(df["GAME_ID"]).sum()
+    unbalanced = sums[sums != 0]
+    if len(unbalanced):
+        raise SystemExit(
+            f"{len(unbalanced)} game(s) whose two margins do not sum to zero, so "
+            f"the rows were paired wrongly: {sorted(int(g) for g in unbalanced.index)[:10]}"
+        )
+
+    source = df["PLUS_MINUS"].astype(float)
+    missing = int(source.isna().sum())
+    differs = source.notna() & (source != derived.astype(float))
+    worst = float((source[differs] - derived[differs]).abs().max()) if differs.any() else 0.0
+    print(
+        f"PLUS_MINUS: recomputed as PTS - opponent PTS. The source value differed "
+        f"on {int(differs.sum()):,} of {len(df):,} rows across "
+        f"{df.loc[differs, 'GAME_ID'].nunique():,} of {df['GAME_ID'].nunique():,} "
+        f"games (worst error {worst:.0f} points"
+        f"{f', {missing:,} rows had no source value' if missing else ''}). "
+        f"The source value is kept as PLUS_MINUS_SOURCE."
+    )
+
+    df = df.copy()
+    df["PLUS_MINUS_SOURCE"] = df["PLUS_MINUS"]
+    df["PLUS_MINUS"] = derived
+    return df
+
 def main():
     PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -61,6 +137,8 @@ def main():
     df["OPPONENT"] = derive_opponent(df)
 
     df = drop_unreliable_home_away(df)
+
+    df = recompute_margin(df)
 
     df = df.drop(columns=COLUMNS_TO_DROP)
 

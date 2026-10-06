@@ -26,9 +26,9 @@ const NBA_BODY = {
   gameDate: '2026-04-13',
   played: false,
   latestPrediction: {
-    homeWinProbability: 0.42541608214378357,
-    homeMargin: 1.4149,
-    totalPoints: 232.9323,
+    homeWinProbability: 0.4191701412200928,
+    homeMargin: 1.3146,
+    totalPoints: 230.9997,
     dataAsOf: '2026-04-12',
     stale: true,
   },
@@ -155,7 +155,7 @@ describe('createPredictionFor', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(global.fetch.mock.calls[0][0]).toMatch(/\/predictions$/);
     expect(result.gameId).toBe(4);
-    expect(result.prediction.homeWinProbability).toBe(0.42541608214378357);
+    expect(result.prediction.homeWinProbability).toBe(0.4191701412200928);
   });
 
   test('posts to the WNBA path, which is a different endpoint', async () => {

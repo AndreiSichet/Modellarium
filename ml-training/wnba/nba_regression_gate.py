@@ -20,7 +20,14 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-BASELINE = HERE / "nba_gate_baseline.json"
+
+# THE DEFAULT POINTS AT THE NEWEST RECAPTURE, NOT THE OLDEST RECORD. Each phase
+# captures its own baseline so no earlier one is overwritten, and the earlier
+# files stay as dated records - but a bare run has to mean "against what is in
+# production now". Left pointing at the WNBA-era file, the first bare run after
+# A7 would have reported a regression on every NBA field, from a stale default
+# rather than a real change.
+BASELINE = HERE.parent / "gate_baseline_a7.json"
 
 BACKEND = "http://localhost:8080"
 INFERENCE = "http://localhost:8000"
@@ -29,7 +36,11 @@ INFERENCE = "http://localhost:8000"
 # against a data_as_of of 2026-04-12.
 MATCHUP = {"homeTeamId": 1610612737, "awayTeamId": 1610612738,
            "gameDate": "2026-04-13"}
-REFERENCE_PROBABILITY = 0.42541608214378357
+# Moved by A7 on 2026-10-06, when the NBA stopped trusting LeagueGameFinder's
+# margin column. The previous value, 0.42541608214378357, held from the
+# 38-feature retrain on 2026-08-26 and is the number every study before A7 was
+# measured against. This is the ONE sanctioned change to it.
+REFERENCE_PROBABILITY = 0.4191701412200928
 
 # The WNBA's pinned reference: Phoenix Mercury home vs Las Vegas Aces, the
 # only date MAX_DAYS_AHEAD permits against a WNBA cutoff of 2026-09-24.

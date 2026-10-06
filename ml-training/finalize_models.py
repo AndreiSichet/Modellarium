@@ -18,14 +18,20 @@ from train_regression_xgb import experiment_name
 MODELS_DIR = Path(__file__).resolve().parent / "models"
 PRODUCTION_EXPERIMENT = "production"
 
+# Read off held-out early stopping, never set by hand. Regenerated on
+# 2026-10-06 when A7 corrected the team margin: the 38-feature counts were
+# 131/117/133/119/49/131/132 and several moved a long way (totals 133 -> 102,
+# ast_margin 131 -> 103), because changing a feature changes how soon the
+# optimizer stops finding structure worth fitting. verify_tree_counts checks
+# these against the MLflow runs they came from.
 TREE_COUNTS = {
-    "moneyline": 131,
-    "spread": 117,
-    "totals": 133,
-    "reb_margin": 119,
-    "reb_total": 49,
-    "ast_margin": 131,
-    "ast_total": 132,
+    "moneyline": 138,
+    "spread": 104,
+    "totals": 102,
+    "reb_margin": 105,
+    "reb_total": 53,
+    "ast_margin": 103,
+    "ast_total": 134,
 }
 
 ORIGINAL_MAX_DEPTH = 4

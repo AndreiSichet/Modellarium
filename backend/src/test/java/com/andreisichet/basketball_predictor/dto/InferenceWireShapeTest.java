@@ -28,7 +28,13 @@ class InferenceWireShapeTest {
 
     /** All fixtures come from this matchup, the one used throughout the project. */
     private static final LocalDate DATA_AS_OF = LocalDate.of(2026, 4, 12);
-    private static final int DAYS_BEHIND = 146;
+    // No DAYS_BEHIND literal. It is DATE-DERIVED - computed from
+    // datetime.now() against a fixed cutoff - so it increments every midnight
+    // and moves on every recapture. It was pinned at 146 and the A7 recapture
+    // made it 177; bumping the number would only re-arm the same trap. The
+    // health assertion below already does it this way, and the regression gate
+    // classifies the field as volatile for the same reason.
+    private static final int DAYS_BEHIND_FLOOR = 100;
 
     /**
      * health.json was recaptured when the WNBA family was added, so its
@@ -266,17 +272,17 @@ class InferenceWireShapeTest {
 
             assertThat(response.dataAsOf()).isEqualTo(DATA_AS_OF);
             assertThat(response.stale()).isTrue();
-            assertThat(response.daysBehind()).isEqualTo(DAYS_BEHIND);
+            assertThat(response.daysBehind()).isGreaterThan(DAYS_BEHIND_FLOOR);
 
             InferenceResponse.Predictions p = response.predictions();
             assertThat(p).isNotNull();
-            assertThat(p.homeWinProbability()).isEqualTo(0.42541608214378357);
-            assertThat(p.homeMargin()).isEqualTo(1.4149187803268433);
-            assertThat(p.totalPoints()).isEqualTo(232.93231201171875);
-            assertThat(p.reboundMargin()).isEqualTo(1.5239256620407104);
-            assertThat(p.totalRebounds()).isEqualTo(89.01725769042969);
-            assertThat(p.assistMargin()).isEqualTo(1.986781120300293);
-            assertThat(p.totalAssists()).isEqualTo(50.692169189453125);
+            assertThat(p.homeWinProbability()).isEqualTo(0.4191701412200928);
+            assertThat(p.homeMargin()).isEqualTo(1.314629077911377);
+            assertThat(p.totalPoints()).isEqualTo(230.9997100830078);
+            assertThat(p.reboundMargin()).isEqualTo(0.7266454696655273);
+            assertThat(p.totalRebounds()).isEqualTo(88.9955825805664);
+            assertThat(p.assistMargin()).isEqualTo(2.744473457336426);
+            assertThat(p.totalAssists()).isEqualTo(51.03422546386719);
         }
 
         @Test
@@ -285,7 +291,7 @@ class InferenceWireShapeTest {
                     mapper.readValue(Fixture.read("predict.json"), InferenceResponse.class);
 
             assertThat(response.predictions().homeWinProbability())
-                    .isEqualTo(0.42541608214378357, within(1e-15));
+                    .isEqualTo(0.4191701412200928, within(1e-15));
         }
     }
 
@@ -298,7 +304,7 @@ class InferenceWireShapeTest {
                     InferenceQuarterHalfResponse.class);
 
             assertThat(response.dataAsOf()).isEqualTo(DATA_AS_OF);
-            assertThat(response.daysBehind()).isEqualTo(DAYS_BEHIND);
+            assertThat(response.daysBehind()).isGreaterThan(DAYS_BEHIND_FLOOR);
             assertThat(response.predictions()).hasSize(6);
 
             assertThat(response.predictions())
