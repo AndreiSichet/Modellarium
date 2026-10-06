@@ -1,9 +1,17 @@
 # Modellarium — Project Insights
 
-**A personal sportsbook.** Predictions for NBA games, quarters, halves and
-player statistics, produced by models trained from scratch on public data.
+**A personal sportsbook.** Predictions across **three basketball leagues** —
+the NBA (whole games, quarters, halves and individual player statistics), the
+WNBA and the NBA G League — produced by models trained from scratch on public
+data.
 
-Written: 21 September 2026
+Written: 21 September 2026 · Last updated: 6 October 2026
+
+Since first writing, the app gained a second league (chapter 20), a third
+(chapter 21), and a job that keeps every league's data current on its own
+(chapter 22). Where this document previously said something that those
+changes made false, the correction is left visible rather than quietly
+rewritten — a document is only true as of its date.
 
 ---
 
@@ -45,7 +53,7 @@ requirement.
 9. [The backend — what it is, and the database](#9-the-backend--what-it-is-and-the-database)
 10. [The backend — every file, explained one by one](#10-the-backend--every-file-explained-one-by-one)
 11. [The backend — how a request travels through the system](#11-the-backend--how-a-request-travels-through-the-system)
-12. [The backend — the seven endpoints, exact contracts](#12-the-backend--the-seven-endpoints-exact-contracts)
+12. [The backend — the eight endpoints, exact contracts](#12-the-backend--the-eight-endpoints-exact-contracts)
 13. [The backend — the schedule sync job](#13-the-backend--the-schedule-sync-job)
 14. [Frontend insights](#14-frontend-insights)
 15. [Running everything](#15-running-everything)
@@ -54,8 +62,10 @@ requirement.
 18. [Design decisions and why](#18-design-decisions-and-why)
 19. [The accuracy experiments — seven ideas tried, seven rejected](#19-the-accuracy-experiments--seven-ideas-tried-seven-rejected)
 20. [The WNBA — a second league](#20-the-wnba--a-second-league)
-21. [Known limitations and what comes next](#21-known-limitations-and-what-comes-next)
-22. [Quick reference](#22-quick-reference)
+21. [The G League — a third league](#21-the-g-league--a-third-league)
+22. [How the data stays current — the daily refresh](#22-how-the-data-stays-current--the-daily-refresh)
+23. [Known limitations and what comes next](#23-known-limitations-and-what-comes-next)
+24. [Quick reference](#24-quick-reference)
 
 ---
 
@@ -99,18 +109,27 @@ fourth family: its own data pipeline, its own models, its own pages. It has no
 rebound, assist, quarter or player markets, and the app shows no tabs or
 sections for markets a league does not serve. Chapter 20 is the whole of it.
 
+**The G League — the same three numbers, from a third set of models**
+
+The NBA's development league. Built the same way as the WNBA and for the same
+reason, with its own pipeline, models and pages. It is the hardest of the
+three to predict, and that was expected before anything was measured rather
+than explained afterwards — players are called up and sent down between
+games, so the team that played last week may not be the team playing tonight.
+Chapter 21 is the whole of it.
+
 Nothing is scraped from a bookmaker and nothing is guessed. Every number comes
 from models trained here on real results — eleven seasons for the NBA, twelve
-for the WNBA.
+for the WNBA, twenty-three for the G League.
 
 ### What it is made of
 
 Six independent pieces, each of which can be understood on its own:
 
 1. **The data pipeline** (Python) — downloads eleven seasons of NBA data and
-   turns it into a table a model can learn from. The WNBA has a second,
-   parallel pipeline beside it rather than sharing this one; chapter 20 says
-   why.
+   turns it into a table a model can learn from. The WNBA and the G League
+   have their own parallel pipelines beside it rather than sharing this one;
+   chapter 20 says why.
 2. **The models** (Python, scikit-learn and XGBoost) — the trained files that
    turn a row of features into a prediction.
 3. **The inference service** (Python, FastAPI) — a small web service that
@@ -337,6 +356,33 @@ invisibly, keeping the file short.
 matters here because Spring Boot 4 upgraded to Jackson 3, which moved to
 different package names — a detail that caused a compile failure (17.10).
 
+**G League** — the NBA G League, the NBA's official development league and the
+tier directly below it. The app's third league (chapter 21). Players move
+between it and the NBA constantly, which is the main reason it is the hardest
+of the three to predict.
+
+**Showcase Cup** — a separate tournament the G League plays in November,
+before its regular season starts in late December. The models are trained on
+regular-season games only, so Cup games are deliberately excluded from
+predictions — but they are still recorded, because they affect how much rest
+a team has had.
+
+**Snapshot** — one complete, self-consistent set of results tables for all
+three leagues, produced by a single run of the pipeline and stored under its
+own timestamped name. The app serves exactly one snapshot at a time
+(chapter 22).
+
+**Pointer** (the `current` file) — a few bytes of text naming which snapshot
+is live. Changing which data the app serves means rewriting those few bytes,
+rather than moving tens of megabytes of tables around. Rolling back is the
+same write in reverse.
+
+**Cache** — a copy kept nearby to avoid fetching something again. Browsers
+cache web pages and files; this app caches fixture lists in its database and
+upcoming schedules in memory. Caching is also where two of this project's
+hardest-to-see bugs came from, because a cache's whole purpose is to answer
+without checking (17.25, and the query-count surprise in 17.8).
+
 ### General
 
 **Stale** — computed from data that is no longer current. The app tracks and
@@ -458,7 +504,12 @@ serving reads them. Nothing else crosses between the two.
           |  (slow clock, Chapter 4)
           v
    Data pipeline  ──────────────>  games_final.csv       (game history)
-    11 seasons                     model_dataset.csv     (training table)
+    3 leagues                      model_dataset.csv     (training table)
+          |                              |
+          |                              |  rebuilt and swapped in
+          |                              |  every morning (Chapter 22)
+          |                              v
+          |                        modellarium-data/snapshots/<date>/
           |
           |  (slow clock, Chapter 5)
           v
@@ -479,7 +530,8 @@ serving reads them. Nothing else crosses between the two.
       v
    Inference service (FastAPI)  ────>  injury-service     (Chapters 7, 8)
       |
-      |  loads at startup: games_final.csv + all 23 model artifacts
+      |  loads at startup: the live snapshot's 6 results tables,
+      |  from the shared folder (Chapter 22), + all 29 model artifacts
       v
    A prediction
 ```
@@ -776,7 +828,7 @@ with "how many home players are out" the **third most important feature
 overall**.
 
 > **Five more experiments were run after these two, and all five were
-> rejected. They are in [Chapter 19](#19-the-accuracy-experiments--six-ideas-tried-six-rejected),
+> rejected. They are in [Chapter 19](#19-the-accuracy-experiments--seven-ideas-tried-seven-rejected),
 > along with the diagnostic that finally made it possible to say which
 > rejections were informative and which were not.**
 
@@ -1011,18 +1063,30 @@ which would delete 61 MB across 39,594 files at the start of every run and
 recreate the exact cold start that self-hosting exists to avoid. Silently, with
 the only visible symptom being a job that suddenly takes hours.
 
-### 6.7 The WNBA has none of this, and that matters from May
+### 6.7 Only the NBA retrains — but every league's data refreshes
 
-Everything in this chapter is the NBA's. The WNBA has **no retraining job, no
-promotion gate and no automatic data refresh at all.** Its results are fixed
-into the deployed image and only move forward when someone runs its pipeline
-by hand and rebuilds.
+Everything in this chapter is the NBA's. The WNBA and the G League have **no
+retraining job and no promotion gate**: each one ships the models that were
+chosen when that league was built, and nothing re-chooses them.
 
-The consequence is concrete rather than theoretical. When the 2027 WNBA
-season starts in May, the app will carry on serving 2026 data and correctly
-reporting a cutoff from September 2026 — accurate, and useless — until a
-person intervenes. The interface is written so as not to promise otherwise:
-it says the season resumes, never that predictions will appear on their own.
+**Their data is a separate question, and the answer changed.** This chapter
+used to say that WNBA results were fixed into the deployed image and only
+moved forward when somebody ran the pipeline by hand. That stopped being true
+in October 2026. Every league's results are now rebuilt and swapped in each
+morning by a different job — chapter 22 — so when the 2027 WNBA season starts
+in May, the app picks the new games up on its own.
+
+The distinction is worth holding on to, because the two are easy to run
+together:
+
+| | NBA | WNBA | G League |
+|---|---|---|---|
+| results refreshed every day | yes | yes | yes |
+| models retrained automatically | yes, weekly | no | no |
+
+**Fresh data with an unchanged model is the normal, intended state.** New
+results flow in daily; the models that read them only change through the gate
+described above, which ends with a person approving the change.
 
 Closing it needs two things that do not exist yet: a WNBA promotion gate that
 re-fits the model architecture rather than scoring the shipped files (the
@@ -1272,7 +1336,7 @@ a Java class.
 > the wrong place. This cost real time; when someone says "check the database",
 > ask which.
 
-#### Table: `team` — 45 rows, 30 NBA and 15 WNBA
+#### Table: `team` — 76 rows: 30 NBA, 15 WNBA, 31 G League
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -1369,7 +1433,7 @@ A separate table rather than extra columns on `prediction`. The WNBA prices
 three markets against the NBA's seven, so sharing one table would mean four
 columns that are always empty for a WNBA row and nothing in the row saying
 which league it belongs to. The `game` table *is* shared, which is safe
-because the two leagues' team ids do not overlap.
+because none of the three leagues' team ids overlap.
 
 #### Table: `player_prop_prediction` — five numbers per player per request
 
@@ -1423,7 +1487,7 @@ Starts everything. Carries two annotations:
 
 | File | What it is |
 |---|---|
-| `Team.java` | 45 rows, real ids, never generated. Carries a league, because eight abbreviations belong to a team in each |
+| `Team.java` | 76 rows, real ids, never generated. Carries a league, because eight abbreviations belong to a team in two different leagues |
 | `Game.java` | One fixture. Auto-generated id |
 | `Prediction.java` | The seven whole-game numbers |
 | `Player.java` | Real NBA player id, created on demand |
@@ -1596,7 +1660,7 @@ watching the Python service's own logs during a click: one `/health` hit, zero
 
 ---
 
-## 12. The backend — the seven endpoints, exact contracts
+## 12. The backend — the eight endpoints, exact contracts
 
 Base address while running locally: `http://localhost:8080`
 
@@ -1706,10 +1770,19 @@ Up to ten players per team.
   "homeTeamName": "New York Knicks",
   "awayTeamId": 1610612755, "awayTeamAbbr": "PHI",
   "awayTeamName": "Philadelphia 76ers",
-  "gameDate": "2026-10-20" }
+  "gameDate": "2026-10-20",
+  "league": "nba" }
 ```
 
-**Same contract as before, different source.** This used to call the NBA
+**`league` was added in October 2026, and it was overdue.** Until then the
+list said nothing about which league a fixture belonged to, because the NBA
+was the only league with fixtures in it. The G League's next season is
+already scheduled, so 240 of its games appeared in the same list with nothing
+to tell them apart. The field is **additive** — every field a client already
+read is unchanged — and the page now refuses to show a fixture it cannot
+label rather than assuming one. 17.24 is what that exposed.
+
+**Otherwise the same contract as before, different source.** This used to call the NBA
 through Python on every request; it now reads the cached table. The response
 was compared field-for-field, old versus new, on 451 fixtures: identical.
 
@@ -1730,7 +1803,13 @@ fixtures in the next fourteen days during the off-season.
 ### 12.4b `POST /api/predictions/wnba` — the three WNBA numbers
 
 Request body is the same shape as the others. The response carries which
-rolling window produced each market, and the moneyline's caveat verbatim.
+rolling window produced each market.
+
+**It used to carry a caveat about the moneyline market too, and that field was
+deliberately removed** — not hidden, removed — once the difference it
+described turned out not to be statistically reliable. Chapter 20 has the
+reasoning, and 17.22 has why leaving an unused field in a response is worse
+than deleting it.
 
 **Response 200:**
 ```json
@@ -1756,6 +1835,43 @@ its season, or in its first games as a franchise, has no complete rolling
 window, and the WNBA's linear models cannot accept a missing value. The
 message names what is missing. See chapter 20.
 
+### 12.4c `POST /api/predictions/gleague` — the three G League numbers
+
+Request body is the same shape again. The response mirrors the WNBA's, with
+one addition — `season`, because a G League season label spans two calendar
+years and the Showcase Cup sits inside it, so saying which season a prediction
+belongs to removes a real ambiguity.
+
+**Response 200:**
+```json
+{ "gameId": 951,
+  "homeTeamAbbreviation": "WES",
+  "awayTeamAbbreviation": "WCB",
+  "gameDate": "2026-03-29",
+  "prediction": {
+    "homeWinProbability": 0.5908580792747549,
+    "homeMargin": 2.927269925841589,
+    "totalPoints": 244.46527901729075,
+    "moneylineWindow": "CARRY10",
+    "spreadWindow": "CARRY10",
+    "totalsWindow": "CARRY10",
+    "season": "2025-26",
+    "dataAsOf": "2026-03-28",
+    "stale": true,
+    "daysBehind": 192,
+    "predictedAt": "2026-10-06T11:50:26.978725796Z" } }
+```
+
+All three windows are `CARRY10` — the same setting on every market, which
+chapter 21 explains was a tie broken on serving cost rather than a winner.
+
+**Response 400** in three cases, each with the reason in the message: the
+fixture cannot be scored because a rolling window is incomplete; the date is
+more than one day past the newest data; or the team ids belong to a different
+league. That last one is worth naming — the three leagues' id ranges do not
+overlap, so sending NBA ids to this endpoint is a mistake the server can
+detect rather than a prediction it should attempt.
+
 ### 12.5 `GET /api/teams?league=NBA` — one league's teams
 
 Defaults to the NBA and returns the same 30 rows it always did. `?league=WNBA`
@@ -1773,12 +1889,21 @@ anything keying on the short code.
 **Response 200:**
 ```json
 { "status": "ok",
-  "modelsLoaded": { "team": 7, "quarter_half": 6, "player_props": 10, "wnba": 3 },
+  "modelsLoaded": { "team": 7, "quarter_half": 6, "player_props": 10,
+                    "wnba": 3, "gleague": 3 },
   "dataAsOf": "2026-04-12",
-  "daysBehind": 174,
+  "daysBehind": 177,
   "stale": true,
-  "wnba": { "dataAsOf": "2026-09-24", "daysBehind": 9, "stale": true } }
+  "wnba":    { "dataAsOf": "2026-09-24", "daysBehind": 12,  "stale": true },
+  "gleague": { "dataAsOf": "2026-03-28", "daysBehind": 192, "stale": true } }
 ```
+
+**There is one freshness block per league, and the website needs every one of
+them.** The three leagues' data ends on three different dates, so a page that
+used the top-level date for a WNBA game would mark it predictable whenever NBA
+data was fresh — and then ask for a prediction the server refuses. A league
+this endpoint says nothing about is treated as having no predictable date at
+all, never as borrowing another league's (14.2).
 
 `modelsLoaded` **used to be a single number** and is now a breakdown per model
 family. That change on the Python side is what broke this endpoint once — see
@@ -1788,6 +1913,12 @@ loaded twice and another not at all.
 
 503 if the Python service is unreachable. Note this endpoint genuinely depends
 on Python, while 12.4 no longer does.
+
+> **One field is deliberately not forwarded.** The Python service's own
+> `/health` also reports **which data snapshot it is serving** (chapter 22) —
+> the authoritative answer to "is the app actually running on today's data".
+> This pass-through does not carry it, because the website has no use for it;
+> ask the Python service directly on port 8000 when that is the question.
 
 ---
 
@@ -1818,7 +1949,7 @@ The two were confirmed to be genuinely independent code paths rather than one
 masquerading as the other, by checking which internal thread each ran on: the
 startup one on `main`, the timed ones on `scheduling-1`.
 
-### The two leagues are synced separately, and that is deliberate
+### Each league is synced separately, and that is deliberate
 
 The NBA and the WNBA are fetched by two separate methods, each in its own
 database transaction, called one after the other.
@@ -1904,11 +2035,11 @@ it gets no tab bar at all. A tab bar with one tab is a control that does
 nothing, and a tab for a market a league does not serve advertises something
 that is not there.
 
-### 14.2 Two leagues, two sets of dates
+### 14.2 Three leagues, three sets of dates
 
 The app only offers a prediction for a game it can actually reach — one day
 past the end of that league's data. **That cutoff is asked for per league**,
-because the two leagues' data ends on different dates.
+because all three leagues' data ends on a different date.
 
 Using the NBA's date for a WNBA game would be wrong in a specific and
 embarrassing way: it would mark WNBA games as predictable whenever NBA data
@@ -1980,7 +2111,7 @@ described anything real, and once checked, it did not. The note stays in the
 model's own manifest, and the server no longer sends it at all. A warning that
 says less than it appears to is its own kind of misleading.
 
-### 14.5 The same page, two leagues' worth of wrong
+### 14.5 The same page, three leagues' worth of wrong
 
 Three parts of this work differed per league, and all three are the kind of
 mistake that renders perfectly and still says something false:
@@ -1992,7 +2123,7 @@ mistake that renders perfectly and still says something false:
   - **The empty-state wording is per league**, because the reason differs.
     See chapter 20: the NBA's explanation is about a warm-up the WNBA does
     not have.
-  - **The two leagues' response shapes disagree** on what the fields are
+  - **The leagues' response shapes disagree** on what the fields are
     called, deliberately and for recorded reasons. That disagreement is
     absorbed in one place at the network boundary, so no component has to
     know about it.
@@ -2079,6 +2210,28 @@ injury    http://localhost:8001
 > **Important:** if the Windows PostgreSQL service is running, it already owns
 > port 5432 and the container's database will not be the one the host can
 > reach. See the warning in 9.2.
+
+#### The results folder has to exist first
+
+The prediction service reads its results from a folder **outside** the project
+(`D:/modellarium-data`), which chapter 22 explains. On a machine that has
+never run this before, that folder is empty or missing and **the service will
+refuse to start rather than guess** — which is deliberate, and is the whole
+point of chapter 22's "no fallback" rule.
+
+Creating it is a one-off:
+
+```
+python ml-training/seed_served_volume.py
+```
+
+That copies the results tables from the repository into a first snapshot and
+points the folder at it. After that the daily refresh keeps it current, and
+this command is never needed again.
+
+If the service does refuse to boot, read its message — there are three
+different ones, for "not configured", "folder not there" and "folder
+incomplete", because those have three different fixes.
 
 ### Option B — by hand
 
@@ -2200,7 +2353,7 @@ slow job hide the others' results.
 | Job | What it proves |
 |---|---|
 | **backend** | The full application starts against a real database, and all tests pass |
-| **frontend** | 115 tests pass and the production build compiles |
+| **frontend** | 148 tests pass and the production build compiles |
 | **inference-service** | The service genuinely boots and reports all models loaded |
 | **docker-build** | Every container image still builds from a clean checkout |
 
@@ -2341,8 +2494,8 @@ The same body works for `/api/predictions/quarter-half` and
 
 | Area | Tests |
 |---|---|
-| Frontend | 115 across 9 files, two of them added for the WNBA: one for its pages and copy, one pinning both leagues' response shapes against a mocked network |
-| Backend | 17 |
+| Frontend | 148 across 10 files. Three are league work: one for the WNBA's pages and copy, one for the G League's, and one pinning every league's response shape against a mocked network |
+| Backend | 22 |
 | Data pipeline | Validation scripts, run manually over the full corpus |
 | Models | Verification harnesses, run manually |
 
@@ -2783,6 +2936,85 @@ shown. Later, when the field was genuinely removed, the assertion moved again:
 it now checks the response has no such property at all. Each version asserts
 the thing that was actually true at the time, and each is placed at the layer
 that can actually observe it.
+
+### 17.24 A default that was not a fallback — it was the only path
+
+The page decided which league a fixture belonged to like this: use the
+fixture's league, and if it has none, assume the NBA.
+
+That reads like a sensible safety net. It was not a safety net. **The server
+sends the league under one name and the page was reading a different one**, so
+the value was *always* missing and the "fallback" ran on **every single
+fixture** — all 962 of them, 240 of which were G League games being quietly
+filed under the NBA.
+
+Two things make this worth its own entry.
+
+**The fix was not removing the default.** It was connecting a field that had
+never been wired up at all. Deleting the default would have left every fixture
+with no league and broken the page outright — the right-looking change, for a
+problem that was one layer further back.
+
+**No test could catch it, by construction.** Every page test supplies its own
+fake fixture list, and those fakes used the *internal* name — so the fakes
+agreed with the page while both disagreed with the server. The one test file
+whose entire job is to pin the server's wire format had no fixture-list
+coverage at all. It does now, including a test that reads the wrong name
+deliberately and asserts it gets nothing, which is exactly the state every
+fixture had been in.
+
+A fake is only as good as the shape you feed it.
+
+### 17.25 The app was rebuilt, deployed, and still showed the old version
+
+The most recent one, and the cleanest example in the document of this
+project's recurring failure shape: **everything reported success and the
+result was wrong.**
+
+After the G League pages were finished, the app was rebuilt and redeployed,
+and the browser showed exactly the same site as before. No error, no blank
+page, nothing in the console.
+
+Checking each layer in turn ruled the obvious things out. The new package was
+built. The running container was serving it. The new code was genuinely inside
+the file being served — searching it found the new wording that did not exist
+before. The server was sending the right data.
+
+**The cause was a missing instruction about caching.** A web page is served
+with headers that tell the browser how long it may reuse its copy. The web
+server config set none at all — so the browser was free to reuse its copy
+without checking, under its own guesswork.
+
+What makes it total rather than partial is the second half. The app is served
+as one small page that *names* the large code file, and the name changes every
+build. The browser had both cached under the same absent policy: the old page,
+naming the old file, with the old file still in the cache beside it. So it
+rendered **the entire previous version of the app, perfectly.** Not a broken
+page — a correct, complete, out-of-date one.
+
+The fix is the standard split, which had simply never been written down here:
+
+| | instruction | why |
+|---|---|---|
+| the code files | cache for a year, never re-check | their names contain a content fingerprint, so a rebuilt file is a *different* name — it can never be a stale copy of this one |
+| the page naming them | re-check every time | it is the only file whose name does not change, so it is the one that must never be reused blindly |
+
+Re-checking is cheap: the server answers "unchanged" in a few bytes when it
+is.
+
+Two lessons worth separating:
+
+**The config had already anticipated a stale page and only handled the
+symptom.** Its own comments discuss a browser holding an old page and asking
+for a code file that no longer exists, and make sure that returns a clean
+"not found" rather than something confusing. What it never did was stop the
+browser holding the old page in the first place. Handling the consequence of a
+state is not the same as preventing it.
+
+**A fix to caching cannot reach a browser that already cached the old
+instructions.** Everyone who loaded the site before the fix needs one forced
+reload. That is unavoidable, and worth saying out loud rather than leaving
+someone to conclude the fix did not work either.
 
 ---
 
@@ -3468,7 +3700,8 @@ no warm-up to wait through. Reusing the NBA's sentence would have put an
 incorrect explanation in front of readers about the exact thing that was
 measured. The WNBA message says the 2026 season is over, that predictions
 resume when the 2027 season begins, that no date is given because the
-schedule is not published, and that its data does not refresh on its own.
+schedule is not published, and that its data is refreshed daily — so
+predictions come back on their own once the season is under way.
 
 **The WNBA game page has no tab bar.** It serves three markets and all three
 fit on one page, so there is nothing to switch between. A tab bar with one tab
@@ -3485,15 +3718,493 @@ which elements exist, but not how anything looks or scrolls.
 in 2026 and their brand colours are marked in the code as unconfirmed rather
 than presented as fact.
 
-**WNBA data does not refresh on its own.** The NBA has a weekly job that
-fetches new results and retrains; the WNBA has none. Its data is fixed into
-the deployed image, so when the 2027 season starts the app will keep serving
-2026 data — correctly reporting an old cutoff — until someone runs the
-pipeline by hand. The interface is written so as not to promise otherwise.
+**The WNBA still has no retraining job**, where the NBA has a weekly one. Its
+models are the ones chosen when it was built, and nothing re-chooses them.
+
+**This section used to say that WNBA data did not refresh on its own, and
+that is no longer true** — it is worth leaving the correction visible rather
+than quietly deleting the sentence. When this chapter was written, the WNBA's
+results were fixed into the deployed image, so the 2027 season would have
+opened with the app still serving 2026 data until a person intervened.
+Chapter 22 removed that: every league's data is now rebuilt and swapped in
+daily. The claim was corrected in the interface copy too, and the test that
+pinned the old sentence was pointed at the new one rather than deleted.
+
+The general lesson is the one this project keeps relearning: a document is
+only true as of its date, and the most dangerous sentence in it is a confident
+one that used to be right.
 
 ---
 
-## 21. Known limitations and what comes next
+## 21. The G League — a third league
+
+In October 2026 the app gained a third league, built the same way as the
+second and for the same reasons. This chapter is the whole of it.
+
+### What the G League is
+
+The NBA G League is the NBA's official development league — the tier directly
+below it. Thirty-one teams, nearly all of them owned by or affiliated with an
+NBA club, and players move between the two constantly: a player on a
+"two-way" contract can be called up by the parent club mid-season and sent
+back down weeks later.
+
+That last detail is not background colour. It turns out to be the single most
+important fact about predicting this league, and it was written down *before*
+anything was measured rather than offered afterwards as an excuse. Hold on to
+it.
+
+### Why a third league at all
+
+The same reason as the second (chapter 20), plus one. The WNBA showed the
+machinery transferred to a **smaller** league. The G League tests whether it
+transfers to a **messier** one — its records are older, dirtier and stranger
+than either league before it, and almost every surprise in this chapter is
+about the data rather than the models.
+
+It also comes from the same place again: the same library serves it under a
+third league code, so no new data source had to be found or licensed.
+
+### The biggest corpus and the hardest problem
+
+| | NBA | WNBA | G League |
+|---|---|---|---|
+| seasons | 11 | 12 | **23** |
+| games | 13,199 | 2,655 | 9,628 |
+| teams now | 30 | 15 | 31 |
+| franchises over time | 30 | 15 | **40** |
+
+Twenty-three seasons — more than twice the NBA's eleven, because the record
+goes back to 2003-04. It stops there not by choice but because the source
+returns nothing earlier, which was checked one season at a time rather than
+assumed.
+
+### There are two competitions inside one season, not one
+
+The G League season opens in November with the **Showcase Cup**, a separate
+tournament, and only moves into the regular season in late December.
+
+The models are trained on regular-season games only, so the Cup had to be
+separated out. Every game carries an id, and one digit inside that id says
+which competition it belongs to. That is the same trick the NBA side already
+used — but **the digit means something different in each league.** The digit
+that marks a Cup game here marks a play-in game in the NBA.
+
+So it was not taken on trust. It was confirmed by arithmetic: 31 teams
+playing 14 games each, divided by two teams per game, is 217 — exactly the
+number of games that came back under that digit. And the dates agree
+underneath: the Cup finishes before the regular season starts, where a
+play-in happens afterwards.
+
+**The Cup is kept, in its own table, and the reason is one column.** No form
+feature reads a Cup result. But "days of rest" does, because a team's last
+game before its regular-season opener is usually a Cup game. Measured on all
+151 such games: with the Cup table every one has a real rest figure, and
+without it not one does — each would silently look like a team returning from
+a seven-month off-season. One game per team per season, wrong, with nothing
+on screen to show it.
+
+### The data was dirtier, and that is itself a finding
+
+One column in the source — the final margin of a game — does not agree with
+the points actually recorded. This was already known on the other two
+leagues. Here it is far worse:
+
+| | games with a wrong margin |
+|---|---|
+| NBA | 1.02% |
+| WNBA | 1.24% |
+| **G League** | **6.79%** |
+| G League, Showcase Cup | **14.6%** |
+
+Three leagues, one source, the same defect at three very different rates.
+That triangulates it: the column cannot be trusted anywhere. The G League
+pipeline therefore recomputes the margin from the points — arithmetic over
+two columns that were already checked, not invented data — and refuses to
+build at all if the recomputed winner disagrees with the recorded win or
+loss.
+
+Five other kinds of broken row had to be handled: rows with no team at all,
+teams whose statistics arrive split across two rows that must be added
+together, invalid win/loss letters, games whose score and result contradict
+each other, and one game where both rows claim to be the home team.
+
+### A tied game that 341 checks missed
+
+The most instructive thing in this chapter, and it is about *where* checks
+belong.
+
+The G League data passes **341 separate validation checks**. Then the next
+stage — the one that computes team ratings — refused to start, over a single
+game: Huntsville 95, North Charleston 95, with no winner recorded on either
+side.
+
+Basketball has no draws. Overtime decides. So that record is incomplete, and
+nothing can recover the winner.
+
+**All 341 checks passed it, and correctly.** The row is perfectly well
+formed: two teams, one date, plausible scores, nothing missing, and it even
+passes the "does the result agree with the score?" check — because there is
+no result there to disagree. It is wrong only against a fact about basketball
+that no row-by-row check encodes.
+
+What caught it was the next stage's own entry requirement: a rating system
+has no way to handle a draw, so it asked, and nothing had asked before.
+**The consumer found what the producer's validation could not** — which is an
+argument for building things on top of a dataset rather than declaring it
+clean and moving on.
+
+The game is now named explicitly as unusable, so a *fifth* tie would stop the
+pipeline rather than be quietly absorbed.
+
+### What it predicts, and how good it is
+
+Three markets, the same three as the WNBA:
+
+| market | what it answers |
+|---|---|
+| moneyline | will the home team win |
+| spread | by how many points |
+| totals | how many points in total |
+
+Measured once, on two seasons held back from every choice made along the way:
+
+| market | improvement over a simple baseline | WNBA, for comparison |
+|---|---|---|
+| moneyline | **+3.3%** | +11.0% |
+| spread | **+8.9%** | +14.6% |
+| totals | **+2.3%** | +3.8% |
+
+All three genuinely beat their baselines, and all three are beaten by the
+WNBA's equivalents on every market.
+
+**That was predicted in advance, which is what makes it a result rather than
+an excuse.** Before any model was trained, the bare rating system was scored
+on each league, and it was clearly weakest here. So the expectation written
+down beforehand was: the G League will be the least predictable league in
+this project, and the reason is roster churn — the team that played last week
+may not be the team playing tonight. The measurement agreed.
+
+The useful consequence is for whoever comes next: **a weak number in this
+league should be read as the league, not as a mistake in the modelling.**
+
+One thing went the *other* way. On the WNBA, the bare rating system scored
+better than the trained moneyline model. Here the trained model wins — by a
+small but real margin, confirmed by re-running the statistics ten times with
+different random draws, because the result was close enough to zero that a
+single draw could have flattered it.
+
+### Every configuration tied, so what shipped is a pick, not a winner
+
+Three separate choices had to be made: how far back to train, how long a
+window of recent form to use, and which kind of model. Eight combinations
+were measured across all three markets.
+
+**They all tied.** Every one landed inside the normal variation between
+measurement rounds; on one market the runner-up was behind by 0.00%. So the
+model files record the seven configurations that tied with the one chosen,
+and say in words that the choice is defensible rather than demonstrated.
+
+Two things follow, and both are written down so nobody reads more into the
+shipped setup than is there:
+
+- **Training on twenty-three seasons was no better than training on eleven.**
+  The longer history was taken because it costs nothing, not because it won.
+- **Counting Showcase Cup games towards a team's form neither helped nor
+  hurt.** That idea was built specifically to be tested, and the test said
+  "no difference" — which is still worth knowing, and could not have been
+  known without building it.
+
+Where two options tied, the tie was broken on **serving cost**: the shipped
+models use only regular-season form, so a live prediction never has to wait
+on Cup results.
+
+Linear models beat the more complex ones at every setting, as on the WNBA.
+
+### Teams keep changing their names, and that forced a real change
+
+| | franchises renamed at least once, under the same id |
+|---|---|
+| NBA | **0 of 30** |
+| WNBA | 3 of 15 |
+| **G League** | **19 of 40** |
+
+Affiliations move, so teams move and rename constantly. One club runs as
+Asheville Altitude, then Tulsa 66ers, then Oklahoma City Blue — the same
+club throughout, with the same underlying id.
+
+Two consequences:
+
+- **Teams are always identified by their numeric id, never by name or short
+  code.** Identifying them by name would split one club into three and
+  corrupt every rating and rolling average that crosses a rename.
+- **The app updates G League team names on startup, and deliberately does not
+  do this for the other two leagues.** A list that only ever inserts would
+  keep a stale name for as long as the row existed, and a stale name on a
+  live fixture is a visible error. The NBA and WNBA do not need it — their
+  names are stable — and not touching them means this change could not
+  affect them.
+
+### No G League team colours were invented
+
+Every other league in the app has team colours. The G League has none, and
+that is a decision rather than an omission: published team colours are facts
+about the world, and writing down 31 sets of them from memory would be making
+them up. This project already marks the WNBA's two newest teams' colours as
+unconfirmed for the same reason.
+
+The cost would have been a blank badge for every G League team, so the badge
+takes the team's short code from the server instead and renders in neutral
+colouring. Adding real colours later is a small edit that needs a source.
+
+### In the interface
+
+The G League has its own pages, its own game page and its own entry in the
+league list. Three parts needed care:
+
+**The season's start date is worked out from the data, not typed in.** The
+plan said "around 19 December". The actual fixture list says **27 December**.
+So the page takes the earliest fixture it has been given and uses that — and
+when it has been given none, it names no date at all rather than guessing. A
+typed-in date would have been wrong on the day it was written.
+
+**The page says the Showcase Cup is not predicted.** The season opens with
+the Cup, so a visitor in December would otherwise see fixtures with no
+predictions beside them and no explanation why.
+
+**It makes no "ten games in" claim.** The NBA's page explains that
+predictions arrive about ten games into a season, which is true of how the
+NBA measures form. The G League's models carry the previous season's form
+forward, so there is no warm-up to wait through, and reusing the NBA's
+sentence would have put a wrong explanation in front of a reader.
+
+### One bug this league exposed in the rest of the app
+
+The fixture list the server sends had **never said which league each fixture
+belonged to**, because until now it never had to: the NBA was the only league
+with fixtures to list. The WNBA's season is over for most of the year, so its
+list is empty and the gap stayed invisible.
+
+The G League's next season is already scheduled, so 240 of its fixtures
+appeared in that list — and the page had no way to tell them apart from NBA
+ones. The server now labels every fixture with its league, and the page
+refuses to show a fixture it cannot label rather than assuming.
+
+Why nothing visibly broke in the meantime is worth knowing, because it is
+luck rather than design: the app also filters each fixture against its own
+league's data cutoff, and no G League fixture happened to fall on a date the
+NBA could predict. A coincidence of the calendar was doing the work a
+guardrail should have been doing. 17.24 has the full account.
+
+### What is missing
+
+**The G League has no retraining job.** Like the WNBA, it ships the models
+chosen when it was built. Its *data* refreshes daily (chapter 22); its models
+do not change on their own.
+
+**No team colours**, as above.
+
+**Nothing was checked in a real browser.** The tests run against a simulated
+page with no layout engine, so they can prove what the page says and which
+elements exist, but not how 31 neutral badges look side by side.
+
+---
+
+## 22. How the data stays current — the daily refresh
+
+This chapter is about the piece that makes the app keep working without
+anyone touching it. It was added in October 2026, and before it the app could
+only ever be correct for about a day at a time.
+
+### The problem, in one paragraph
+
+The models can only price a game **one day past the newest results they
+have**. That is structural, not a bug — chapter 5 explains why.
+
+So the original plan for a new season was: run the data pipeline by hand,
+rebuild the app, deploy it. That produces predictions for exactly **one
+day**. The next morning the newest results are a day old again and the app
+has nothing to offer, so somebody has to do the whole thing again. Every day.
+For an eight-month season.
+
+A prediction app that needs a person every morning is not finished.
+
+### Where the results live now
+
+They used to be **inside the app** — copied into the deployed package when it
+was built. That is why a data update meant a rebuild.
+
+They now live in **a folder outside the app**, and the app is pointed at that
+folder when it starts. Updating the data means writing new files into the
+folder; the app itself never changes.
+
+The folder looks like this:
+
+```
+modellarium-data/
+    current                      <- a tiny file naming one snapshot
+    snapshots/
+        2026-10-05T1116/         <- a complete set of results tables
+        2026-10-06T0702/         <- yesterday's
+        2026-10-07T0701/         <- today's
+```
+
+A **snapshot** is one complete, self-consistent set of results for all three
+leagues. Several are kept, so going back to a previous one is possible.
+**`current`** is a few bytes of text naming which snapshot is live.
+
+### How a day's refresh goes
+
+Every morning, a scheduled job does five things in this order. The order is
+the whole design.
+
+1. **Build.** Download any new results, run the full pipeline, produce a new
+   snapshot in a folder named "in progress" so nothing can mistake a
+   half-written snapshot for a finished one.
+2. **Check.** Run every league's validation over the new snapshot.
+3. **Swap.** Rewrite `current` to name the new snapshot, and restart the
+   prediction service so it picks it up.
+4. **Verify.** Ask the service which snapshot it is actually serving.
+5. **Roll back if that answer is wrong.** Put `current` back to the previous
+   snapshot and restart again.
+
+**Nothing is swapped until it has been built and checked.** A failed build or
+a failed check means the day simply ends with yesterday's snapshot still
+serving — which is a worse answer than fresh data, and a far better one than
+broken data.
+
+### The swap is one tiny file, and that is the trick
+
+Replacing 80 MB of tables while something is reading them is genuinely hard
+to do safely. So nothing does that.
+
+The new snapshot is built *alongside* the old one under its own name. The
+only thing that changes at the moment of the swap is `current` — a few bytes
+naming a folder. The service reads that name once, when it starts, after the
+write has already happened.
+
+**Rolling back is the same tiny write in reverse**, which is what makes
+"a bad day cannot take the app down" cheap enough to actually test. And it
+was tested: the job was deliberately pointed at a snapshot that cannot be
+loaded, and it went red, put the pointer back and confirmed the previous
+snapshot was serving again.
+
+### Three outcomes, two of which are good
+
+| outcome | what happened | is this a problem? |
+|---|---|---|
+| **advanced** | new games found, snapshot swapped | no — this is the normal good day |
+| **nothing new** | no new games since yesterday | **no** — correct in the off-season |
+| **failed** | a step or a check failed; nothing swapped | yes |
+
+The middle one matters. Out of season — which is most of the year for at
+least one league — "no new games" is the right answer, not a failure. The job
+reports per league, so a day where the NBA advances and the other two are
+quiet reads correctly.
+
+### It refuses to start rather than guessing
+
+If the folder is missing, or is incomplete, the prediction service **will not
+start**. It does not fall back to a copy of the data inside itself.
+
+That looks unhelpful and is deliberate. A fallback would mean the service
+could be serving either of two different sets of results with nothing
+anywhere saying which. This project has already paid for that exact shape of
+problem once, with two databases on the same port and no way to tell which
+one you were looking at (chapter 9 has the warning). One of those is enough.
+
+So instead there are three different refusals, because "the folder is not
+configured", "the folder is not there" and "the folder is half there" have
+three different fixes.
+
+For the same reason, the service reports **which snapshot it is serving** when
+asked about its health. Otherwise "the refresh ran" and "the app picked it up"
+are two separate facts with nothing connecting them.
+
+### Checking the shape of a file is not the same as checking it works
+
+Each league's validation checks its own tables: right columns, sensible
+values, no missing games. None of that can answer the question that actually
+decides whether a snapshot is usable: **can a live prediction actually be
+built from it?**
+
+So there is a separate check that tries exactly that, for all three leagues,
+before anything is swapped. It was demonstrated on a snapshot that was
+structurally complete — every file present, the right size — with one table's
+contents replaced by four words of nonsense. The file-level check saw nothing
+wrong. The build-a-prediction check rejected it immediately.
+
+That check deliberately loads **no models and scores nothing**. A snapshot
+cannot change which model is answering, so the only new risk it carries is
+that features cannot be built from it.
+
+### Only the seasons still being played get re-downloaded
+
+The first scheduled run took 21 minutes and failed. Both halves of that were
+informative.
+
+It was re-downloading **all 51 seasons across the three leagues, every
+morning** — two decades of finished basketball that cannot change. A season
+that is over is now reused from disk, and only the current season and the one
+before it are fetched again. Late corrections do happen, which is why it is
+two and not one.
+
+| | before | after |
+|---|---|---|
+| season downloads per run | 51 | **4** |
+| G League download time | 481 seconds | **5 seconds** |
+
+Verified the honest way, rather than by trusting it: all 42 completed seasons
+were confirmed byte-for-byte identical to what the live snapshot already
+held, and then each league's current season was deliberately rewound by a day
+to prove the refresh really does pick new games back up.
+
+There is also a manual mode that re-downloads everything and **reports**
+differences without swapping anything — so "has the historical data changed?"
+can be asked without risking the live app on the answer.
+
+### Two things that went wrong, and both were worth it
+
+**The failure was not what it looked like.** The job failed a validation
+check on a 2005 season, which looked like the source having changed its
+historical data. It had not. Downloading the same season twice gave
+byte-identical results — but *differently ordered* from the copy on disk, and
+one cleaning step was accidentally sensitive to that order. One game in
+twenty-three seasons had two rows that both looked like the "main" row for a
+team, and which one got picked depended on which arrived first. It came out
+one way 104 times in 200 shuffles.
+
+The fix was to pick the main row by something meaningful — the one with the
+most minutes played, because that is what a main row *is* — rather than by
+whichever came first. The value it now produces is the one already in the
+live data, so nothing served changed.
+
+**Two refreshes ran at once.** During testing, a stray process meant two runs
+produced snapshots 0.75 seconds apart and each swapped the pointer to its
+own. The first then asked the service which snapshot it was serving, got an
+answer it did not recognise, and rolled back — **behaving correctly in a
+situation nobody had designed for.** The real problem was that two runs could
+overlap at all, which is now prevented in two places: the scheduler queues a
+second run rather than starting it, and the folder itself carries a lock for
+runs started by hand, which is how it actually happened.
+
+### What this does not do
+
+**It does not change any model.** Data advances every morning; a model
+changes only through the weekly gate in chapter 6, which ends with a person
+approving it. Keeping the two separate means **a data refresh can never
+quietly change which model is answering** — and that asymmetry is the point,
+not an unfinished half of the job.
+
+**The results tables still in the repository are no longer what the app
+serves.** They stay there for two narrow purposes: filling the folder the
+first time, and giving the automated tests something to boot against. Opening
+one of those files and reading its last date tells you nothing about what is
+live. Asking the running service about its health does.
+
+---
+
+## 23. Known limitations and what comes next
 
 These are understood and accepted, not oversights.
 
@@ -3528,9 +4239,16 @@ These are understood and accepted, not oversights.
    second reader nobody had listed, and every prediction response still carries
    it (17.19). The real fix still waits on the pipeline rerun.
 
-7. **The game history is baked into the container image**, so re-running the
-   pipeline means rebuilding. Fine while the data is a static artifact; a
-   mounted volume is the real answer once the pipeline runs on a schedule.
+7. ~~**The game history is baked into the container image.**~~ **Resolved in
+   October 2026 — and the mounted volume predicted here is exactly what it
+   got.** All six served tables, across all three leagues, now arrive on a
+   shared folder the service reads at startup, and the image carries no
+   results table at all. Chapter 22 is the whole of it.
+
+   **The models are still baked in, and that is deliberate rather than the
+   same oversight left half-done.** Data changes every day; a model changes
+   only when a person approves it. Keeping them apart means a data refresh
+   can never quietly change which model is answering.
 
 8. **Three games are permanently missing** from the quarter/half data — 0.02%
    of the corpus, accepted rather than worked around.
@@ -3583,11 +4301,19 @@ These are understood and accepted, not oversights.
     the Docker one. A backend started on the host reaches the Windows one. Not
     a code problem, but it has cost real debugging time.
 
-17. **The WNBA has no automatic data refresh**, so its predictions in May 2027
-    depend on someone remembering to run its pipeline. The NBA's weekly job
-    has no WNBA counterpart. See 6.7 — this is the most consequential item on
-    this list, because the failure is silent: the app keeps answering, with
-    last season's data, and says so correctly.
+17. ~~**The WNBA has no automatic data refresh.**~~ **Resolved in October
+    2026.** This was previously called the most consequential item on the
+    list, because the failure was silent — the app would keep answering with
+    last season's data and keep reporting that correctly. Every league's data
+    is now rebuilt and swapped in daily (chapter 22), so the 2027 season will
+    be picked up without anyone remembering.
+
+    **What remains is narrower and is not silent: neither the WNBA nor the G
+    League has a retraining job.** Each ships the models chosen when it was
+    built. Fresh data with an unchanged model is the intended state, not a
+    degradation — but a season that changed how the league plays would not be
+    reflected in the models until someone re-ran the selection. See 6.7 for
+    the distinction, which is easy to run together.
 
 18. **Two WNBA teams' colours are provisional.** Portland and Toronto joined
     in 2026 and their brand colours are marked in the code as unconfirmed
@@ -3620,7 +4346,7 @@ These are understood and accepted, not oversights.
 
 ---
 
-## 22. Quick reference
+## 24. Quick reference
 
 ### Start everything
 
@@ -3657,18 +4383,20 @@ POST /api/predictions                  the 7 whole-game numbers
 POST /api/predictions/quarter-half     the 6 Q1 / first-half numbers
 POST /api/predictions/player-props     5 numbers per player, both teams
 POST /api/predictions/wnba             the 3 WNBA numbers
+POST /api/predictions/gleague          the 3 G League numbers
 ```
 
 ### Tables
 
 ```
-team                      45 rows (30 NBA, 15 WNBA), seeded per league
-game                      cached fixtures + anything predicted, both leagues
-prediction                7 whole-game numbers per request
+team                      76 rows (30 NBA, 15 WNBA, 31 G League), per league
+game                      cached fixtures + anything predicted, all 3 leagues
+prediction                7 whole-game numbers per request   (NBA)
 player                    created on demand
-quarter_half_prediction   6 numbers per request
-player_prop_prediction    5 numbers per player per request
+quarter_half_prediction   6 numbers per request               (NBA)
+player_prop_prediction    5 numbers per player per request    (NBA)
 wnba_prediction           3 numbers per request
+gleague_prediction        3 numbers per request
 ```
 
 ### Useful database checks
@@ -3716,7 +4444,8 @@ Get-NetTCPConnection -LocalPort 8080 -State Listen |
 
 | File | Why |
 |---|---|
-| `data-pipeline/data/processed/games_final.csv` | The game history the live service reads |
+| `modellarium-data/current` | Names the snapshot the live service is serving (chapter 22). The copies of these tables in the repository are for seeding and tests, **not** what is served |
+| `data-pipeline/data/processed/games_final.csv` | The NBA game history the pipeline produces, and the model's single most important input |
 | `ml-training/common.py` | The feature list — the contract between training and serving |
 | `ml-training/live_features.py` | Rebuilds features for an unplayed game |
 | `inference-service/app.py` | The service that answers predictions |
