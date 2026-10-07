@@ -59,6 +59,51 @@ REQUIRED_FILES = [
 POINTER_FILE = "current"
 SNAPSHOTS_DIR = "snapshots"
 
+# Which league each served table belongs to, so /health can report them grouped
+# the way every other per-league field already is.
+TABLE_LEAGUE = {
+    "processed/games_final.csv": "nba",
+    "processed/player_boxscores_with_rolling.csv": "nba",
+    "processed/quarter_half_raw.csv": "nba",
+    "wnba/processed/wnba_games_final.csv": "wnba",
+    "gleague/processed/gleague_games_final.csv": "gleague",
+    "gleague/processed/gleague_showcase_games.csv": "gleague",
+}
+
+HASH_CHUNK_BYTES = 1 << 20
+
+
+def table_hashes(root: Path = None) -> dict:
+    """sha256 per served table, per league, from the BYTES ON DISK.
+
+    DELIBERATELY NOT READ FROM SNAPSHOT.json OR ANY MANIFEST THE REFRESH WROTE.
+    A snapshot mutated in place would then report the hash of what it used to
+    be, which is the exact failure this exists to show - the same reasoning that
+    made the directory NAME the snapshot's identity rather than the stamp inside
+    it. Hashing what was actually read is the only version of this check that
+    cannot be fooled by the thing it is checking.
+
+    A name alone was never enough: the snapshot id is a timestamp, and a
+    timestamp says the identity changed, not whether the contents are right.
+    """
+    import hashlib
+
+    root = root or data_root()
+    hashes = {}
+    for relative in REQUIRED_FILES:
+        key = relative.as_posix()
+        league = TABLE_LEAGUE.get(key, "other")
+        digest = hashlib.sha256()
+        try:
+            with open(root / relative, "rb") as handle:
+                for block in iter(lambda: handle.read(HASH_CHUNK_BYTES), b""):
+                    digest.update(block)
+            value = digest.hexdigest()
+        except OSError as error:
+            value = f"unreadable: {type(error).__name__}"
+        hashes.setdefault(league, {})[relative.name] = value
+    return hashes
+
 
 def resolve_root(configured: Path) -> Path:
     """Follow the `current` pointer if there is one, else take the directory.

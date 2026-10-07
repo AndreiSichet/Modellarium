@@ -506,6 +506,42 @@ def _drift_report(args, volume, leagues, served_root, identifier,
     return EXIT_OK
 
 
+def availability_lines() -> list:
+    """One line per league on whether availability is actually working.
+
+    NEVER RAISES, AND NEVER FAILS THE REFRESH. An injury-service outage is no
+    reason to withhold fresh game data - the two are independent, and treating
+    them as one would mean a sidecar restart costing a day of predictions. But
+    it must be impossible to miss: before this, an unreachable sidecar meant the
+    NBA was served on 34 of 38 features with every signal saying healthy.
+    """
+    try:
+        sys.path.insert(0, str(HERE))
+        import injury_availability as availability
+
+        state = availability.availability_state()
+        nba = state.get("state")
+        detail = (state.get("detail") or "").strip()
+        loud = nba in ("unreachable", "source_failed")
+
+        lines = []
+        if loud:
+            lines.append(f"  nba      AVAILABILITY {str(nba).upper()}")
+        else:
+            lines.append(f"  nba      availability {nba}")
+        if detail:
+            lines.append(f"           {detail[:150]}")
+        if loud:
+            lines.append("           The four availability features resolve to NaN, so the")
+            lines.append("           NBA is served on 34 of 38 features. Game data is")
+            lines.append("           unaffected; this does NOT fail the refresh.")
+        lines.append("  wnba     availability not_applicable (no such features)")
+        lines.append("  gleague  availability not_applicable (no such features)")
+        return lines
+    except Exception as error:  # noqa: BLE001
+        return [f"  availability state could not be determined: "
+                f"{type(error).__name__}: {error}"]
+
 def _run(args, volume, leagues, record_outcome) -> int:
     section("BEFORE")
     previous = read_pointer(volume)
@@ -549,6 +585,10 @@ def _run(args, volume, leagues, record_outcome) -> int:
     for league in after:
         mark = "ADVANCED" if league in advanced else "unchanged"
         print(f"  {league:<9}{before[league]} -> {after[league]}   {mark}")
+
+    print()
+    for line in availability_lines():
+        print(line)
 
     if not advanced and args.force_swap:
         section("FORCED SWAP")

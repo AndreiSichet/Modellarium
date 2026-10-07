@@ -5,6 +5,7 @@ from datetime import date, datetime
 from pathlib import Path
 import json
 import sys
+import time
 
 import joblib
 import pandas as pd
@@ -39,6 +40,7 @@ from live_player_features import (  # noqa: E402
 from served_data import (  # noqa: E402
     require_data_root,
     snapshot_metadata,
+    table_hashes,
 )
 from live_gleague_features import (  # noqa: E402
     NotScoreable as GleagueNotScoreable,
@@ -441,6 +443,15 @@ async def lifespan(_app: FastAPI):
     state.data_root = require_data_root()
     state.snapshot = snapshot_metadata(state.data_root)
 
+    # HASHED AT STARTUP, FROM THE FILES THIS PROCESS IS ABOUT TO READ. The
+    # snapshot id is a timestamp, so it says the identity changed and nothing
+    # about whether the contents are what they should be - a snapshot mutated in
+    # place keeps its name. Measured: all six tables hash in 0.09s, so this is
+    # not worth deferring or caching further.
+    hash_started = time.monotonic()
+    state.table_hashes = table_hashes(state.data_root)
+    state.table_hash_seconds = round(time.monotonic() - hash_started, 3)
+
     state.games_final_df = load_games_final()
     state.data_as_of = pd.Timestamp(state.games_final_df["GAME_DATE"].max())
     state.known_team_ids = set(state.games_final_df["TEAM_ID"].unique())
@@ -510,6 +521,43 @@ def freshness() -> tuple:
     days_behind = (pd.Timestamp(datetime.now().date()) - state.data_as_of).days
     return days_behind, days_behind > STALE_AFTER_DAYS
 
+def availability_block() -> dict:
+    """Per-league availability state for /health. Cannot fail, cannot be slow.
+
+    ADDITIVE. Every existing field of /health is untouched, because this
+    endpoint already took the browse view down once by retyping models_loaded
+    (CLAUDE.md section 21) and the lesson was to add rather than change.
+
+    WRAPPED ENTIRELY, including the import: before 2026-10-07 the four
+    availability features resolved to NaN whenever anything was wrong and
+    /health said `ok` regardless, so the NBA could be served on 34 of 38
+    features with nothing saying so. Reporting that must not introduce the
+    failure it exists to describe - a health endpoint that 500s because it
+    could not determine a sub-state is worse than the silence it replaces.
+    """
+    wnba_gleague = {
+        "state": "not_applicable",
+        "detail": "no availability features in this league's feature set",
+    }
+    try:
+        sys.path.insert(0, str(ML_TRAINING_DIR))
+        import injury_availability as availability
+
+        from live_features import availability_is_required
+
+        if not availability_is_required():
+            nba = {"state": "not_applicable",
+                   "detail": "FEATURE_COLUMNS carries no availability features"}
+        else:
+            nba = availability.availability_state(
+                for_date=(state.data_as_of + pd.DateOffset(days=MAX_DAYS_AHEAD))
+                .date().isoformat())
+    except Exception as error:  # noqa: BLE001
+        nba = {"state": "unknown",
+               "detail": f"could not determine: {type(error).__name__}: {error}"}
+
+    return {"nba": nba, "wnba": wnba_gleague, "gleague": wnba_gleague}
+
 @app.get("/health")
 def health():
     """Liveness plus freshness, so monitoring can alert on stale data."""
@@ -543,6 +591,10 @@ def health():
             "days_behind": gleague_days_behind,
             "stale": gleague_stale,
         },
+        # WHETHER AVAILABILITY IS ACTUALLY WORKING. Four of the NBA's 38
+        # features come from the live injury report, and every way of not
+        # having one used to resolve to NaN silently.
+        "availability": availability_block(),
         # WHICH SNAPSHOT IS BEING SERVED. Without this, "the refresh ran" and
         # "the service picked it up" are two separate facts with one
         # observation between them - and the daily job's rollback path has
@@ -557,6 +609,11 @@ def health():
             # copied by hand. Reported rather than hidden: a silent
             # disagreement here is the hazard this whole block exists for.
             "stamp_disagrees": state.snapshot.get("stamp_disagrees"),
+            # THE CONTENTS, NOT JUST THE NAME. A gate comparing two captures
+            # can only call a body difference attributable if the data under it
+            # is the same, and the id alone cannot establish that.
+            "table_sha256": state.table_hashes,
+            "table_hash_seconds": state.table_hash_seconds,
         },
     }
 

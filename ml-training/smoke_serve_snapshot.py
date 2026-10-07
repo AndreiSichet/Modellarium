@@ -71,6 +71,24 @@ def main() -> int:
             home, away, newest + pd.Timedelta(days=1), games)
         print(f"  nba      {features.shape[1]} features computed for "
               f"{(newest + pd.Timedelta(days=1)).date()}")
+        # THE PASS CONDITION IS UNCHANGED. This records the availability state
+        # rather than gating on it: the four availability features are NaN out
+        # of season by design, so failing here would make the smoke test red
+        # every day from April to October for correct behaviour. What was wrong
+        # before was that it was SILENT - an unreachable sidecar and a quiet
+        # offseason produced identical output.
+        try:
+            import injury_availability as availability
+
+            observed = availability.availability_state()
+            print(f"           availability {observed.get('state')}"
+                  f"  ({observed.get('source')})")
+            if observed.get("state") in ("unreachable", "source_failed"):
+                print("           NOT the offseason case - this snapshot would be "
+                      "served on 34 of 38 features")
+        except Exception as error:  # noqa: BLE001
+            print(f"           availability state unknown: "
+                  f"{type(error).__name__}: {error}")
         if features.isna().all(axis=None):
             failures.append("nba: every feature is NaN")
     except Exception as error:  # noqa: BLE001

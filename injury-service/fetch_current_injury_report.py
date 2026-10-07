@@ -25,6 +25,21 @@ REASON_COLUMN = "Reason"
 class NoReportAvailable(Exception):
     """No injury report exists in the searched window."""
 
+class SourceUnavailable(NoReportAvailable):
+    """The NBA's server could not be reached at all.
+
+    A SUBCLASS DELIBERATELY. Every caller that catches NoReportAvailable keeps
+    degrading exactly as before - availability resolves to NaN either way, and
+    this must not turn an upstream outage into a 500 on /predict. What the
+    subclass buys is that the two can be TOLD APART by anything that cares,
+    which before this nothing could: check_reportvalid() returns False for a
+    404, a 403 and a dead network alike, so the walk-back loop fell through to
+    NoReportAvailable and reported "Expected between seasons - the NBA
+    publishes these only around game days" for what was a connectivity
+    failure. Measured 2026-10-07: a blackholed host produced a response
+    byte-identically shaped to the real offseason one.
+    """
+
 @dataclass(frozen=True)
 class InjuryReport:
     """One parsed report."""
@@ -44,6 +59,49 @@ def normalize_player_name(name: str) -> str:
     surname, forename = name.split(",", 1)
     return f"{forename.strip()} {surname.strip()}".strip()
 
+SOURCE_PROBE_TIMEOUT_SECONDS = 20
+
+def probe_source(timestamp: datetime) -> tuple:
+    """(reachable, detail) for one candidate URL - did the HOST answer at all.
+
+    The library cannot answer this. check_reportvalid() catches
+    URLRetrievalError AND bare Exception and returns False for both, so "no
+    report at this minute" and "the network is down" arrive identically. One
+    level down, validate_injrepurl() DOES raise a typed URLRetrievalError
+    carrying the original requests exception on .reason, which is the
+    distinction this reads.
+
+    The URL still comes from the library (injury.gen_url), so §15's reason for
+    using it at all - it owns the URL format and stays correct when that format
+    changes - is preserved. Only the classification is ours.
+
+    Measured 2026-10-07: a missing report gives HTTPError 403 (the status §15
+    recorded), a blackholed host gives ConnectionError with no response.
+    """
+    try:
+        from nbainjuries import _constants, _parser, injury
+        from nbainjuries._exceptions import URLRetrievalError
+    except Exception as error:  # noqa: BLE001
+        # A library reshuffle must not break fetching - it only costs the
+        # classification, so say so rather than guessing which state it is.
+        return True, f"cannot classify ({type(error).__name__})"
+
+    try:
+        _parser.validate_injrepurl(
+            injury.gen_url(timestamp),
+            headers=_constants.requestheaders,
+            timeout=SOURCE_PROBE_TIMEOUT_SECONDS,
+        )
+        return True, "report present"
+    except URLRetrievalError as error:
+        cause = getattr(error, "reason", None)
+        status = getattr(getattr(cause, "response", None), "status_code", None)
+        if status is not None:
+            return True, f"host answered {status}"
+        return False, f"{type(cause).__name__}: {cause}"
+    except Exception as error:  # noqa: BLE001
+        return True, f"cannot classify ({type(error).__name__})"
+
 def find_latest_report(as_of: datetime = None, max_steps: int = MAX_STEPS) -> datetime:
     """Newest report at or before `as_of`, searching backward."""
     from nbainjuries import injury
@@ -56,13 +114,25 @@ def find_latest_report(as_of: datetime = None, max_steps: int = MAX_STEPS) -> da
         minute=(anchor.minute // STEP_MINUTES) * STEP_MINUTES, second=0, microsecond=0
     )
 
+    # Classify ONCE, before the walk-back. If the host cannot be reached, no
+    # earlier timestamp will fix that, so 48 probes would be 25s of futile
+    # waiting ending in the wrong explanation.
+    reachable, detail = probe_source(anchor)
+    if not reachable:
+        raise SourceUnavailable(
+            f"The NBA's report server could not be reached ({detail}). This is "
+            f"NOT the offseason case - the host did not answer at all, so "
+            f"whether a report exists for "
+            f"{anchor:%Y-%m-%d %I:%M %p} ET is unknown rather than no."
+        )
+
     for step in range(max_steps):
         candidate = anchor - timedelta(minutes=STEP_MINUTES * step)
-        try:
-            if injury.check_reportvalid(candidate):
-                return candidate
-        except Exception:
-            pass
+        # check_reportvalid swallows everything and returns False, so the bare
+        # except that used to sit here was unreachable. probe_source above is
+        # what tells a dead network from a missing report.
+        if injury.check_reportvalid(candidate):
+            return candidate
         time.sleep(DELAY_BETWEEN_PROBES_SECONDS)
 
     raise NoReportAvailable(
