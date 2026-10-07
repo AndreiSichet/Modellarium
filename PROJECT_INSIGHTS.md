@@ -1195,6 +1195,36 @@ derive columns *before* filtering rather than after. It failed only when
 nothing was scheduled — which is to say, only in the off-season, which is
 exactly the current state.
 
+### 7.7 Two more questions /health can answer
+
+Until October 2026 the health check could tell you the service was up, which
+models it held, and how old its data was. It could not tell you two things that
+turned out to matter.
+
+**Which tables, exactly.** The health check already named the snapshot it was
+serving — but a snapshot name is just the name of a folder. If someone edited a
+file inside that folder, the name would not change. So the service now takes a
+**fingerprint** of each of the six results tables as it reads them at startup,
+and reports all six. A fingerprint is a short string computed from the file's
+contents: change one number anywhere in an 80-megabyte file and the fingerprint
+changes completely.
+
+The fingerprints are taken from the files the service actually read, never
+copied from a note left beside them. That distinction is the whole point. If a
+folder had been tampered with, a note inside it would describe what it used to
+be — so trusting the note would hide exactly the problem the fingerprint exists
+to reveal. Taking all six costs under a tenth of a second.
+
+**Whether injury data is actually working.** See 8.6. The health check now
+carries one of a small set of words per league saying what state the injury
+path is in, with no league ever having to be guessed at: the two leagues whose
+models do not use injury data say so explicitly rather than being silent.
+
+This answer must be fast, because a health check that takes four seconds is a
+health check people stop trusting. So it never fetches anything — it asks the
+sidecar for what the sidecar already knows, with a hard time limit. If the
+sidecar does not answer inside that limit, *that is the answer*: unreachable.
+
 ---
 
 ## 8. The injury sidecar
@@ -1277,6 +1307,66 @@ is an ordinary state of the world rather than a failure of the service.
 The inference service treats an unknown roster as a *supported* state: the
 prediction still completes, with the four availability features blank and the
 other 34 intact.
+
+### 8.6 "No report" and "the network is down" used to look identical
+
+This is the sharpest thing in the chapter, and it was found by asking a question
+nobody had asked: *can this service tell the difference between the NBA
+publishing nothing and the NBA's server being unreachable?*
+
+It could not. Both produced the same successful response, carrying the same
+sentence — *"Expected between seasons — the NBA publishes these only around game
+days."* On a network outage that sentence is not merely unhelpful, it is
+**wrong**: it asserts a reason nobody had checked.
+
+**Why it was not a one-line fix.** The obvious culprit was our own code, which
+ignored errors while hunting backwards through the day for a report. But the
+library underneath ignores them too — asked whether a report exists, it answers
+"no" for a missing report, a refused connection and a broken name alike. Our
+code was not discarding the distinction; the distinction never arrived.
+
+One level further down, the library does raise a proper error carrying the
+original cause. So the service now makes **one** classifying request before the
+hunt begins, and reads that cause:
+
+| what came back | what it means |
+|---|---|
+| the server answered "forbidden" | no report at this time — keep hunting backwards |
+| nothing answered at all | the server is unreachable — stop |
+
+Stopping is not just tidier. Hunting backwards through 48 candidate times cannot
+help when nothing is answering, so the outage case went from **25 seconds of
+pointless waiting to instant**.
+
+### 8.7 Four states, plus one about the observer
+
+Everything that was not a usable report used to arrive as a single outcome, and
+the features went blank. Four different situations, one indistinguishable
+result. They are now named:
+
+| state | meaning |
+|---|---|
+| `used` | a report was fetched and applied |
+| `none_published` | the NBA has published nothing for this date |
+| `source_failed` | the NBA's server could not be reached |
+| `unreachable` | *our own* sidecar could not be reached |
+| `not_applicable` | this league's models do not use injury data at all |
+
+`not_applicable` earns its place by making an absence explicit. The WNBA and G
+League have no injury features, and saying so is better than a blank that a
+reader has to interpret.
+
+There is also a fifth word, **`unknown`**, and it is deliberately not one of the
+states above, because it describes *the observer rather than the source*. It
+means the sidecar has started and nothing has asked it for a report yet. Folding
+it into `none_published` would be the same mistake all over again:
+`none_published` asserts the NBA published nothing, and on a freshly started
+sidecar nobody has looked.
+
+**None of this changes a prediction.** A prediction with unknown availability
+still completes on the other 34 features, exactly as before. What changed is
+that the reason is now reported — in the health check, in the daily refresh's
+summary, and in the smoke test — instead of being invisible.
 
 ---
 
@@ -2523,6 +2613,71 @@ which is the only reason the second hidden performance problem was found.
 **The simulated-cutoff harness.** Proves the retraining pipeline works using
 history in place of the future, with nothing mocked.
 
+### 16.7 The regression gate — the instrument that checks nothing moved
+
+This is the project's main safety net for changes that are *not* supposed to
+change anything, and it had not been described here before.
+
+**What it does.** It asks the running system the same questions twice — once
+before a change and once after — and compares the answers exactly. Same
+fixtures, same dates, every number compared digit for digit. If a prediction
+moves when it should not have, the gate says which field moved and by how much.
+
+**What it always was, and never said.** It is a *paired* instrument: capture,
+make the change, check again, minutes apart. But its saved files sat on disk for
+weeks, which made it look like a permanent standard the system is measured
+against. Every time it went red for the wrong reason, that mismatch was the
+cause — a counter that ticks up at midnight, a fixture list that slides forward
+a day, and, had it not been rewritten, the predictions themselves the moment the
+new season started.
+
+**Why the new season would have broken it.** The gate asked about one fixed
+fixture on one fixed date. That looks like it freezes the answer and it does
+not, because four of the NBA's thirty-eight inputs come from *today's* injury
+report rather than from the game being asked about. The day reports resume, the
+answer to a question about an April game changes — with no change to any code,
+any model, or any game ever played.
+
+**So a saved capture now records the conditions it was taken under**: each
+league's data cutoff, which snapshot was being served and the fingerprints of
+its tables, which models were in place, what state injury data was in, and which
+report it saw. And the verdict gained a fourth possibility:
+
+| verdict | meaning |
+|---|---|
+| **pass** | conditions identical, every answer identical |
+| **regressed** | conditions identical, answers differ — a real problem |
+| **error** | the gate itself could not run |
+| **cannot compare** | conditions differ, so a difference proves nothing |
+
+That fourth one is the point. It is the honest answer when the data moved
+underneath, and the gate had no way to say it before — it could only call a
+legitimate change a regression. It is decided **per league**, so a new NBA
+injury report cannot hide a genuine WNBA problem in the same run.
+
+**Fingerprints and names together say more than either alone.** If the snapshot
+name is unchanged but a table's fingerprint is not, somebody edited a served
+file in place — that is a real problem and the gate calls it one. If the name
+changed but the contents did not, that is harmless and the gate says so and
+carries on.
+
+**Other changes worth knowing.** Dates are now worked out from each league's own
+cutoff instead of written down, so they cannot go stale. There are two fixtures
+per league over four different teams, because one was demonstrably blind: an
+earlier data correction touched 135 games and not one of them fell inside the
+single fixture's window. The G League was added, having been checked only by
+hand until then. And run with no arguments, the gate now asks twice in a row and
+compares those — so it can always reach a clean pass, and never depends on a
+file that aged.
+
+**Seven tests, each made to actually happen**, each with a control run with
+nothing wrong to prove the red came from the planted fault rather than the test
+itself. A swapped model file produces a regression naming the exact fields. An
+edited table produces a regression. A season advancing produces "cannot
+compare" — which is the new season, rehearsed in advance. An old saved capture
+from before any of this says so plainly instead of reporting a wall of false
+differences.
+
 ---
 
 ## 17. Problems found and fixed
@@ -3022,6 +3177,50 @@ state is not the same as preventing it.
 instructions.** Everyone who loaded the site before the fix needs one forced
 reload. That is unavoidable, and worth saying out loud rather than leaving
 someone to conclude the fix did not work either.
+
+### 17.26 Injury data had been dead for a month and everything said healthy
+
+The most consequential problem in this document, and it was found while proving
+something else.
+
+Earlier in 2026 the project moved all six results tables out of the application
+package and onto a shared folder, so data could be refreshed daily without
+rebuilding anything. One file was missed. The code that matches injured players
+against their playing history kept looking inside the package, where the history
+no longer was.
+
+So it failed, every time. And because an unavailable roster is a *supported*
+state by design, the failure was swallowed exactly like a quiet offseason: the
+prediction completed on the other 34 inputs, the service reported healthy, and
+nothing anywhere said the injury path was broken rather than idle.
+
+**Its second input was worse off.** To turn team names in the report into team
+identifiers, it read eleven raw season files — files that are excluded from the
+package entirely and had never been there at all.
+
+**Why this mattered more than it looks.** The whole point of the injury work is
+a measured 5.8% improvement in margin predictions. That improvement was due to
+arrive when the season started and reports resumed. It would not have. The
+features would have stayed blank, silently, and the only symptom would have been
+an improvement that never showed up — months later, with nothing pointing at the
+cause.
+
+**Measured both ways rather than argued.** With a real report in hand and the
+old paths, all seven predictions were unchanged. After the fix, all seven moved
+— the margin by 2.3 points, which is the size you would expect from a feature
+worth 5.8%.
+
+Both inputs now resolve through the same shared-folder lookup every other table
+already used. The team names come from a table that is already there and already
+mounted, and it produces an identical list of all 30 teams — checked, not
+assumed.
+
+**The lesson is the one this chapter keeps relearning.** A check that cannot
+tell *unavailable* from *fine* will report fine. The health check said ok, the
+prediction returned normally, and the daily smoke test's deliberately gentle
+"not everything is blank" passed on the other 34 inputs. Three signals, all
+green, all technically correct, and none of them asking the question that
+mattered.
 
 ---
 
@@ -4120,6 +4319,32 @@ least one league — "no new games" is the right answer, not a failure. The job
 reports per league, so a day where the NBA advances and the other two are
 quiet reads correctly.
 
+### A green day can still be hiding something, so it says which
+
+Game data and injury data fail independently. The injury sidecar can be down
+while every league's games refresh perfectly — and the run would be green,
+correctly, because the thing the job exists to do worked.
+
+That is exactly how something stays broken for a month. So every run now states
+the injury state on its own line, per league, and shouts when it is one of the
+two bad ones:
+
+```
+  nba      AVAILABILITY UNREACHABLE
+           The four availability features resolve to NaN, so the
+           NBA is served on 34 of 38 features. Game data is
+           unaffected; this does NOT fail the refresh.
+```
+
+**It deliberately does not fail the run.** An injury-service outage is no reason
+to withhold a day of fresh game data; the two are independent and treating them
+as one would mean a sidecar restart costing a day of predictions.
+
+It also goes in the **run summary**, not just the step log. A twelve-minute log
+is not where anyone looks on a green morning — the summary is, and a run that is
+green *because the game data is fine* can still be serving the NBA on 34 of its
+38 inputs.
+
 ### It refuses to start rather than guessing
 
 If the folder is missing, or is incomplete, the prediction service **will not
@@ -4246,6 +4471,14 @@ These are understood and accepted, not oversights.
    most. The packaging is finished and tested; the calendar is the remaining
    blocker.
 
+   **This paragraph was confidently wrong for about a month, and 17.26 is why.**
+   The packaging was finished; the *paths* were not. The code that matches
+   injured players against their history was still looking inside the
+   application package after the data moved to a shared folder, so it failed on
+   every call and the features would have stayed blank whatever the calendar
+   said. Fixed on 7 October and measured both ways. The calendar is the
+   remaining blocker *now* — it was not the only one then.
+
 5. **The fixture list is only as wide as the sync horizon** — 120 days by
    default. A setting, easily raised, but a real change worth knowing about.
 
@@ -4347,7 +4580,10 @@ These are understood and accepted, not oversights.
 1. **Serve the availability features.** The 5.8% margin improvement is proven,
    built and packaged. It needs the season, and then a decision about one
    inconsistency between how a player's minutes are looked up at training time
-   versus serving time.
+   versus serving time. A second blocker — the lookup paths left behind by the
+   move to a shared data folder — was found and fixed on 7 October; with a real
+   report in hand, all seven predictions now move where before they did not
+   (17.26). What remains is genuinely only the calendar and that one decision.
 2. **Market odds** — both to measure genuine edge against the market and to use
    the market's own line as an input. Historical coverage from most providers
    only goes back to about 2019, so full eleven-season coverage will not exist.
@@ -4396,6 +4632,8 @@ cd frontend  && npm test -- --watchAll=false
 ```
 GET  /api/teams?league=NBA             one league's teams (30 NBA, 15 WNBA)
 GET  /api/health                       freshness per league + models loaded
+GET  /health         (port 8000)       the above, plus table fingerprints
+                                       and the injury state per league
 GET  /api/games/schedule?daysAhead=14  cached fixtures, both leagues
 POST /api/predictions                  the 7 whole-game numbers
 POST /api/predictions/quarter-half     the 6 Q1 / first-half numbers
