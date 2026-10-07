@@ -59,6 +59,16 @@ ml-training/models/*
 ml-training/mlruns/*
 !ml-training/mlruns/.gitkeep
 
+# Retrain output, and it was NEVER actually ignored until 2026-10-07 - CLAUDE.md
+# section 3 claimed it was for a month while `git check-ignore` matched no rule
+# here at all. It stayed invisible because a promotion has never happened, so the
+# directory has never existed; the workflow also names every path it commits
+# explicitly, so these could not have been swept in by CI. What it would have
+# cost is 8 untracked files in `git status` after any `--force` run, in a repo
+# whose own rule is to stage by name precisely because CLAUDE.md must not be
+# swept in. Promotion is a pull request against models/, never a copy out of here.
+ml-training/models_candidate/
+
 # Java
 backend/target/
 *.class
