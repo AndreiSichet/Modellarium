@@ -217,7 +217,20 @@ jobs:
             "| NBA data_as_of | $($health.data_as_of) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             "| WNBA data_as_of | $($health.wnba.data_as_of) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             "| G League data_as_of | $($health.gleague.data_as_of) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            Write-Host "serving snapshot $($served.snapshot)"
+
+            # AVAILABILITY BELONGS IN THE SUMMARY, NOT ONLY THE STEP LOG. The
+            # refresh prints it loudly in WHAT CHANGED, but a 12-minute log is
+            # not where anyone looks on a green morning - the summary is, and a
+            # run that is green BECAUSE game data is fine can still be serving
+            # the NBA on 34 of 38 features.
+            $avail = $health.availability.nba.state
+            "| availability | $avail |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            if ($avail -eq "unreachable" -or $avail -eq "source_failed") {
+              "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "**Availability is $avail.** The four availability features resolve to NaN, so the NBA is served on 34 of 38 features. Game data is unaffected and this does not fail the refresh." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              Write-Host "::warning::availability $avail - the NBA is served on 34 of 38 features"
+            }
+            Write-Host "serving snapshot $($served.snapshot), availability $avail"
           } catch {
             "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             "**/health did not answer**, so what is being served could not be confirmed." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
