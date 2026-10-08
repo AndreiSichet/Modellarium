@@ -129,3 +129,18 @@ data-pipeline/data/gleague/processed/*
 !data-pipeline/data/gleague/processed/gleague_games_final.csv
 !data-pipeline/data/gleague/processed/gleague_showcase_games.csv
 !data-pipeline/data/gleague/processed/gleague_franchise_identity.csv
+
+# ---------------------------------------------------------------------------
+# NFL (added 2026-10-08, phase 1). EVERY NFL table stays out of the repository,
+# raw and processed alike - no exceptions, unlike the three leagues above.
+#
+# The reason is the licence, not size: the source is English Wikipedia, whose
+# content is CC BY-SA 4.0. Share-alike on a derived table committed to a public
+# repository is a decision the owner has taken deliberately in the other
+# direction - the data lives on disk and, later, on the served volume only, and
+# attribution appears on the NFL pages in phase 5. See data-pipeline/nfl/
+# DATA_LICENSE.md, which is committed and describes what these files are.
+#
+# So there is no un-ignoring exception here. If a future phase needs an NFL
+# table at runtime it arrives on the volume, never through git.
+data-pipeline/nfl/data/
