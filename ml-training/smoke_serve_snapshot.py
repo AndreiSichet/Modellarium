@@ -33,7 +33,8 @@ def main() -> int:
     # league modules read the environment when their loaders run.
     os.environ["DATA_DIR"] = str(root)
 
-    for directory in (HERE, HERE / "wnba", HERE / "gleague",
+    for directory in (HERE, HERE / "wnba", HERE / "gleague", HERE / "nfl",
+                      PROJECT / "data-pipeline" / "nfl" / "preprocessing",
                       PROJECT / "data-pipeline" / "preprocessing",
                       PROJECT / "data-pipeline" / "ingestion",
                       PROJECT / "data-pipeline" / "wnba" / "preprocessing",
@@ -134,13 +135,41 @@ def main() -> int:
         else:
             failures.append(f"gleague: {type(error).__name__}: {error}")
 
+    # --- NFL
+    try:
+        import live_nfl_features as nfl
+
+        nfl_state = nfl.load_state()
+        ready = nfl.predictable_fixtures(nfl_state)
+        if not ready:
+            # NOT A FAILURE. Between the last game of a season and the first
+            # fixture of the next there is nothing whose features are final,
+            # and refusing a snapshot for that would make the smoke test red
+            # every February for correct behaviour - the same reasoning that
+            # keeps the NBA's availability state a report rather than a gate.
+            print(f"  nfl      0 of {len(nfl_state['fixtures'])} fixtures "
+                  f"predictable - nothing scheduled whose features are final")
+        else:
+            row = ready[0]
+            result = nfl.get_live_features(
+                int(row["home_franchise_id"]), int(row["away_franchise_id"]),
+                pd.Timestamp(row["date"]), nfl_state)
+            print(f"  nfl      {len(result['rows'])} market row(s) computed "
+                  f"for {pd.Timestamp(row['date']).date()}, "
+                  f"{len(ready)} of {len(nfl_state['fixtures'])} predictable")
+        if nfl_state.get("synthetic"):
+            print("           SYNTHETIC TABLES - this snapshot carries "
+                  "invented scores and must never be served")
+    except Exception as error:  # noqa: BLE001
+        failures.append(f"nfl: {type(error).__name__}: {error}")
+
     if failures:
         print("\n  SNAPSHOT IS NOT SERVABLE:")
         for failure in failures:
             print(f"    {failure}")
         return 1
 
-    print("  all three leagues compute live features from this snapshot")
+    print("  all four leagues compute live features from this snapshot")
     return 0
 
 

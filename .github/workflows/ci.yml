@@ -144,10 +144,36 @@ jobs:
       # the first time. Anyone reading a committed games_final.csv and
       # concluding that is what the app is serving would be wrong, which is
       # why it is said here and in served_data.
+      # THE NFL'S TABLES CANNOT BE COMMITTED, SO CI GENERATES INVENTED ONES.
+      # The real NFL history is derived from English Wikipedia and is
+      # CC BY-SA 4.0; this repository is not licensed to redistribute a
+      # derived database, so no NFL table is in git (see
+      # data-pipeline/nfl/DATA_LICENSE.md). From phase 4 the service refuses
+      # to boot without them, and those two facts are only compatible if this
+      # job supplies a set that carries no source content at all.
+      #
+      # Every score here comes from a seeded PRNG and every venue is the
+      # string "Synthetic Stadium". The only thing shared with the real
+      # tables is the schema and the 32 franchise ids, and those are
+      # project-authored reference data in nfl_franchises.py.
+      #
+      # IT EXISTS SO THE CONTAINER BOOTS, AND FOR NOTHING ELSE. No recorded
+      # number, no wire-shape fixture and no prediction value may come from
+      # it - the scores are noise, so a prediction computed from them means
+      # only "the code path ran".
+      - name: Generate the synthetic NFL tables
+        run: python data-pipeline/nfl/preprocessing/make_synthetic_nfl_tables.py
+
       - name: Boot the service and check health
         working-directory: inference-service
         env:
           DATA_DIR: ${{ github.workspace }}/data-pipeline/data
+          # PRODUCTION REFUSES THE SET THIS FLAG ADMITS, and that is the
+          # direction the guard runs in. live_nfl_features.refuse_synthetic
+          # raises on nfl_synthetic.json unless this is exactly "1", so a
+          # production boot cannot serve invented scores as results. Setting
+          # it anywhere but here would defeat the whole arrangement.
+          MODELLARIUM_ALLOW_SYNTHETIC_NFL: "1"
         run: |
           uvicorn app:app --host 0.0.0.0 --port 8000 > uvicorn.log 2>&1 &
           UVICORN_PID=$!
@@ -182,7 +208,14 @@ jobs:
           # here rather than on a live day. Negative-tested by renaming an
           # artifact in the running container - the service refused to start
           # and named the missing one.
-          python -c "import json; h = json.load(open('health.json')); assert h['status'] == 'ok', h; m = h['models_loaded']; assert m == {'team': 7, 'quarter_half': 6, 'player_props': 10, 'wnba': 3, 'gleague': 3}, m; print('health OK:', h)"
+          #
+          # nfl: 3 is phase 4's, and the assertion beside it is the one this
+          # league needs that the others do not: /health must report
+          # synthetic TRUE here. If it ever reports false, CI has found a
+          # real NFL table in a checkout - which would mean a CC BY-SA table
+          # had been committed, and that is a licence problem rather than a
+          # test failure.
+          python -c "import json; h = json.load(open('health.json')); assert h['status'] == 'ok', h; m = h['models_loaded']; assert m == {'team': 7, 'quarter_half': 6, 'player_props': 10, 'wnba': 3, 'gleague': 3, 'nfl': 3}, m; assert h['nfl']['synthetic'] is True, 'CI must be serving the synthetic NFL set, not a real one'; print('health OK:', h)"
 
           kill "$UVICORN_PID"
 

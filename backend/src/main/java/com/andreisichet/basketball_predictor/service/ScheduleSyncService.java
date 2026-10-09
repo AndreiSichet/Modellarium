@@ -89,6 +89,30 @@ public class ScheduleSyncService {
         syncLeague("GLEAGUE", inferenceClient::fetchGleagueSchedule);
     }
 
+    /**
+     * The NFL schedule, independently.
+     *
+     * IGNORES daysAhead, AND IT IS THE FIRST LEAGUE THAT DOES. The other
+     * three proxy a live nba_api call that genuinely takes a horizon. The
+     * NFL's fixtures arrive in the served snapshot, so the list is whatever
+     * remains of the season; the horizon still applies downstream, where
+     * ScheduleService filters the cached rows by date exactly as it does for
+     * the others. The lambda therefore discards its argument rather than
+     * passing one the endpoint would ignore.
+     *
+     * CACHES EVERY REMAINING FIXTURE, NOT ONLY THE PREDICTABLE ONES. 193 of
+     * 208 are not predictable yet under the dependency rule, and they become
+     * so a week at a time - so caching only the predictable 15 would mean the
+     * browse view could show no fixture until the week it is played. Which
+     * ones can be predicted is a serving question, answered by
+     * /health's nfl.predictable_fixtures and by the per-fixture flag on
+     * /schedule/nfl, not by what is in the game table.
+     */
+    @Transactional
+    public void syncNfl() {
+        syncLeague("NFL", ignoredHorizon -> inferenceClient.fetchNflSchedule());
+    }
+
     private void syncLeague(
             String league, IntFunction<List<InferenceScheduledGame>> fetch) {
         List<InferenceScheduledGame> fixtures;
@@ -102,8 +126,8 @@ public class ScheduleSyncService {
         }
 
         if (fixtures.isEmpty()) {
-            log.info("{} schedule sync: 0 fixtures returned for the next {} days, "
-                    + "nothing to cache.", league, daysAhead);
+            log.info("{} schedule sync: 0 fixtures returned{}, "
+                    + "nothing to cache.", league, horizon(league));
             return;
         }
 
@@ -131,13 +155,28 @@ public class ScheduleSyncService {
         }
 
         long created = gameRepository.count() - before;
-        log.info("{} schedule sync: {} fixtures fetched ({} days ahead), {} new, "
+        log.info("{} schedule sync: {} fixtures fetched{}, {} new, "
                 + "{} already present{}.",
                 league,
                 fixtures.size(),
-                daysAhead,
+                horizon(league),
                 created,
                 fixtures.size() - skipped - created,
                 skipped > 0 ? ", " + skipped + " skipped (unknown team)" : "");
+    }
+
+    /**
+     * The horizon clause, or nothing for a league that has none.
+     *
+     * THE NFL'S FETCH IGNORES daysAhead, so printing it was a report claiming
+     * something untrue: the first rehearsal logged "208 fixtures fetched (120
+     * days ahead)" when the fetch had asked for no horizon at all and the
+     * number happened to be every remaining fixture of the season. A log line
+     * that states a parameter the call did not use is the kind of report
+     * people later reason from.
+     */
+    private String horizon(String league) {
+        return "NFL".equals(league) ? " from the served snapshot"
+                : " (" + daysAhead + " days ahead)";
     }
 }

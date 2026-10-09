@@ -67,12 +67,25 @@ MATCHUPS = {
     # phase 4 and was never in the gate, which is the one league whose serving
     # had no automated guard at all.
     "gleague": [(1612709919, 1612709923), (1612709890, 1612709905)],
+    # THE NFL'S ARE DERIVED AT CAPTURE TIME AND CANNOT BE FIXED HERE. The other
+    # three keep fixed teams and derive only the DATE, because any pair of
+    # their teams is predictable on cutoff + 1. The NFL is served under a
+    # dependency rule - both teams' previous games in history - so which pairs
+    # are predictable changes every week, and 193 of 208 fixtures are refused
+    # at any moment. A fixed pair here would go stale within days and the gate
+    # would report a 400 as a regression.
+    #
+    # So `nfl` maps to None and `nfl_matchups()` asks the service, taking two
+    # predictable fixtures with four distinct teams - the same "two matchups,
+    # four teams" shape the other three have, for the reason recorded above it.
+    "nfl": None,
 }
 
 PREDICT_PATH = {"nba": "/predict", "wnba": "/predict/wnba",
-                "gleague": "/predict/gleague"}
+                "gleague": "/predict/gleague", "nfl": "/predict/nfl"}
 BACKEND_PATH = {"nba": "/api/predictions", "wnba": "/api/predictions/wnba",
-                "gleague": "/api/predictions/gleague"}
+                "gleague": "/api/predictions/gleague",
+                "nfl": "/api/predictions/nfl"}
 
 # Per-call identifiers and timestamps. NOT dataAsOf and NOT stale: those are
 # CONTEXT - they are exactly what tells you a baseline came from different data,
@@ -94,6 +107,13 @@ MIN_SCHEDULE_COUNT = 100
 HEALTH_CONTEXT_FIELDS = {
     "availability", "served_data",
     "data_as_of", "dataAsOf", "stale",
+    # THE NFL'S TWO MOVING COUNTS. `predictable_fixtures` falls and `fixtures`
+    # falls as the season is played, both as a function of the data rather than
+    # of any code - so they are context in exactly the way data_as_of is, and
+    # diffing them would report a played game as a regression. They are still
+    # compared as context, where a change makes the league CANNOT COMPARE, so
+    # nothing here is unguarded.
+    "predictable_fixtures", "predictableFixtures", "fixtures",
 }
 
 
@@ -139,6 +159,7 @@ def model_hashes() -> dict:
         "nba": ML_TRAINING / "models",
         "wnba": ML_TRAINING / "models_wnba",
         "gleague": ML_TRAINING / "models_gleague",
+        "nfl": ML_TRAINING / "models_nfl",
     }
     out = {}
     for league, directory in directories.items():
@@ -167,6 +188,35 @@ def predictable_date(health: dict, league: str):
     return (dt.date.fromisoformat(cutoff) + dt.timedelta(days=1)).isoformat()
 
 
+def nfl_matchups(count=2) -> list:
+    """Two predictable NFL fixtures with four distinct teams.
+
+    FROM THE SERVICE, BECAUSE NOTHING ELSE KNOWS. The dependency rule is
+    evaluated against the served history, so the only honest source for "which
+    fixtures can be predicted right now" is the service doing the serving.
+    Asking it is also what makes this gate survive the season advancing: next
+    week's answer is a different four teams and the gate needs no edit.
+
+    Returns [(home, away, date), ...], or [] when nothing is predictable -
+    which is correct between seasons and is reported rather than failing.
+    """
+    fixtures = curl("GET", f"{INFERENCE}/schedule/nfl?predictable_only=true")
+    if not isinstance(fixtures, list):
+        return []
+
+    chosen, used = [], set()
+    for fixture in sorted(fixtures, key=lambda f: (f.get("game_date") or "",
+                                                   f.get("game_id") or "")):
+        home, away = fixture.get("home_team_id"), fixture.get("away_team_id")
+        if home in used or away in used:
+            continue
+        chosen.append((home, away, fixture.get("game_date")))
+        used.update((home, away))
+        if len(chosen) == count:
+            break
+    return chosen
+
+
 def capture() -> dict:
     """Bodies plus the context they were produced under."""
     inference_health = curl("GET", f"{INFERENCE}/health")
@@ -182,10 +232,20 @@ def capture() -> dict:
     bodies = {}
 
     for league, pairs in MATCHUPS.items():
-        date = predictable_date(inference_health, league)
         block = (inference_health if league == "nba"
                  else inference_health.get(league) or {})
         avail = availability.get(league) or {}
+
+        # The NFL's pairs AND date come from its own schedule; the other three
+        # keep fixed pairs and a date derived from their cutoff.
+        if league == "nfl":
+            derived = nfl_matchups()
+            pairs = [(home, away) for home, away, _d in derived]
+            dates = [d for _h, _a, d in derived]
+        else:
+            date = predictable_date(inference_health, league)
+            pairs = list(pairs or [])
+            dates = [date] * len(pairs)
 
         context["leagues"][league] = {
             "data_as_of": block.get("data_as_of"),
@@ -198,11 +258,18 @@ def capture() -> dict:
             # attributable to code.
             "availability_state": avail.get("state"),
             "availability_report": avail.get("report_timestamp"),
-            "requested": [{"home": h, "away": a, "date": date}
-                          for h, a in pairs],
+            "requested": [{"home": h, "away": a, "date": d}
+                          for (h, a), d in zip(pairs, dates)],
         }
 
-        for index, (home, away) in enumerate(pairs):
+        if not pairs:
+            # Nothing predictable. True for the WNBA most of the year and for
+            # the NFL between seasons, and reported rather than failed.
+            bodies[f"{league}.inference.none"] = {
+                "__skipped__": "no predictable matchup"}
+            continue
+
+        for index, ((home, away), date) in enumerate(zip(pairs, dates)):
             if date is None:
                 bodies[f"{league}.inference.{index}"] = {
                     "__skipped__": "no cutoff in /health"}

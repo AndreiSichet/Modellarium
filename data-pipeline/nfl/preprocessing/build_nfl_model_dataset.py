@@ -25,12 +25,18 @@ import pandas as pd
 
 HERE = Path(__file__).resolve().parent
 NFL = HERE.parent
+PIPELINE = NFL.parent          # data-pipeline/, so the NFL's data sits
+                               # under data/nfl/ like the other three
+                               # leagues' - which is what lets one
+                               # DATA_DIR point at either the repo or a
+                               # served snapshot with no per-league
+                               # special case (served_data.py)
 sys.path.insert(0, str(HERE))
 
 import nfl_divisions as D               # noqa: E402
 import nfl_franchises as F              # noqa: E402
 
-PROCESSED = NFL / "data" / "processed"
+PROCESSED = PIPELINE / "data" / "nfl" / "processed"
 GAMES_PATH = PROCESSED / "nfl_games_final.csv"
 OUT_PATH = PROCESSED / "nfl_model_dataset.csv"
 MANIFEST_PATH = PROCESSED / "nfl_feature_manifest.json"

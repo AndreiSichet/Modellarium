@@ -114,6 +114,13 @@ ml-training/wnba/nba_gate_baseline.json
 # is played. The gate SCRIPT is tracked; its snapshots are not.
 ml-training/gleague/gate_baseline_phase4.json
 ml-training/gate_baseline_a4.json
+# Phase 4's captures, both of them. A capture is a POINT-IN-TIME record
+# of bodies, table hashes and an injury-report state, and the gate is a
+# paired instrument - capture, change code, re-check minutes apart - so a
+# committed capture would be an invitation to compare against something
+# weeks old, which is the misuse the gate was rewritten to stop.
+ml-training/nfl/gate_capture_before.json
+ml-training/nfl/gate_capture_phase4_rehearsal.json
 
 # G League. Third league. The raw per-season pulls stay disposable; three
 # processed tables became RUNTIME DEPENDENCIES in phase 4 and are un-ignored
@@ -143,4 +150,10 @@ data-pipeline/data/gleague/processed/*
 #
 # So there is no un-ignoring exception here. If a future phase needs an NFL
 # table at runtime it arrives on the volume, never through git.
+data-pipeline/data/nfl/
+# Phase 4 moved this from data-pipeline/nfl/data/ so the NFL matches the
+# other three leagues and served_data.py's "the snapshot layout mirrors
+# the repo's" holds for four leagues rather than three. The old path is
+# kept ignored as well: an existing checkout still has 46 MB of fetched
+# wikitext there, and it must not become committable by being orphaned.
 data-pipeline/nfl/data/

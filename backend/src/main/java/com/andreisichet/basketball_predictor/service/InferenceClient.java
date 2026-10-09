@@ -14,6 +14,7 @@ import org.springframework.web.server.ResponseStatusException;
 import com.andreisichet.basketball_predictor.dto.InferenceHealth;
 import com.andreisichet.basketball_predictor.dto.InferencePlayerPropsResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceGleagueResponse;
+import com.andreisichet.basketball_predictor.dto.InferenceNflResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceQuarterHalfResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceRequest;
 import com.andreisichet.basketball_predictor.dto.InferenceResponse;
@@ -58,6 +59,41 @@ public class InferenceClient {
     /** Upcoming G League regular-season fixtures. */
     public List<InferenceScheduledGame> fetchGleagueSchedule(int daysAhead) {
         return fetchSchedule("/schedule/gleague", daysAhead);
+    }
+
+    /** The three NFL models: winner, margin and total. */
+    public InferenceNflResponse predictNfl(InferenceRequest body) {
+        return post("/predict/nfl", body, InferenceNflResponse.class);
+    }
+
+    /**
+     * Unplayed NFL fixtures.
+     *
+     * TAKES NO daysAhead, AND THE OTHER THREE DO. Those proxy a live nba_api
+     * call that is genuinely parameterised by a horizon. The NFL's fixtures
+     * come out of the served snapshot, so the list is whatever remains of the
+     * season - bounded by the schedule rather than by a window - and passing a
+     * horizon would be a parameter the endpoint ignores. Date filtering still
+     * happens downstream in ScheduleService, against the cached rows, exactly
+     * as it does for the others.
+     *
+     * The richer fields /schedule/nfl returns - week, kickoff in UTC, the
+     * predictable flag - are deliberately not read here. The sync only needs
+     * the pair and the date to create a Game row; a client that wants the rest
+     * asks the inference service directly, which is what phase 5 will do.
+     */
+    public List<InferenceScheduledGame> fetchNflSchedule() {
+        try {
+            List<InferenceScheduledGame> fixtures = client.get()
+                    .uri("/schedule/nfl")
+                    .retrieve()
+                    .body(SCHEDULE_TYPE);
+            return fixtures == null ? List.of() : fixtures;
+        } catch (RestClientResponseException error) {
+            throw rejected("NFL schedule lookup failed", error);
+        } catch (RestClientException error) {
+            throw unreachable(error);
+        }
     }
 
     /** Both teams' prop boards in one call. */

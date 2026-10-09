@@ -26,11 +26,17 @@ from zoneinfo import ZoneInfo
 
 HERE = Path(__file__).resolve().parent
 NFL = HERE.parent
+PIPELINE = NFL.parent          # data-pipeline/, so the NFL's data sits
+                               # under data/nfl/ like the other three
+                               # leagues' - which is what lets one
+                               # DATA_DIR point at either the repo or a
+                               # served snapshot with no per-league
+                               # special case (served_data.py)
 sys.path.insert(0, str(HERE))
 
 import nfl_franchises as F          # noqa: E402
 
-RAW = NFL / "data" / "raw"
+RAW = PIPELINE / "data" / "nfl" / "raw"
 
 MONTHS = {m: i for i, m in enumerate(
     ["January", "February", "March", "April", "May", "June", "July", "August",

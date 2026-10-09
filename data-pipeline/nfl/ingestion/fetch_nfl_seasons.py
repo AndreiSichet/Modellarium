@@ -23,13 +23,19 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 NFL = HERE.parent
+PIPELINE = NFL.parent          # data-pipeline/, so the NFL's data sits
+                               # under data/nfl/ like the other three
+                               # leagues' - which is what lets one
+                               # DATA_DIR point at either the repo or a
+                               # served snapshot with no per-league
+                               # special case (served_data.py)
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(NFL / "preprocessing"))
 
 import nfl_franchises as F          # noqa: E402
 import wiki_api                     # noqa: E402
 
-RAW = NFL / "data" / "raw"
+RAW = PIPELINE / "data" / "nfl" / "raw"
 MANIFEST_NAME = "manifest.json"
 
 

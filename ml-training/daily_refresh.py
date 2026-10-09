@@ -104,6 +104,39 @@ LEAGUES = {
         ],
         "cutoff_table": Path("gleague") / "processed" / "gleague_games_final.csv",
     },
+    # THE NFL LEARNS THIS IN THE SAME COMMIT THAT MAKES SERVING REQUIRE IT,
+    # and the ordering is not a preference. The moment the inference service
+    # requires the three NFL tables, a refresh that does not build them
+    # produces a snapshot the service refuses - so validation fails, nothing
+    # swaps, and the job goes red every morning until this entry exists.
+    # Shipping serving first and the refresh later would have been a week of
+    # red mornings for a reason nobody would have had to live with.
+    #
+    # THREE STEPS, AND THE FETCHER IS ALREADY THE SHAPE THIS NEEDS. Phase 1
+    # built it with revision-id change detection first - one cheap request per
+    # season tells it which articles moved - and completed seasons frozen by
+    # revision id. So a quiet day costs a handful of cheap requests and no
+    # content fetch at all, which is the rule the first daily-refresh failure
+    # taught the other three leagues retroactively and this one had from the
+    # start.
+    "nfl": {
+        "steps": [
+            PROJECT / "data-pipeline" / "nfl" / "ingestion" / "fetch_nfl_seasons.py",
+            PROJECT / "data-pipeline" / "nfl" / "preprocessing" / "validate_nfl_games.py",
+            PROJECT / "data-pipeline" / "nfl" / "preprocessing" / "build_nfl_tables.py",
+        ],
+        "tables": [
+            Path("nfl") / "processed" / "nfl_games_final.csv",
+            Path("nfl") / "processed" / "nfl_fixtures.csv",
+            Path("nfl") / "processed" / "nfl_franchise_identity.csv",
+        ],
+        "cutoff_table": Path("nfl") / "processed" / "nfl_games_final.csv",
+        # The NFL's table names its date column `date`, lower case, where the
+        # three nba_api leagues all write GAME_DATE. Declared rather than
+        # guessed, because a missing column here would surface as a KeyError
+        # inside the cutoff report rather than as "the NFL is out of date".
+        "date_column": "date",
+    },
 }
 
 
@@ -159,15 +192,34 @@ def section(title):
     print(f"\n{'=' * 78}\n{title}\n{'=' * 78}", flush=True)
 
 
-def newest_date(root: Path, relative: Path) -> str:
+def newest_date(root: Path, relative: Path, column: str = "GAME_DATE"):
+    """The newest date in a cutoff table, or None if the table is not there.
+
+    NONE RATHER THAN A RAISE, AND THE FIRST NFL RUN IS WHY. This is called on
+    the PREVIOUS snapshot as well as the staged one, and the first run after a
+    league is added necessarily reads a previous snapshot that has none of its
+    tables - so raising here aborts the very run that would add them. It did:
+    the phase 4 rehearsal failed with FileNotFoundError on
+    nfl/processed/nfl_games_final.csv before staging anything, which would have
+    been the real switch too.
+
+    A missing table is only legitimate on the PREVIOUS side. The staged
+    snapshot is checked by missing_files() and then by the smoke test, both of
+    which refuse an absent table outright, so nothing can reach the pointer on
+    the strength of this None.
+    """
     import pandas as pd
 
-    frame = pd.read_csv(root / relative, usecols=["GAME_DATE"])
-    return str(pd.to_datetime(frame["GAME_DATE"]).max().date())
+    path = root / relative
+    if not path.is_file():
+        return None
+    frame = pd.read_csv(path, usecols=[column])
+    return str(pd.to_datetime(frame[column]).max().date())
 
 
 def cutoffs(root: Path) -> dict:
-    return {league: newest_date(root, spec["cutoff_table"])
+    return {league: newest_date(root, spec["cutoff_table"],
+                                spec.get("date_column", "GAME_DATE"))
             for league, spec in LEAGUES.items()}
 
 
@@ -284,15 +336,18 @@ def restart_service(_unused: Path = None, project: str = COMPOSE_PROJECT,
         capture_output=True, text=True, timeout=timeout)
 
 
-def served_snapshot(attempts: int = 20, delay: float = 3.0) -> dict:
+HEALTH_URL = "http://localhost:8000/health"
+
+
+def served_snapshot(attempts: int = 20, delay: float = 3.0,
+                    url: str = HEALTH_URL) -> dict:
     """What /health says it is serving, once it answers."""
     import urllib.error
     import urllib.request
 
     for _ in range(attempts):
         try:
-            with urllib.request.urlopen(
-                    "http://localhost:8000/health", timeout=5) as response:
+            with urllib.request.urlopen(url, timeout=5) as response:
                 return json.loads(response.read()).get("served_data", {})
         except (urllib.error.URLError, OSError, json.JSONDecodeError):
             time.sleep(delay)
@@ -316,7 +371,8 @@ def prune(volume: Path, keep: int) -> None:
 
 
 def swap_and_verify(volume: Path, previous: str, identifier: str,
-                    restart: bool = True) -> int:
+                    restart: bool = True,
+                    restart_fn=None, health_fn=None) -> int:
     """Point `current` at `identifier`, restart, and roll back if it fails.
 
     EXTRACTED SO THE ROLLBACK IS TESTED BY THE CODE PRODUCTION RUNS. This is
@@ -324,7 +380,17 @@ def swap_and_verify(volume: Path, previous: str, identifier: str,
     rollback verified by a harness that reimplements it is not verified at
     all - the same reason the retrain harness invokes continuous_retrain.py
     as a subprocess rather than calling into a copy of its logic.
+
+    `restart_fn` and `health_fn` DEFAULT TO PRODUCTION and the daily job
+    passes neither, so nothing about the live path changes. They exist so the
+    verifier can aim this same function at a service reading a COPY of the
+    volume: before them, the only way to exercise the rollback was against the
+    live volume and the live service, and an interrupted run then left the
+    live pointer naming a deliberately unbootable snapshot. A seam here is
+    cheaper than that, and it keeps the function under test the real one.
     """
+    restart_fn = restart_fn or restart_service
+    health_fn = health_fn or served_snapshot
     section("SWAP")
     print(f"  {previous} -> {identifier}")
     write_pointer(volume, identifier)
@@ -345,8 +411,8 @@ def swap_and_verify(volume: Path, previous: str, identifier: str,
         return EXIT_OK
 
     print("  restarting inference-service ...")
-    restart_service(PROJECT)
-    serving = served_snapshot()
+    restart_fn(PROJECT)
+    serving = health_fn()
 
     if serving.get("snapshot") == identifier:
         print(f"  /health confirms snapshot {serving.get('snapshot')}")
@@ -357,8 +423,8 @@ def swap_and_verify(volume: Path, previous: str, identifier: str,
           f"expected {identifier!r}")
     write_pointer(volume, previous)
     print(f"  pointer restored to {previous}")
-    restart_service(PROJECT)
-    recovered = served_snapshot()
+    restart_fn(PROJECT)
+    recovered = health_fn()
     print(f"  after restart /health reports {recovered.get('snapshot')!r}")
     if recovered.get("snapshot") == previous:
         print("  the previous snapshot is serving again")
@@ -583,6 +649,12 @@ def _run(args, volume, leagues, record_outcome) -> int:
 
     section("WHAT CHANGED")
     for league in after:
+        if before.get(league) is None:
+            # A league the previous snapshot did not carry at all. ADDED
+            # rather than ADVANCED, because no date moved - a table appeared.
+            print(f"  {league:<9}absent -> {after[league]}   ADDED "
+                  f"(not in the previous snapshot)")
+            continue
         mark = "ADVANCED" if league in advanced else "unchanged"
         print(f"  {league:<9}{before[league]} -> {after[league]}   {mark}")
 

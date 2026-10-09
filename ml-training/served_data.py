@@ -26,10 +26,26 @@ THE SNAPSHOT LAYOUT MIRRORS THE REPO'S, deliberately:
     <root>/wnba/processed/wnba_games_final.csv
     <root>/gleague/processed/gleague_games_final.csv
     <root>/gleague/processed/gleague_showcase_games.csv
+    <root>/nfl/processed/nfl_games_final.csv
+    <root>/nfl/processed/nfl_fixtures.csv
+    <root>/nfl/processed/nfl_franchise_identity.csv
 
 so one environment variable can point at either the repo or a snapshot with no
 per-file configuration, and CI can supply the committed copy without any other
 change.
+
+PHASE 4 MOVED THE NFL TABLES TO MAKE THAT TRUE FOR FOUR LEAGUES. Phase 1 wrote
+them to `data-pipeline/nfl/data/processed/`, outside this root, so the mirror
+promise above held for three leagues and not the fourth. They now live at
+`data-pipeline/data/nfl/processed/` like everyone else's, which is why no NFL
+special case appears anywhere below.
+
+THE NFL'S COMMITTED COPY IS SYNTHETIC, AND ONLY IN CI. The real tables are
+CC BY-SA 4.0 and are never committed, so `make_synthetic_nfl_tables.py`
+generates a schema-identical set of invented scores for CI to boot against,
+marked with `nfl/processed/nfl_synthetic.json`. Production refuses that marker
+unless MODELLARIUM_ALLOW_SYNTHETIC_NFL=1 - see
+`ml-training/nfl/live_nfl_features.refuse_synthetic`.
 """
 
 import json
@@ -53,6 +69,17 @@ REQUIRED_FILES = [
     Path("wnba") / "processed" / "wnba_games_final.csv",
     Path("gleague") / "processed" / "gleague_games_final.csv",
     Path("gleague") / "processed" / "gleague_showcase_games.csv",
+    # The NFL, from phase 4. THREE tables rather than one, and each is read:
+    # the games table is the history the features and the Elo replay are built
+    # from, the fixtures table is both /schedule/nfl and the dependency rule
+    # that decides what is predictable, and the identity table is how a
+    # franchise id becomes a name. Nothing else the NFL pipeline writes is
+    # copied - nfl_model_dataset.csv in particular is deliberately absent,
+    # because its stored Elo was fitted under phase 2's parameters and serving
+    # replays under the production ones.
+    Path("nfl") / "processed" / "nfl_games_final.csv",
+    Path("nfl") / "processed" / "nfl_fixtures.csv",
+    Path("nfl") / "processed" / "nfl_franchise_identity.csv",
 ]
 
 
@@ -68,6 +95,9 @@ TABLE_LEAGUE = {
     "wnba/processed/wnba_games_final.csv": "wnba",
     "gleague/processed/gleague_games_final.csv": "gleague",
     "gleague/processed/gleague_showcase_games.csv": "gleague",
+    "nfl/processed/nfl_games_final.csv": "nfl",
+    "nfl/processed/nfl_fixtures.csv": "nfl",
+    "nfl/processed/nfl_franchise_identity.csv": "nfl",
 }
 
 HASH_CHUNK_BYTES = 1 << 20

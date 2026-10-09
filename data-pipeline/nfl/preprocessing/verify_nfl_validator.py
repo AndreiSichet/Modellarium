@@ -26,6 +26,12 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 NFL = HERE.parent
+PIPELINE = NFL.parent          # data-pipeline/, so the NFL's data sits
+                               # under data/nfl/ like the other three
+                               # leagues' - which is what lets one
+                               # DATA_DIR point at either the repo or a
+                               # served snapshot with no per-league
+                               # special case (served_data.py)
 sys.path.insert(0, str(HERE))
 
 import nfl_franchises as F              # noqa: E402
@@ -33,7 +39,7 @@ import parse_nfl_wikitext as P          # noqa: E402
 import validate_nfl_games as V          # noqa: E402
 
 SEASONS = [2015, 2022, 2026]
-REAL_RAW = NFL / "data" / "raw"
+REAL_RAW = PIPELINE / "data" / "nfl" / "raw"
 
 
 class PlantFailed(AssertionError):

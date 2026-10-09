@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.json.JsonTest;
 
 import com.andreisichet.basketball_predictor.model.GleaguePrediction;
+import com.andreisichet.basketball_predictor.model.NflPrediction;
 import com.andreisichet.basketball_predictor.model.WnbaPrediction;
 
 import tools.jackson.core.type.TypeReference;
@@ -25,6 +26,9 @@ import tools.jackson.databind.ObjectMapper;
 class InferenceWireShapeTest {
     @Autowired
     private ObjectMapper mapper;
+
+    /** A double quote, so the rename negative below needs no escaping. */
+    private static final String QUOTE = String.valueOf((char) 34);
 
     /** All fixtures come from this matchup, the one used throughout the project. */
     private static final LocalDate DATA_AS_OF = LocalDate.of(2026, 4, 12);
@@ -45,6 +49,7 @@ class InferenceWireShapeTest {
      */
     private static final LocalDate WNBA_DATA_AS_OF = LocalDate.of(2026, 9, 24);
     private static final LocalDate GLEAGUE_DATA_AS_OF = LocalDate.of(2026, 3, 28);
+    private static final LocalDate NFL_DATA_AS_OF = LocalDate.of(2026, 10, 5);
 
     @Nested
     class Health {
@@ -71,7 +76,7 @@ class InferenceWireShapeTest {
 
             assertThat(health.modelsLoaded()).containsExactlyInAnyOrderEntriesOf(
                     Map.of("team", 7, "quarter_half", 6, "player_props", 10,
-                            "wnba", 3, "gleague", 3));
+                            "wnba", 3, "gleague", 3, "nfl", 3));
         }
 
         @Test
@@ -106,6 +111,14 @@ class InferenceWireShapeTest {
             assertThat(dto.wnba().dataAsOf()).isEqualTo(WNBA_DATA_AS_OF);
             assertThat(dto.gleague()).isNotNull();
             assertThat(dto.gleague().dataAsOf()).isEqualTo(GLEAGUE_DATA_AS_OF);
+            assertThat(dto.nfl()).isNotNull();
+            assertThat(dto.nfl().dataAsOf()).isEqualTo(NFL_DATA_AS_OF);
+            // The two fields the NFL's rule needs and no other league has.
+            // Carried because the frontend cannot compute predictability from
+            // a cutoff for this league the way it does for the other three.
+            assertThat(dto.nfl().predictableFixtures()).isPositive();
+            assertThat(dto.nfl().predictionRule())
+                    .isEqualTo("both teams' previous games in history");
         }
 
         @Test
@@ -125,6 +138,141 @@ class InferenceWireShapeTest {
             assertThat(health.gleague().dataAsOf()).isNotEqualTo(health.dataAsOf());
             assertThat(health.gleague().dataAsOf())
                     .isNotEqualTo(health.wnba().dataAsOf());
+        }
+
+        @Test
+        void deserialisesTheNflBlockWithItsOwnRule() {
+            InferenceHealth health =
+                    mapper.readValue(Fixture.read("health.json"), InferenceHealth.class);
+
+            assertThat(health.nfl()).isNotNull();
+            assertThat(health.nfl().dataAsOf()).isEqualTo(NFL_DATA_AS_OF);
+
+            // FOUR DISTINCT CUTOFFS, ASSERTED PAIRWISE, for the reason the G
+            // League's block records: these records have silently dropped a
+            // league's freshness block twice while the Python side was
+            // sending it, so the inequalities are asserted rather than left
+            // implied by four literals that happen to differ today.
+            assertThat(health.nfl().dataAsOf()).isNotEqualTo(health.dataAsOf());
+            assertThat(health.nfl().dataAsOf())
+                    .isNotEqualTo(health.wnba().dataAsOf());
+            assertThat(health.nfl().dataAsOf())
+                    .isNotEqualTo(health.gleague().dataAsOf());
+
+            // The dependency rule's own fields. predictableFixtures is a
+            // small fraction of fixtures and must be, because a fixture
+            // becomes predictable only once both teams' previous games are
+            // recorded - so asserting it is merely positive would also pass
+            // on a service that had quietly started offering the whole
+            // season at once.
+            assertThat(health.nfl().fixtures()).isGreaterThan(100);
+            assertThat(health.nfl().predictableFixtures()).isPositive();
+            assertThat(health.nfl().predictableFixtures())
+                    .isLessThan(health.nfl().fixtures());
+
+            // THE LICENCE TRAVELS. The NFL history is CC BY-SA 4.0 and no
+            // other league here carries an attribution requirement, so this
+            // field exists for this league and nowhere else.
+            assertThat(health.nfl().source())
+                    .isEqualTo("English Wikipedia, CC BY-SA 4.0");
+
+            // Real tables, not CI's invented ones. If this is ever true in a
+            // captured fixture, a CC BY-SA table reached a checkout - which
+            // is a licence problem rather than a test failure.
+            assertThat(health.nfl().synthetic()).isFalse();
+        }
+    }
+
+    @Nested
+    class Nfl {
+        @Test
+        void deserialisesAllThreeMarketsAndTheirProvenance() {
+            InferenceNflResponse response = mapper.readValue(
+                    Fixture.read("predict-nfl.json"), InferenceNflResponse.class);
+
+            assertThat(response.dataAsOf()).isEqualTo(NFL_DATA_AS_OF);
+            assertThat(response.stale()).isTrue();
+            assertThat(response.daysBehind()).isGreaterThan(0);
+            assertThat(response.season()).isEqualTo(2026);
+
+            // WEEK HAS NO COUNTERPART IN THE OTHER THREE RECORDS. It is a
+            // feature the models actually read and the unit an NFL result is
+            // discussed in, so it travels rather than being derived here.
+            assertThat(response.week()).isEqualTo(5);
+
+            assertThat(response.markets()).containsOnlyKeys(
+                    "winner", "margin", "total");
+
+            InferenceNflResponse.Market winner = response.market("winner");
+            assertThat(winner.value()).isCloseTo(0.4390723587536829, within(1e-12));
+            assertThat(winner.metric()).isEqualTo("log_loss");
+            assertThat(winner.modelUsed()).isEqualTo("linear/mov/elo_context");
+            assertThat(winner.note()).isEqualTo("TIES Elo alone");
+            assertThat(winner.imputed()).isEmpty();
+
+            assertThat(response.market("margin").value())
+                    .isCloseTo(-2.7356462478637695, within(1e-12));
+            assertThat(response.market("margin").modelUsed())
+                    .isEqualTo("xgboost/mov/elo_context");
+            assertThat(response.market("total").value())
+                    .isCloseTo(43.34370323002624, within(1e-12));
+
+            // The qualifier the winner probability MEANS. Ties are excluded
+            // from the label, so this is not the same quantity as a
+            // basketball moneyline and must not be displayed as if it were.
+            assertThat(response.homeWinInterpretation())
+                    .isEqualTo("P(home wins | not tied)");
+            assertThat(response.source())
+                    .isEqualTo("English Wikipedia, CC BY-SA 4.0");
+        }
+
+        @Test
+        void mapsThroughToTheClientDtoWithTheLicenceAndTheNotes() {
+            InferenceNflResponse inference = mapper.readValue(
+                    Fixture.read("predict-nfl.json"), InferenceNflResponse.class);
+
+            NflPrediction saved = new NflPrediction();
+            saved.setHomeWinProbability(inference.market("winner").value());
+            saved.setHomeMargin(inference.market("margin").value());
+            saved.setTotalPoints(inference.market("total").value());
+            saved.setWeek(inference.week());
+            saved.setDataAsOf(inference.dataAsOf());
+            saved.setStale(inference.stale());
+            saved.setPredictedAt(Instant.parse("2026-10-09T07:00:00Z"));
+
+            NflSummaryDto.Prediction dto = NflSummaryDto.Prediction.of(
+                    saved, inference, inference.market("winner"),
+                    inference.market("margin"), inference.market("total"));
+
+            assertThat(dto.homeWinProbability())
+                    .isCloseTo(0.4390723587536829, within(1e-12));
+            assertThat(dto.week()).isEqualTo(5);
+            assertThat(dto.season()).isEqualTo(2026);
+            assertThat(dto.homeWinInterpretation())
+                    .isEqualTo("P(home wins | not tied)");
+            assertThat(dto.winnerModel()).isEqualTo("linear/mov/elo_context");
+            assertThat(dto.marginModel()).isEqualTo("xgboost/mov/elo_context");
+            assertThat(dto.winnerNote()).isEqualTo("TIES Elo alone");
+            assertThat(dto.marginNote()).isEqualTo("TIES Elo alone");
+            assertThat(dto.source()).isEqualTo("English Wikipedia, CC BY-SA 4.0");
+        }
+
+        @Test
+        void throwsWhenAMarketIsRenamedRatherThanReadingItAsZero() {
+            // The same negative the other leagues' records carry, and the
+            // reason is sharper than "fail loudly": a missing double
+            // deserialises to 0.0, and a 0.0 home-win probability is a
+            // servable-looking number rather than an obvious absence.
+            String renamed = Fixture.read("predict-nfl.json")
+                    .replace(QUOTE + "winner" + QUOTE,
+                             QUOTE + "home_winner" + QUOTE);
+
+            InferenceNflResponse response =
+                    mapper.readValue(renamed, InferenceNflResponse.class);
+
+            assertThatThrownBy(() -> response.market("winner"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("no NFL market named winner");
         }
     }
 

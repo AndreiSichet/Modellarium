@@ -40,6 +40,7 @@ public class TeamSeeder implements CommandLineRunner {
         seed(NBA, NBA_TEAMS, false);
         seed(WNBA, WNBA_TEAMS, false);
         seed(GLEAGUE, GLEAGUE_TEAMS, true);
+        seed(NFL, NFL_TEAMS, true);
     }
 
     private void seed(String league, List<Team> teams, boolean reconcileNames) {
@@ -121,6 +122,9 @@ public class TeamSeeder implements CommandLineRunner {
         checkDisjoint(NBA, NBA_TEAMS, WNBA, WNBA_TEAMS);
         checkDisjoint(NBA, NBA_TEAMS, GLEAGUE, GLEAGUE_TEAMS);
         checkDisjoint(WNBA, WNBA_TEAMS, GLEAGUE, GLEAGUE_TEAMS);
+        checkDisjoint(NBA, NBA_TEAMS, NFL, NFL_TEAMS);
+        checkDisjoint(WNBA, WNBA_TEAMS, NFL, NFL_TEAMS);
+        checkDisjoint(GLEAGUE, GLEAGUE_TEAMS, NFL, NFL_TEAMS);
     }
 
     private void checkDisjoint(String leftName, List<Team> left,
@@ -144,6 +148,7 @@ public class TeamSeeder implements CommandLineRunner {
     private static final String NBA = "NBA";
     private static final String WNBA = "WNBA";
     private static final String GLEAGUE = "GLEAGUE";
+    private static final String NFL = "NFL";
 
     private static Team nba(long id, String name, String abbreviation) {
         return new Team(id, name, abbreviation, NBA);
@@ -156,6 +161,78 @@ public class TeamSeeder implements CommandLineRunner {
     private static Team gleague(long id, String name, String abbreviation) {
         return new Team(id, name, abbreviation, GLEAGUE);
     }
+
+    private static Team nfl(long id, String name, String abbreviation) {
+        return new Team(id, name, abbreviation, NFL);
+    }
+
+    /**
+     * The 32 NFL franchises, generated from the AUTHORED franchise table
+     * rather than typed - {@code nfl_franchises.FRANCHISES}, which is
+     * committed project reference data.
+     *
+     * THESE IDS ARE PROJECT-ASSIGNED, WHICH NO OTHER LEAGUE'S ARE. The other
+     * three take TEAM_ID from nba_api; the NFL source carries no stable team
+     * id at all - only a display name and a link target - so phase 1 assigned
+     * 1613000001-1613000032 and chose that range to sit clear of the three
+     * nba_api ranges already in use. That makes the collision check below
+     * stronger here than elsewhere: for the other leagues it guards against
+     * an upstream id this codebase does not control, and for this one it
+     * guards a range this codebase chose and could choose badly.
+     *
+     * Names come from the link target, which is the article title and the
+     * stable spelling.
+     *
+     * RECONCILIATION IS ON, AND THE FREQUENCY ARGUMENT POINTS THE OTHER WAY.
+     * Measured: 5 renames across 4 franchises inside 2012-2026 - the Rams in
+     * 2016, Chargers 2017, Raiders 2020, Washington twice by 2022 - so 4 of
+     * 32, between the NBA's 0 of 30 (off) and the WNBA's 3 of 15 (also off).
+     * On rate alone this league would be off, and the latest boundary is four
+     * years before the first season served.
+     *
+     * What decides it is not the rate but WHERE THE NAMES COME FROM. The other
+     * three leagues take their names from nba_api, so a rename arrives in the
+     * data on its own. The NFL source carries no stable team id, so identity
+     * here is an AUTHORED table a human edits - nfl_franchises.FRANCHISES. With
+     * reconciliation off, editing that table would not change an existing
+     * database, which makes the authoritative table silently non-authoritative
+     * and is the opposite of what reference data should be. On, editing it is
+     * sufficient. The cost is 32 reads per startup and, on a correct database,
+     * zero writes.
+     */
+    private static final List<Team> NFL_TEAMS = List.of(
+            nfl(1613000001L, "Arizona Cardinals", "ARI"),
+            nfl(1613000002L, "Atlanta Falcons", "ATL"),
+            nfl(1613000003L, "Baltimore Ravens", "BAL"),
+            nfl(1613000004L, "Buffalo Bills", "BUF"),
+            nfl(1613000005L, "Carolina Panthers", "CAR"),
+            nfl(1613000006L, "Chicago Bears", "CHI"),
+            nfl(1613000007L, "Cincinnati Bengals", "CIN"),
+            nfl(1613000008L, "Cleveland Browns", "CLE"),
+            nfl(1613000009L, "Dallas Cowboys", "DAL"),
+            nfl(1613000010L, "Denver Broncos", "DEN"),
+            nfl(1613000011L, "Detroit Lions", "DET"),
+            nfl(1613000012L, "Green Bay Packers", "GB"),
+            nfl(1613000013L, "Houston Texans", "HOU"),
+            nfl(1613000014L, "Indianapolis Colts", "IND"),
+            nfl(1613000015L, "Jacksonville Jaguars", "JAX"),
+            nfl(1613000016L, "Kansas City Chiefs", "KC"),
+            nfl(1613000031L, "Las Vegas Raiders", "LV"),
+            nfl(1613000030L, "Los Angeles Chargers", "LAC"),
+            nfl(1613000029L, "Los Angeles Rams", "LAR"),
+            nfl(1613000017L, "Miami Dolphins", "MIA"),
+            nfl(1613000018L, "Minnesota Vikings", "MIN"),
+            nfl(1613000019L, "New England Patriots", "NE"),
+            nfl(1613000020L, "New Orleans Saints", "NO"),
+            nfl(1613000021L, "New York Giants", "NYG"),
+            nfl(1613000022L, "New York Jets", "NYJ"),
+            nfl(1613000023L, "Philadelphia Eagles", "PHI"),
+            nfl(1613000024L, "Pittsburgh Steelers", "PIT"),
+            nfl(1613000025L, "San Francisco 49ers", "SF"),
+            nfl(1613000026L, "Seattle Seahawks", "SEA"),
+            nfl(1613000027L, "Tampa Bay Buccaneers", "TB"),
+            nfl(1613000028L, "Tennessee Titans", "TEN"),
+            nfl(1613000032L, "Washington Commanders", "WAS"));
 
     /**
      * The 31 franchises active in 2025-26, generated from phase 1's identity

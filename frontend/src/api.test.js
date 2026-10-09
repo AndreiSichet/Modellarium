@@ -243,6 +243,64 @@ describe('the schedule wire shape', () => {
     expect(normaliseSchedule([])).toEqual([]);
     expect(normaliseSchedule(undefined)).toEqual([]);
   });
+
+  // ---------------------------------------------------------------- the NFL
+  //
+  // PHASE 4 PUT NFL FIXTURES ON THIS WIRE AND PHASE 5 BUILDS THE PAGES. Until
+  // then an NFL fixture must appear NOWHERE and must never be sent to another
+  // league's endpoint. That is not a new mechanism: the endpoint table already
+  // decides what is routable, and `nfl` is absent from it, so the skip-and-log
+  // path §53 built covers this league with no frontend change at all.
+  //
+  // Asserted rather than assumed, because "it happens to be handled" and "it
+  // is handled" look identical until someone adds the league constant and
+  // forgets the endpoint - and the G League's `|| 'nba'` is what that failure
+  // looks like when nothing checks.
+  test('an NFL fixture is skipped, so it renders nowhere before phase 5', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const fixtures = normaliseSchedule([
+      ...SCHEDULE_BODY,
+      {
+        league: 'nfl',
+        homeTeamId: 1613000012,
+        awayTeamId: 1613000006,
+        gameDate: '2026-10-11',
+      },
+    ]);
+
+    // The two basketball fixtures survive; the NFL one does not.
+    expect(fixtures).toHaveLength(2);
+    expect(fixtures.some((game) => game.leagueSlug === 'nfl')).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/nfl/));
+
+    // AND IT IS NOT QUIETLY FILED UNDER ANOTHER LEAGUE, which is the failure
+    // that actually matters: an NFL franchise id posted to the NBA endpoint
+    // would come back 400 "unknown team id", and the id ranges are disjoint
+    // precisely so that is what happens rather than a wrong prediction.
+    expect(fixtures.every((game) => game.leagueSlug !== undefined)).toBe(true);
+    expect(fixtures.map((game) => game.leagueSlug).sort())
+      .toEqual(['gleague', 'nba']);
+
+    warn.mockRestore();
+  });
+
+  test('no prediction can be requested for an NFL fixture', async () => {
+    global.fetch = jest.fn();
+
+    await expect(
+      createPredictionFor('nfl', {
+        homeTeamId: 1613000012,
+        awayTeamId: 1613000006,
+        gameDate: '2026-10-11',
+      })
+    ).rejects.toThrow();
+
+    // THE REQUEST IS NEVER MADE. Throwing after a fetch would still have sent
+    // an NFL id to a basketball endpoint, so the assertion is on fetch rather
+    // than on the rejection alone.
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe('the G League prediction endpoint', () => {

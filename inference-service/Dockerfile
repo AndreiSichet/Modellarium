@@ -133,6 +133,36 @@ COPY data-pipeline/gleague/ingestion/fetch_gleague_games.py \
      ./data-pipeline/gleague/ingestion/
 COPY ml-training/models_gleague/ ./ml-training/models_gleague/
 
+# --- NFL, the sixth model family and the first sport that is not basketball -
+#
+# NO NFL TABLE IS COPIED, AND UNLIKE THE OTHER THREE THAT IS A LICENCE
+# DECISION AS WELL AS A VOLUME ONE. The NFL history is derived from English
+# Wikipedia and is CC BY-SA 4.0; this repository is not licensed to
+# redistribute a derived database, so the three tables are never committed and
+# arrive only on the volume. CI, which has no volume, boots against a
+# SYNTHETIC set that make_synthetic_nfl_tables.py generates from invented
+# scores - and live_nfl_features.refuse_synthetic makes a production boot
+# refuse that set rather than serve noise as results.
+#
+# THE FEATURE FUNCTION IS IMPORTED, NOT COPIED, which is why the pipeline's
+# own builder is in the image. build_nfl_model_dataset.py carries
+# features_for, NflHistory and EloLedger, and serving calls them exactly as
+# the training walk did; a second implementation here is the thing that would
+# drift. nfl_divisions and nfl_franchises come with it because it imports
+# them, and parse_nfl_wikitext comes for kickoff_utc alone - the zone map and
+# the Arizona no-daylight-saving exception live there, and /schedule/nfl
+# converts with that function rather than a second copy of the same rule.
+#
+# Nothing in this image fetches: wiki_api.py is deliberately absent, so the
+# builder's import of it would fail if it had one - it does not.
+#
+# Git-tracking checked in this same change, CLAUDE.md section 4's standing
+# rule: all five .py files are committed, and the three tables are ignored on
+# purpose and must stay ignored.
+COPY ml-training/nfl/live_nfl_features.py ./ml-training/nfl/
+COPY data-pipeline/nfl/preprocessing/build_nfl_model_dataset.py      data-pipeline/nfl/preprocessing/nfl_divisions.py      data-pipeline/nfl/preprocessing/nfl_franchises.py      data-pipeline/nfl/preprocessing/parse_nfl_wikitext.py      data-pipeline/nfl/preprocessing/make_synthetic_nfl_tables.py      ./data-pipeline/nfl/preprocessing/
+COPY ml-training/models_nfl/ ./ml-training/models_nfl/
+
 WORKDIR /app/inference-service
 
 EXPOSE 8000

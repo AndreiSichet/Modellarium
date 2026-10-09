@@ -15,8 +15,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from xgboost import XGBClassifier, XGBRegressor
 
 ML_TRAINING_DIR = Path(__file__).resolve().parents[1] / "ml-training"
+_PIPELINE_DIR = Path(__file__).resolve().parents[1] / "data-pipeline"
 for _directory in (ML_TRAINING_DIR, ML_TRAINING_DIR / "wnba",
-                   ML_TRAINING_DIR / "gleague"):
+                   ML_TRAINING_DIR / "gleague", ML_TRAINING_DIR / "nfl",
+                   _PIPELINE_DIR / "nfl" / "preprocessing"):
     if str(_directory) not in sys.path:
         sys.path.insert(0, str(_directory))
 
@@ -47,6 +49,16 @@ from live_gleague_features import (  # noqa: E402
     get_live_features as get_live_gleague_features,
     load_state as load_gleague_state,
 )
+from live_nfl_features import (  # noqa: E402
+    NotScoreable as NflNotScoreable,
+    SOURCE_ATTRIBUTION as NFL_SOURCE,
+    SyntheticDataRefused,
+    get_live_features as get_live_nfl_features,
+    kickoff_for as nfl_kickoff_for,
+    load_state as load_nfl_state,
+    predictable_fixtures as nfl_predictable_fixtures,
+    upcoming as nfl_upcoming,
+)
 from live_wnba_features import (  # noqa: E402
     NotScoreable as WnbaNotScoreable,
     get_live_features as get_live_wnba_features,
@@ -59,6 +71,9 @@ QH_MODELS_DIR = ML_TRAINING_DIR / "models_quarter_half"
 PP_MODELS_DIR = ML_TRAINING_DIR / "models_player_props"
 WNBA_MODELS_DIR = ML_TRAINING_DIR / "models_wnba"
 GLEAGUE_MODELS_DIR = ML_TRAINING_DIR / "models_gleague"
+NFL_MODELS_DIR = ML_TRAINING_DIR / "models_nfl"
+
+NEWLINE = chr(10)
 
 STALE_AFTER_DAYS = 2
 
@@ -238,6 +253,76 @@ class GleagueResponse(BaseModel):
     days_behind: int
     season: str
     markets: dict[str, GleagueMarket]
+
+
+class NflMarket(BaseModel):
+    """One NFL market, with the provenance a thin model needs carried.
+
+    `note` carries the manifest's per-market verdict - "TIES Elo alone" for
+    the winner and margin markets. That is a borderline call against
+    CLAUDE.md section 8's rule, so the reasoning is written down: the WNBA
+    shipped a moneyline caveat over the wire, measured it, found the interval
+    spanned zero and withdrew it from three layers. This is not that. A TIE
+    against Elo alone is a measured, reported result in the receipt, and it
+    describes WHAT THIS NUMBER IS - a model whose discrimination is not
+    distinguishable from a one-feature formula's. A client showing a win
+    probability without it is showing more confidence than was earned.
+
+    `imputed` is a property of THIS response rather than of the project: it
+    names the features the artifact's own imputer supplied. A season opener
+    has no REST_DAYS because an offseason is not rest, and a client should be
+    able to see that the row was completed rather than observed.
+    """
+
+    value: float
+    metric: str
+    model_used: str
+    note: str | None = None
+    imputed: list[str] = Field(default_factory=list)
+
+
+class NflFixture(BaseModel):
+    game_id: str
+    season: int
+    week: int
+    game_date: date
+    home_team_id: int
+    away_team_id: int
+    home: str
+    away: str
+    # ISO 8601 UTC, or null where the source writes TBD. Converted from the
+    # zone the article writes, which is the home team's - and Arizona does not
+    # observe daylight saving while its own article still labels the column
+    # Mountain Time Zone, so the home franchise decides the zone rather than
+    # the label alone.
+    kickoff_utc: str | None
+    kickoff_zone: str | None
+    flex: bool
+    neutral_site: bool
+    # Under the DEPENDENCY rule, not a date rule: true once both teams'
+    # previous games are in history.
+    predictable: bool
+    venue: str
+
+
+class NflResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    home_team_id: int
+    away_team_id: int
+    game_date: date
+    data_as_of: date
+    stale: bool
+    days_behind: int
+    season: int
+    week: int
+    markets: dict[str, NflMarket]
+    home_win_interpretation: str
+    # THE LICENCE TRAVELS WITH THE PREDICTION. The NFL history is derived from
+    # English Wikipedia and is CC BY-SA 4.0; phase 5 renders this, and it is on
+    # the wire rather than only in a README so a client cannot show the number
+    # without being able to show where it came from.
+    source: str
 
 
 class ServiceState:
@@ -434,6 +519,55 @@ def load_gleague_models() -> tuple:
     return models, manifest
 
 
+def load_nfl_models() -> tuple:
+    """The three NFL artifacts and their manifest, checked against each other.
+
+    THE REGISTRY IS THE MANIFEST, as it is for the WNBA and the G League and
+    for the same reason: the per-market feature lists, the families and the
+    production Elo parameters are all selection outputs, so a literal list
+    here would be a place that has to agree with phase 3 and could stop
+    agreeing silently.
+
+    THE FAMILIES ARE MIXED HERE, which is new. Two markets ship a linear
+    Pipeline (.joblib) and one ships XGBoost (.json), so the check cannot glob
+    a single extension the way the G League's does - it asks the manifest what
+    each artifact is called and requires exactly that set on disk, in both
+    directions.
+    """
+    manifest_path = NFL_MODELS_DIR / "manifest.json"
+    if not manifest_path.exists():
+        raise RuntimeError(
+            f"{manifest_path} is missing. It carries the per-market feature "
+            f"lists and the production Elo parameters, and an NFL model "
+            f"cannot be served without them."
+        )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    expected = {entry["artifact"] for entry in manifest["markets"].values()}
+    on_disk = {path.name for path in NFL_MODELS_DIR.iterdir()
+               if path.suffix in (".joblib", ".json")
+               and path.name not in ("manifest.json", "selection.json")}
+    if on_disk != expected:
+        raise RuntimeError(
+            "models_nfl/ does not match manifest.json." + NEWLINE
+            + f"  missing from disk: {sorted(expected - on_disk) or 'none'}"
+            + NEWLINE
+            + f"  present but unregistered: "
+              f"{sorted(on_disk - expected) or 'none'}"
+        )
+
+    models = {}
+    for market, entry in sorted(manifest["markets"].items()):
+        path = NFL_MODELS_DIR / entry["artifact"]
+        if entry["family"] == "linear":
+            models[market] = joblib.load(path)
+        else:
+            model = (XGBClassifier() if market == "winner" else XGBRegressor())
+            model.load_model(str(path))
+            models[market] = model
+    return models, manifest
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # RESOLVED BEFORE ANY TABLE IS READ, so a missing volume is one clear
@@ -477,6 +611,15 @@ async def lifespan(_app: FastAPI):
     state.gleague_known_team_ids = state.gleague_state["known_team_ids"]
     state.gleague_models, state.gleague_manifest = load_gleague_models()
 
+    # The NFL's own cutoff, own ids and own prediction rule. `load_nfl_state`
+    # REFUSES a synthetic table set here unless MODELLARIUM_ALLOW_SYNTHETIC_NFL
+    # is set, so a production boot cannot serve invented scores as results -
+    # see live_nfl_features.refuse_synthetic.
+    state.nfl_state = load_nfl_state()
+    state.nfl_data_as_of = state.nfl_state["data_as_of"]
+    state.nfl_known_team_ids = state.nfl_state["known_team_ids"]
+    state.nfl_models, state.nfl_manifest = load_nfl_models()
+
     print(
         f"Serving data from {state.data_root} "
         f"(snapshot {state.snapshot.get('snapshot') or 'unstamped'})."
@@ -506,6 +649,17 @@ async def lifespan(_app: FastAPI):
         f"({', '.join(sorted(state.gleague_models))}), "
         f"{len(state.gleague_known_team_ids)} teams, "
         f"data as of {state.gleague_data_as_of.date()}."
+    )
+    print(
+        f"NFL: {len(state.nfl_models)} models "
+        f"({', '.join(sorted(state.nfl_models))}), "
+        f"{len(state.nfl_known_team_ids)} franchises, "
+        f"{len(state.nfl_state['games']):,} games, "
+        f"{len(nfl_predictable_fixtures(state.nfl_state))} of "
+        f"{len(state.nfl_state['fixtures'])} fixtures predictable, "
+        f"data as of {state.nfl_data_as_of.date()}."
+        + ("  SYNTHETIC TABLES - CI only."
+           if state.nfl_state.get("synthetic") else "")
     )
     yield
 
@@ -556,7 +710,12 @@ def availability_block() -> dict:
         nba = {"state": "unknown",
                "detail": f"could not determine: {type(error).__name__}: {error}"}
 
-    return {"nba": nba, "wnba": wnba_gleague, "gleague": wnba_gleague}
+    # The NFL's feature set carries no availability column either - phase 2's
+    # manifest names quarterback availability as the largest known gap and
+    # records that nothing player-level is in that phase. So the honest state
+    # is not_applicable, not "none_published": nothing has been asked for.
+    return {"nba": nba, "wnba": wnba_gleague, "gleague": wnba_gleague,
+            "nfl": wnba_gleague}
 
 @app.get("/health")
 def health():
@@ -564,6 +723,8 @@ def health():
     days_behind, stale = freshness()
     wnba_days_behind, wnba_stale = wnba_freshness()
     gleague_days_behind, gleague_stale = gleague_freshness()
+    nfl_days_behind, nfl_stale = nfl_freshness()
+    nfl_ready = len(nfl_predictable_fixtures(state.nfl_state))
     return {
         "status": "ok",
         "models_loaded": {
@@ -572,6 +733,7 @@ def health():
             "player_props": len(state.pp_models),
             "wnba": len(state.wnba_models),
             "gleague": len(state.gleague_models),
+            "nfl": len(state.nfl_models),
         },
         "data_as_of": state.data_as_of.date().isoformat(),
         "days_behind": days_behind,
@@ -590,6 +752,23 @@ def health():
             "data_as_of": state.gleague_data_as_of.date().isoformat(),
             "days_behind": gleague_days_behind,
             "stale": gleague_stale,
+        },
+        # The NFL's own cutoff, and the one field no other league has:
+        # `predictable_fixtures`. The other three are served under
+        # MAX_DAYS_AHEAD = 1, so "what is predictable" is a date a client can
+        # compute from the cutoff. The NFL's rule is a DEPENDENCY, so it
+        # cannot be - and a client that guessed cutoff + 1 would be wrong
+        # about every fixture. Reported here so the answer comes from the
+        # service that knows it.
+        "nfl": {
+            "data_as_of": state.nfl_data_as_of.date().isoformat(),
+            "days_behind": nfl_days_behind,
+            "stale": nfl_stale,
+            "predictable_fixtures": nfl_ready,
+            "fixtures": len(state.nfl_state["fixtures"]),
+            "prediction_rule": "both teams' previous games in history",
+            "source": NFL_SOURCE,
+            "synthetic": bool(state.nfl_state.get("synthetic")),
         },
         # WHETHER AVAILABILITY IS ACTUALLY WORKING. Four of the NBA's 38
         # features come from the live injury report, and every way of not
@@ -1179,4 +1358,141 @@ def predict_wnba(request: PredictionRequest):
         days_behind=days_behind,
         season=features["season"],
         markets=markets,
+    )
+
+
+def nfl_freshness() -> tuple:
+    """The NFL's own staleness, against its own cutoff."""
+    days_behind = (pd.Timestamp(datetime.now().date())
+                   - state.nfl_data_as_of).days
+    return days_behind, days_behind > STALE_AFTER_DAYS
+
+
+def validate_nfl_matchup(request: "PredictionRequest") -> pd.Timestamp:
+    """The NFL counterpart, and the one that does NOT check a date window.
+
+    THE OTHER THREE LEAGUES ENFORCE MAX_DAYS_AHEAD = 1 AND THIS ONE MUST NOT.
+    That rule exists because their rest-day features are computed against the
+    team's previous game, so a date more than a day past the cutoff would be
+    scored against the wrong prior game. The NFL's features have the same
+    property and a stronger guarantee: every one reads only each team's own
+    earlier games, and Elo updates only on games already played, so a fixture
+    is final as soon as both sides' previous games are recorded - whatever the
+    date. Phase 2 measured that as 15 of 208 fixtures predictable at once, a
+    whole week's slate, where a date rule yields a single day.
+
+    So the window check is REPLACED rather than relaxed, and the replacement
+    lives in `get_live_nfl_features`: it refuses a fixture whose teams have an
+    earlier unplayed game, and names which side. Applying MAX_DAYS_AHEAD here
+    as well would refuse 14 of those 15 fixtures for a reason that does not
+    hold in this league.
+
+    The three basketball leagues' validators are untouched by this, which the
+    regression gate checks rather than this comment asserting it.
+    """
+    game_date = pd.Timestamp(request.game_date)
+
+    if request.home_team_id == request.away_team_id:
+        raise HTTPException(400, "home_team_id and away_team_id must differ.")
+
+    unknown = [
+        team_id
+        for team_id in (request.home_team_id, request.away_team_id)
+        if team_id not in state.nfl_known_team_ids
+    ]
+    if unknown:
+        raise HTTPException(
+            400,
+            f"No NFL history for franchise id(s) {unknown}. The four leagues' "
+            f"id universes are disjoint - the NFL's are "
+            f"1613000001-1613000032, project-assigned because the source "
+            f"carries no stable team id - so another league's id reaches this "
+            f"endpoint as an unknown franchise rather than as a wrong league.",
+        )
+
+    return game_date
+
+
+@app.get("/schedule/nfl", response_model=list[NflFixture])
+def schedule_nfl(
+    predictable_only: bool = Query(
+        False,
+        description="only fixtures whose features are already final",
+    ),
+):
+    """Unplayed NFL fixtures, from the served table rather than a live API.
+
+    NO UPSTREAM CALL AND NO CACHE, unlike the three basketball schedules. Those
+    ask nba_api's ScheduleLeagueV2 and cache the frame for six hours. The NFL's
+    fixtures arrive in the served snapshot, because the same Wikipedia articles
+    that carry results carry the remaining schedule - so the fixture list is as
+    fresh as the daily refresh and no fresher, which is exactly what
+    `data_as_of` already says.
+    """
+    fixtures = nfl_upcoming(state.nfl_state)
+    if predictable_only:
+        fixtures = [row for row in fixtures if row["predictable"]]
+    return [NflFixture(**row) for row in fixtures]
+
+
+@app.post("/predict/nfl", response_model=NflResponse)
+def predict_nfl(request: PredictionRequest):
+    """Three NFL markets for one fixture: winner, margin and total.
+
+    DOES NOT REFUSE AN INCOMPLETE FEATURE ROW, which is the opposite of the
+    WNBA and G League endpoints and is a property of the artifacts rather than
+    a looser standard. Their linear Pipelines carry no imputer, so a NaN
+    cannot be scored at all. The NFL's two linear artifacts carry a
+    SimpleImputer fitted on training rows only, with SEASON_OPENER riding
+    along as the indicator that the value was supplied rather than observed -
+    so a season opener scores exactly as it did in training. Which features
+    were imputed is reported per market instead of being hidden.
+    """
+    validate_nfl_matchup(request)
+
+    try:
+        features = get_live_nfl_features(
+            request.home_team_id, request.away_team_id,
+            request.game_date, state.nfl_state,
+        )
+    except NflNotScoreable as error:
+        raise HTTPException(400, str(error)) from error
+    except (ValueError, KeyError) as error:
+        raise HTTPException(
+            400, f"Could not build features: {error}") from error
+
+    markets = {}
+    for market, model in state.nfl_models.items():
+        entry = state.nfl_manifest["markets"][market]
+        row = pd.DataFrame([features["rows"][market]],
+                           columns=entry["features"])
+        if market == "winner":
+            value = float(model.predict_proba(row)[0][1])
+            metric = "log_loss"
+        else:
+            value = float(model.predict(row)[0])
+            metric = "mae"
+        verdict = (state.nfl_manifest["test"].get(market) or {}).get("verdict")
+        markets[market] = NflMarket(
+            value=value,
+            metric=metric,
+            model_used=f"{entry['family']}/{entry['elo_variant']}/"
+                       f"{entry['feature_set']}",
+            note=verdict,
+            imputed=features["missing"].get(market, []),
+        )
+
+    days_behind, stale = nfl_freshness()
+    return NflResponse(
+        home_team_id=request.home_team_id,
+        away_team_id=request.away_team_id,
+        game_date=request.game_date,
+        data_as_of=state.nfl_data_as_of.date(),
+        stale=stale,
+        days_behind=days_behind,
+        season=features["season"],
+        week=features["week"],
+        markets=markets,
+        home_win_interpretation=state.nfl_manifest["winner_qualifier"],
+        source=NFL_SOURCE,
     )

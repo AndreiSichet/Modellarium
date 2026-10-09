@@ -33,14 +33,15 @@ public class ScheduleSyncJob {
     }
 
     /**
-     * Both leagues, each through the proxy and each in its own transaction.
+     * All four leagues, each through the proxy and each in its own
+     * transaction.
      *
      * Called from here rather than from inside ScheduleSyncService, because a
      * method on that class calling its own sibling would bypass Spring's
      * proxy and run both leagues in one transaction - which is exactly the
-     * independence this split exists to provide. The WNBA call is also
-     * wrapped, so a failure there cannot stop the NBA sync on a later tick or
-     * take the startup listener down with it.
+     * independence this split exists to provide. Each call is also wrapped
+     * individually, so one league's failure cannot stop another's sync on the
+     * same tick or take the startup listener down with it.
      */
     private void syncAllLeagues() {
         try {
@@ -57,6 +58,11 @@ public class ScheduleSyncJob {
             scheduleSyncService.syncGleague();
         } catch (Exception error) {
             log.warn("G League schedule sync failed: {}", error.getMessage());
+        }
+        try {
+            scheduleSyncService.syncNfl();
+        } catch (Exception error) {
+            log.warn("NFL schedule sync failed: {}", error.getMessage());
         }
     }
 }
