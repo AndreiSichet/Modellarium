@@ -443,9 +443,27 @@ def elo_log_loss(games, params, score_seasons=None):
     return total / n if n else float("nan")
 
 
+def fit_elo_including_test(games, mov, who="fit_elo_including_test"):
+    """The ONE way to fit Elo on rows that include the test seasons.
+
+    Phase 3's production fit is defined as training on everything through the
+    last completed season, so its Elo has no holdout - and `fit_elo` must keep
+    refusing test rows, because every selection step goes through it. Rather
+    than let a caller pass `test_seasons=()` and weaken the firewall by a
+    keyword, the opt-out is a separate function with a name that says what it
+    is: greppable, impossible to reach by a typo, and asserted by
+    `verify_nfl_selection.py` to have exactly one caller.
+    """
+    return _fit_elo_unguarded(games, mov, who)
+
+
 def fit_elo(train_games, mov, who="fit_elo"):
     """Grid search K, carryover and home advantage on the training games."""
     refuse_test_rows(train_games, who)
+    return _fit_elo_unguarded(train_games, mov, who)
+
+
+def _fit_elo_unguarded(train_games, mov, who):
     best, best_loss = None, float("inf")
     for k in K_GRID:
         for carryover in CARRYOVER_GRID:

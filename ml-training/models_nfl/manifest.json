@@ -1,0 +1,410 @@
+{
+  "attribution": {
+    "licence": "CC BY-SA 4.0",
+    "share_alike": "no NFL table is committed, raw or processed - the licence is share-alike and this repository is not licensed to redistribute a derived database",
+    "source": "English Wikipedia season and schedule pages"
+  },
+  "elo": {
+    "ELO": {
+      "carryover": 0.4,
+      "fitted_on_seasons": [
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "grid_edges": [],
+      "home_advantage": 35,
+      "k": 50,
+      "margin_of_victory_multiplier": false,
+      "no_holdout": "fitted on seasons that include the test ones, so this is a no-holdout quantity like the weights; a retrain gate must refit K, carryover and home advantage rather than inherit them",
+      "training_log_loss": 0.6371801828188982
+    },
+    "ELO_MOV": {
+      "carryover": 0.4,
+      "fitted_on_seasons": [
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "grid_edges": [],
+      "home_advantage": 35,
+      "k": 20,
+      "margin_of_victory_multiplier": true,
+      "no_holdout": "fitted on seasons that include the test ones, so this is a no-holdout quantity like the weights; a retrain gate must refit K, carryover and home advantage rather than inherit them",
+      "training_log_loss": 0.6313577586291131
+    }
+  },
+  "excluded": "the 2026 games played so far - a production model is reproducible from completed seasons only, and 64 games decide nothing",
+  "fitted_through": 2025,
+  "league": "nfl",
+  "markets": {
+    "margin": {
+      "artifact": "margin.json",
+      "elo_variant": "mov",
+      "family": "xgboost",
+      "feature_set": "elo_context",
+      "features": [
+        "HOME_ELO_MOV",
+        "AWAY_ELO_MOV",
+        "NEUTRAL_SITE",
+        "DIVISION_GAME",
+        "WEEK",
+        "HOME_REST_DAYS",
+        "HOME_SHORT_WEEK",
+        "HOME_OFF_BYE",
+        "HOME_SEASON_OPENER",
+        "AWAY_REST_DAYS",
+        "AWAY_SHORT_WEEK",
+        "AWAY_OFF_BYE",
+        "AWAY_SEASON_OPENER"
+      ],
+      "fitted_on_seasons": [
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "rows": 3663,
+      "selected": "xgboost/mov/elo_context",
+      "setting": {
+        "learning_rate": 0.1,
+        "max_depth": 2
+      },
+      "sha256": "a9726616027e5a7a5f6f30a61cd0dcb6453afa5fd0bc9c75c802dff6c1a6cf72",
+      "trees": 30
+    },
+    "total": {
+      "artifact": "total.joblib",
+      "elo_variant": "mov",
+      "family": "linear",
+      "feature_set": "elo_context_carry8",
+      "features": [
+        "HOME_ELO_MOV",
+        "AWAY_ELO_MOV",
+        "NEUTRAL_SITE",
+        "DIVISION_GAME",
+        "WEEK",
+        "HOME_REST_DAYS",
+        "HOME_SHORT_WEEK",
+        "HOME_OFF_BYE",
+        "HOME_SEASON_OPENER",
+        "AWAY_REST_DAYS",
+        "AWAY_SHORT_WEEK",
+        "AWAY_OFF_BYE",
+        "AWAY_SEASON_OPENER",
+        "HOME_CARRY8_PF",
+        "HOME_CARRY8_PA",
+        "HOME_CARRY8_MARGIN",
+        "HOME_CARRY8_WIN_RATE",
+        "AWAY_CARRY8_PF",
+        "AWAY_CARRY8_PA",
+        "AWAY_CARRY8_MARGIN",
+        "AWAY_CARRY8_WIN_RATE"
+      ],
+      "fitted_on_seasons": [
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "rows": 3663,
+      "selected": "linear/mov/elo_context_carry8",
+      "setting": {
+        "strength": 30.0
+      },
+      "sha256": "50d9511e3765e1bddf36845c01802aa40803e6e6d6e902a13f46dc090b77630e",
+      "trees": null
+    },
+    "winner": {
+      "artifact": "winner.joblib",
+      "elo_variant": "mov",
+      "family": "linear",
+      "feature_set": "elo_context",
+      "features": [
+        "HOME_ELO_MOV",
+        "AWAY_ELO_MOV",
+        "NEUTRAL_SITE",
+        "DIVISION_GAME",
+        "WEEK",
+        "HOME_REST_DAYS",
+        "HOME_SHORT_WEEK",
+        "HOME_OFF_BYE",
+        "HOME_SEASON_OPENER",
+        "AWAY_REST_DAYS",
+        "AWAY_SHORT_WEEK",
+        "AWAY_OFF_BYE",
+        "AWAY_SEASON_OPENER"
+      ],
+      "fitted_on_seasons": [
+        2012,
+        2013,
+        2014,
+        2015,
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025
+      ],
+      "rows": 3650,
+      "selected": "linear/mov/elo_context",
+      "setting": {
+        "strength": 0.03
+      },
+      "sha256": "8f92e7fd50c810451fe24b40ea08f464bd7e6cc8e402157a67367465640981d6",
+      "trees": null
+    }
+  },
+  "no_holdout": "these artifacts are fitted through the test seasons and so cannot be scored themselves; every number under `test` belongs to the held-out fit the receipt records",
+  "phase": "nfl-3-models",
+  "selection_is_a_pick_not_a_win": {
+    "margin": "12 of 15 other candidates tie it under the tie rule, so the shipped configuration is defensible rather than demonstrated",
+    "total": "11 of 15 other candidates tie it under the tie rule, so the shipped configuration is defensible rather than demonstrated",
+    "winner": "12 of 15 other candidates tie it under the tie rule, so the shipped configuration is defensible rather than demonstrated"
+  },
+  "span": "2012",
+  "span_start": 2012,
+  "test": {
+    "margin": {
+      "baselines": {
+        "elo_mov": {
+          "mae": 10.107066683821925,
+          "rmse": 12.958928946705814
+        },
+        "elo_plain": {
+          "mae": 10.095950362357742,
+          "rmse": 12.972002441834718
+        },
+        "naive": {
+          "mae": 11.073982634894291,
+          "rmse": 14.292458316249345
+        }
+      },
+      "intervals": {
+        "model_minus_elo_alone": {
+          "difference": 0.12185850161021138,
+          "excludes_zero": false,
+          "games": 544,
+          "hi": 0.2946712527834791,
+          "lo": -0.053784168645575475,
+          "resamples": 10000,
+          "seed": 20261008
+        },
+        "model_minus_naive": {
+          "difference": -0.8450574494621541,
+          "excludes_zero": true,
+          "games": 544,
+          "hi": -0.5389017297917814,
+          "lo": -1.1574719592665232,
+          "resamples": 10000,
+          "seed": 20261008
+        }
+      },
+      "scores": {
+        "mae": 10.228925185432137,
+        "rmse": 13.187990119566447
+      },
+      "verdict": "TIES Elo alone",
+      "weeks_1_4": {
+        "games": 128,
+        "model": {
+          "mae": 9.941734432431986,
+          "rmse": 13.194117985203842
+        }
+      }
+    },
+    "total": {
+      "baselines": {
+        "elo_mov": null,
+        "elo_plain": null,
+        "naive": {
+          "mae": 10.507677682326538,
+          "rmse": 13.447845612483224
+        }
+      },
+      "intervals": {
+        "model_minus_elo_alone": null,
+        "model_minus_naive": {
+          "difference": -0.2682394761180529,
+          "excludes_zero": true,
+          "games": 544,
+          "hi": -0.04959444330727741,
+          "lo": -0.49891414904225373,
+          "resamples": 10000,
+          "seed": 20261008
+        }
+      },
+      "scores": {
+        "mae": 10.239438206208483,
+        "rmse": 13.116731500638931
+      },
+      "verdict": "no Elo baseline; judged against naive only",
+      "weeks_1_4": {
+        "games": 128,
+        "model": {
+          "mae": 10.276868038254731,
+          "rmse": 12.614803159331741
+        }
+      }
+    },
+    "winner": {
+      "baselines": {
+        "elo_mov": {
+          "accuracy": 0.6500920810313076,
+          "brier": 0.21861915850125732,
+          "ece": 0.05401400808579486,
+          "log_loss": 0.6264806838407753
+        },
+        "elo_plain": {
+          "accuracy": 0.6666666666666666,
+          "brier": 0.21760092894663258,
+          "ece": 0.05568645920762111,
+          "log_loss": 0.6246283438471933
+        },
+        "naive": {
+          "accuracy": 0.5359116022099447,
+          "brier": 0.24912049626251326,
+          "ece": 0.02025189956025153,
+          "log_loss": 0.6913941203160009
+        }
+      },
+      "intervals": {
+        "model_minus_elo_alone": {
+          "difference": 0.0031370736133323027,
+          "excludes_zero": false,
+          "games": 543,
+          "hi": 0.008488108648027787,
+          "lo": -0.002381910906968866,
+          "resamples": 10000,
+          "seed": 20261008
+        },
+        "model_minus_naive": {
+          "difference": -0.06177636286189331,
+          "excludes_zero": true,
+          "games": 543,
+          "hi": -0.03773054808581101,
+          "lo": -0.08528676344950949,
+          "resamples": 10000,
+          "seed": 20261008
+        }
+      },
+      "scores": {
+        "accuracy": 0.6519337016574586,
+        "brier": 0.22012073665370452,
+        "ece": 0.053635973344958024,
+        "log_loss": 0.6296177574541075
+      },
+      "verdict": "TIES Elo alone",
+      "weeks_1_4": {
+        "games": 127,
+        "model": {
+          "accuracy": 0.6456692913385826,
+          "brier": 0.23333666213289955,
+          "ece": 0.08636423347052205,
+          "log_loss": 0.6585395247048326
+        }
+      }
+    }
+  },
+  "test_receipt": {
+    "git_commit": "e37e65bc5da393913e0efa820c7cd75c789318ed",
+    "test_seasons": [
+      2024,
+      2025
+    ],
+    "written_at": "2026-10-08T19:57:13.146667+00:00"
+  },
+  "tie_rule": "a candidate beats another only if its mean validation score is better by more than the fold-to-fold standard deviation of the paired difference; ties break on fewer features, then linear over trees, then lower serving cost",
+  "tied_with": {
+    "margin": [
+      "linear/mov/elo_context_carry5",
+      "linear/plain/elo_context_carry8",
+      "linear/plain/elo_context_carry5",
+      "linear/mov/elo_context_carry8",
+      "linear/mov/elo_context_carry5_roll3",
+      "xgboost/mov/elo_context_carry8",
+      "linear/plain/elo_context_carry5_roll3",
+      "xgboost/mov/elo_context_carry5_roll3",
+      "xgboost/plain/elo_context_carry5",
+      "xgboost/plain/elo_context_carry5_roll3",
+      "xgboost/mov/elo_context_carry5",
+      "xgboost/plain/elo_context"
+    ],
+    "total": [
+      "linear/mov/elo_context_carry5_roll3",
+      "linear/plain/elo_context_carry5_roll3",
+      "linear/mov/elo_context_carry5",
+      "linear/plain/elo_context_carry8",
+      "linear/plain/elo_context_carry5",
+      "xgboost/plain/elo_context_carry5_roll3",
+      "xgboost/mov/elo_context_carry5_roll3",
+      "xgboost/plain/elo_context_carry8",
+      "xgboost/mov/elo_context_carry5",
+      "xgboost/mov/elo_context_carry8",
+      "xgboost/plain/elo_context_carry5"
+    ],
+    "winner": [
+      "xgboost/mov/elo_context_carry8",
+      "xgboost/plain/elo_context_carry8",
+      "xgboost/plain/elo_context_carry5",
+      "xgboost/plain/elo_context_carry5_roll3",
+      "linear/mov/elo_context_carry8",
+      "xgboost/mov/elo_context_carry5",
+      "linear/mov/elo_context_carry5",
+      "linear/plain/elo_context_carry8",
+      "linear/mov/elo_context_carry5_roll3",
+      "linear/plain/elo_context_carry5",
+      "xgboost/mov/elo_context_carry5_roll3",
+      "linear/plain/elo_context_carry5_roll3"
+    ]
+  },
+  "winner_qualifier": "P(home wins | not tied)",
+  "written_at": "2026-10-08T20:23:54.222225+00:00"
+}
