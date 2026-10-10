@@ -256,9 +256,14 @@ describe('the schedule wire shape', () => {
   // is handled" look identical until someone adds the league constant and
   // forgets the endpoint - and the G League's `|| 'nba'` is what that failure
   // looks like when nothing checks.
-  test('an NFL fixture is skipped, so it renders nowhere before phase 5', () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-
+  // THESE TWO TESTS REPLACE THEIR PHASE-4 TWINS RATHER THAN DELETING THEM.
+  // Phase 4 pinned the opposite - an NFL fixture was skipped and no
+  // prediction could be requested - because the endpoint table had no `nfl`
+  // entry and the frontend showed the league nowhere. That was the correct
+  // assertion then and is false now, so the sentence moved; the property
+  // worth keeping is unchanged, which is that an NFL fixture goes to the NFL
+  // endpoint and never to a basketball one.
+  test('an NFL fixture is now routed, and to its own league', () => {
     const fixtures = normaliseSchedule([
       ...SCHEDULE_BODY,
       {
@@ -266,40 +271,50 @@ describe('the schedule wire shape', () => {
         homeTeamId: 1613000012,
         awayTeamId: 1613000006,
         gameDate: '2026-10-11',
+        predictable: true,
+        kickoffUtc: '2026-10-11T17:00:00Z',
+        flex: false,
+        week: 5,
       },
     ]);
 
-    // The two basketball fixtures survive; the NFL one does not.
-    expect(fixtures).toHaveLength(2);
-    expect(fixtures.some((game) => game.leagueSlug === 'nfl')).toBe(false);
-    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/nfl/));
-
-    // AND IT IS NOT QUIETLY FILED UNDER ANOTHER LEAGUE, which is the failure
-    // that actually matters: an NFL franchise id posted to the NBA endpoint
-    // would come back 400 "unknown team id", and the id ranges are disjoint
-    // precisely so that is what happens rather than a wrong prediction.
-    expect(fixtures.every((game) => game.leagueSlug !== undefined)).toBe(true);
+    expect(fixtures).toHaveLength(3);
     expect(fixtures.map((game) => game.leagueSlug).sort())
-      .toEqual(['gleague', 'nba']);
+      .toEqual(['gleague', 'nba', 'nfl']);
 
-    warn.mockRestore();
+    // THE FOUR NEW WIRE FIELDS SURVIVE THE BOUNDARY. normaliseSchedule
+    // spreads the wire object, so these need no mapping - but nothing else
+    // pins that, and `predictable` arriving as undefined would make every
+    // NFL fixture unpredictable with no error anywhere.
+    const nfl = fixtures.find((game) => game.leagueSlug === 'nfl');
+    expect(nfl.predictable).toBe(true);
+    expect(nfl.kickoffUtc).toBe('2026-10-11T17:00:00Z');
+    expect(nfl.flex).toBe(false);
+    expect(nfl.week).toBe(5);
   });
 
-  test('no prediction can be requested for an NFL fixture', async () => {
-    global.fetch = jest.fn();
+  test('a prediction for an NFL fixture posts to the NFL path', async () => {
+    mockFetchOnce({
+      gameId: 1028,
+      prediction: { homeWinProbability: 0.4390723587536829 },
+    });
 
-    await expect(
-      createPredictionFor('nfl', {
-        homeTeamId: 1613000012,
-        awayTeamId: 1613000006,
-        gameDate: '2026-10-11',
-      })
-    ).rejects.toThrow();
+    const summary = await createPredictionFor('nfl', {
+      homeTeamId: 1613000012,
+      awayTeamId: 1613000006,
+      gameDate: '2026-10-11',
+    });
 
-    // THE REQUEST IS NEVER MADE. Throwing after a fetch would still have sent
-    // an NFL id to a basketball endpoint, so the assertion is on fetch rather
-    // than on the rejection alone.
-    expect(global.fetch).not.toHaveBeenCalled();
+    // ITS OWN PATH, NOT A BASKETBALL ONE. The id ranges are disjoint, so a
+    // misrouted NFL fixture would come back 400 "unknown team id" rather
+    // than a wrong number - but asserting the path is what catches it before
+    // anyone has to read a 400.
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/predictions/nfl'),
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(summary.gameId).toBe(1028);
+    expect(summary.prediction.homeWinProbability).toBe(0.4390723587536829);
   });
 });
 

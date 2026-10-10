@@ -2,6 +2,7 @@ package com.andreisichet.basketball_predictor.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.stream.Collectors;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.andreisichet.basketball_predictor.dto.InferenceScheduledGame;
+import com.andreisichet.basketball_predictor.model.Game;
 import com.andreisichet.basketball_predictor.model.Team;
 import com.andreisichet.basketball_predictor.repository.GameRepository;
 import com.andreisichet.basketball_predictor.repository.TeamRepository;
@@ -141,6 +143,7 @@ public class ScheduleSyncService {
 
         long before = gameRepository.count();
         int skipped = 0;
+        int updated = 0;
 
         for (InferenceScheduledGame fixture : fixtures) {
             Team home = teamsById.get(fixture.homeTeamId());
@@ -151,7 +154,12 @@ public class ScheduleSyncService {
                 continue;
             }
 
-            gameLookup.findOrCreateGame(home, away, fixture.gameDate());
+            Game game = gameLookup.findOrCreateGame(home, away,
+                    fixture.gameDate());
+            if (applyFixtureFields(game, fixture)) {
+                gameRepository.save(game);
+                updated++;
+            }
         }
 
         long created = gameRepository.count() - before;
@@ -163,6 +171,45 @@ public class ScheduleSyncService {
                 created,
                 fixtures.size() - skipped - created,
                 skipped > 0 ? ", " + skipped + " skipped (unknown team)" : "");
+        if (updated > 0) {
+            log.info("{} schedule sync: {} fixture(s) had their "
+                    + "predictable/kickoff/flex/week updated.", league, updated);
+        }
+    }
+
+    /**
+     * Copy the NFL's per-fixture fields onto the row; true if anything moved.
+     *
+     * ONLY ON CHANGE, BECAUSE THIS RUNS EVERY SIX HOURS. Writing all four
+     * columns unconditionally would mean ~1,200 pointless UPDATEs per cycle
+     * for rows that had not moved. In the steady state this writes nothing;
+     * it writes when a fixture becomes predictable, when a flexed kickoff is
+     * finally set, or on the first sync after the columns were added.
+     *
+     * The three basketball leagues send none of these, so every field stays
+     * null and this returns false for them - which is why the sync does not
+     * need to know which league it is looking at.
+     */
+    private boolean applyFixtureFields(Game game,
+                                       InferenceScheduledGame fixture) {
+        boolean changed = false;
+        if (!Objects.equals(game.getPredictable(), fixture.predictable())) {
+            game.setPredictable(fixture.predictable());
+            changed = true;
+        }
+        if (!Objects.equals(game.getKickoffUtc(), fixture.kickoffUtc())) {
+            game.setKickoffUtc(fixture.kickoffUtc());
+            changed = true;
+        }
+        if (!Objects.equals(game.getFlex(), fixture.flex())) {
+            game.setFlex(fixture.flex());
+            changed = true;
+        }
+        if (!Objects.equals(game.getWeek(), fixture.week())) {
+            game.setWeek(fixture.week());
+            changed = true;
+        }
+        return changed;
     }
 
     /**

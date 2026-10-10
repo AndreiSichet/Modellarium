@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 
 import { formatSpread, formatWin } from '../predictionFormat';
+import { formatKickoff } from '../dates';
 import { teamFor } from '../data/teams';
 import TeamBadge from './TeamBadge';
 import './GameRow.css';
@@ -22,6 +23,11 @@ function GameRow({ game, league }) {
   const { prediction } = game;
   const margin = prediction.homeMargin;
   const probability = prediction.homeWinProbability;
+
+  // THE SAME SLOT THE DATE ALREADY OCCUPIED, not a new column. A basketball
+  // fixture carries no kickoff, so this is its bare ISO date exactly as
+  // before and no empty time cell appears on those rows.
+  const when = formatKickoff(game);
 
   return (
     <li className="game-row">
@@ -54,7 +60,14 @@ function GameRow({ game, league }) {
 
       <div className="game-row-footer">
 
-        <span className="game-row-when">{game.gameDate}</span>
+        <span className="game-row-when">
+          {when.text}
+          {when.flex ? (
+            <span className="game-row-flex" title="The kickoff time may move">
+              flex
+            </span>
+          ) : null}
+        </span>
         <Link
           className="game-row-more"
           to={`/predictions/${league.sport}/${league.slug}/${game.gameId}`}

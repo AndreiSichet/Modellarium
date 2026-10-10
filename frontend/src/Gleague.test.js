@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import App from './App';
 import { createPredictionFor, getHealth, getSchedule } from './api';
 import { TEAMS, UNKNOWN_TEAM, teamFor } from './data/teams';
-import { LEAGUES, firstFixtureDate, leagueCopy } from './data/leagues';
+import { LEAGUES, firstFixtureDate, leagueCopy, leaguesForSport } from './data/leagues';
 
 jest.mock('./api');
 
@@ -397,12 +397,16 @@ describe('the `More <league>` links are three separate targets', () => {
     // THE BUG THIS REPLACES rendered them as inline text reading
     // "More NBAMore WNBAMore G League". Three anchors is what makes them
     // three keyboard stops and three screen-reader targets.
-    expect(links).toHaveLength(LEAGUES.length);
-    expect(links.map((a) => a.textContent)).toEqual([
-      'More NBA',
-      'More WNBA',
-      'More G League',
-    ]);
+    // SCOPED TO THE SPORT, NOT ALL LEAGUES. This read LEAGUES.length, which
+    // was the same number while basketball was the only sport and became
+    // wrong the moment the NFL existed: this page is /predictions/basketball,
+    // so it shows basketball's leagues and the NFL belongs to another rail
+    // entry entirely.
+    const basketball = leaguesForSport('basketball');
+    expect(links).toHaveLength(basketball.length);
+    expect(links.map((a) => a.textContent)).toEqual(
+      basketball.map((league) => `More ${league.label}`)
+    );
     expect(links.map((a) => a.getAttribute('href'))).toEqual([
       '/predictions/basketball/nba',
       '/predictions/basketball/wnba',

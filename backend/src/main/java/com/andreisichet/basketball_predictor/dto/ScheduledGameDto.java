@@ -1,5 +1,6 @@
 package com.andreisichet.basketball_predictor.dto;
 
+import java.time.Instant;
 import java.time.LocalDate;
 
 /** An upcoming fixture offered to the client as a candidate to predict. */
@@ -28,5 +29,38 @@ public record ScheduledGameDto(
         Long awayTeamId,
         String awayTeamAbbr,
         String awayTeamName,
-        LocalDate gameDate) {
+        LocalDate gameDate,
+
+        /**
+         * Whether this fixture can be predicted now, or null for a league that
+         * decides that from a date instead.
+         *
+         * THREE STATES, NOT TWO. The three basketball leagues send null here
+         * and keep their date rule - one day after that league's cutoff, which
+         * the client computes. The NFL's rule is a dependency measured in the
+         * inference service (both teams' previous games in history) and cannot
+         * be derived from any date, so the answer travels with the fixture
+         * rather than being reimplemented in JavaScript where it would drift
+         * from the code that refuses the request.
+         *
+         * STALENESS, STATED: the sync runs every six hours and at startup, so
+         * a fixture that becomes predictable after the morning refresh can
+         * appear up to six hours late. It cannot err the other way - a fixture
+         * never stops being predictable before it is played - so the failure
+         * mode is a late offer, never a rejected one.
+         */
+        Boolean predictable,
+
+        /**
+         * Kickoff in UTC, null when the time is not yet set. NFL only; the
+         * client renders it in the viewer's own zone and shows the date alone
+         * when this is null, rather than inventing a time.
+         */
+        Instant kickoffUtc,
+
+        /** Whether the kickoff may still move. NFL only. */
+        Boolean flex,
+
+        /** The NFL week, for the Week N headings on the league page. */
+        Integer week) {
 }

@@ -1,0 +1,13 @@
+/* Quiet but legible, and never a tooltip - a licence condition a reader must
+   hover to find is one most readers never see. Tokens only. */
+.attribution {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-body);
+  font-size: var(--text-small);
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+}
+
+.attribution a {
+  color: var(--accent-text);
+}

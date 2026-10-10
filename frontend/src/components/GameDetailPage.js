@@ -7,6 +7,7 @@ import { findLeague } from '../data/leagues';
 import { teamFor } from '../data/teams';
 import Breadcrumb from './Breadcrumb';
 import DetailTabs, { PLAYER_STATS, isPlayerTab, panelId, tabId, tabsFor } from './DetailTabs';
+import Attribution from './Attribution';
 import GameTab from './GameTab';
 import PlayerStatTab from './PlayerStatTab';
 import QuarterHalfTab from './QuarterHalfTab';
@@ -131,6 +132,14 @@ function GameDetailPage() {
           />
         )}
       </div>
+
+      {/* THE LICENCE LINE, ON EVERY NFL GAME PAGE. Required by CC BY-SA 4.0
+          wherever the data is shown, and the words come from the prediction
+          body's own `source` so they cannot drift from the backend. Absent
+          for every other league, which owes no attribution. */}
+      {league.attributionRequired ? (
+        <Attribution source={game.prediction?.source} />
+      ) : null}
     </div>
   );
 }

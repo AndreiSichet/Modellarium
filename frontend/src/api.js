@@ -36,6 +36,11 @@ const PREDICTION_ENDPOINTS = {
     gameIdField: 'gameId',
     predictionField: 'prediction',
   },
+  nfl: {
+    path: '/predictions/nfl',
+    gameIdField: 'gameId',
+    predictionField: 'prediction',
+  },
 };
 
 /**

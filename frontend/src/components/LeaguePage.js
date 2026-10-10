@@ -4,9 +4,11 @@ import Breadcrumb from './Breadcrumb';
 
 import { findLeague, leagueCopy } from '../data/leagues';
 import { dataAsOfFor } from '../dates';
+import Attribution from './Attribution';
 import GameList from './GameList';
 import { byDate } from './GamesPage';
 import { findSport } from './SportsRail';
+import WeekGroups from './WeekGroups';
 import './LeaguePage.css';
 
 function LeaguePage() {
@@ -21,6 +23,18 @@ function LeaguePage() {
 
   const listed = byDate(games.filter((game) => game.leagueSlug === league.slug));
 
+  // THE LICENCE TEXT COMES OFF A PREDICTION BODY, because that is where the
+  // API puts it. Any of this league's predictions carries the same `source`,
+  // so the first one is enough; with none, Attribution renders nothing
+  // rather than a claim this page cannot substantiate.
+  const source = listed.find((game) => game.prediction?.source)
+    ?.prediction?.source;
+
+  // A WEEKLY LEAGUE GETS WEEK HEADINGS AND ITS UNPREDICTABLE FIXTURES SHOWN.
+  // Declared on the league rather than branched on a slug, so basketball's
+  // page is the flat date-ordered list it has always been.
+  const weekly = league.weeklySlate === true;
+
   return (
     <div className="league-page">
       <Breadcrumb
@@ -33,7 +47,14 @@ function LeaguePage() {
 
       <h1 className="league-page-title">{league.label} Predictions</h1>
 
-      {listed.length === 0 ? (
+      {weekly ? (
+        <WeeklyLeague
+          league={league}
+          health={health}
+          schedule={schedule}
+          games={listed}
+        />
+      ) : listed.length === 0 ? (
         <SeasonEmptyState
           league={league}
           health={health}
@@ -42,6 +63,8 @@ function LeaguePage() {
       ) : (
         <GameList games={listed} league={league} />
       )}
+
+      {league.attributionRequired ? <Attribution source={source} /> : null}
     </div>
   );
 }
@@ -77,6 +100,51 @@ export function SeasonEmptyState({ league, health, schedule }) {
         </p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A league whose page is organised by week rather than by date.
+ *
+ * The empty state still applies when nothing at all is scheduled - the
+ * offseason - but a week with fixtures and no predictions is NOT empty: it
+ * shows the fixtures marked as not yet predictable, which is the whole point
+ * of grouping them.
+ */
+function WeeklyLeague({ league, health, schedule, games }) {
+  const scheduled = (schedule || []).filter(
+    (game) => game.leagueSlug === league.slug && game.week != null
+  );
+
+  if (!scheduled.length) {
+    return (
+      <SeasonEmptyState league={league} health={health} schedule={schedule} />
+    );
+  }
+
+  return (
+    <>
+      <WeekGroups schedule={schedule} games={games} league={league} />
+
+      {/* THIS LEAGUE'S OWN CUTOFF, and it was missing until a test asked for
+          it: the meta line lived only in SeasonEmptyState, so a weekly page
+          with fixtures showed no data-as-of anywhere. Never another league's
+          - dataAsOfFor reads the league's own block and yields null rather
+          than falling back, which is the shared-date bug the G League phase
+          had to fix. */}
+      <LeagueFreshness league={league} health={health} />
+    </>
+  );
+}
+
+function LeagueFreshness({ league, health }) {
+  const dataAsOf = dataAsOfFor(health, league);
+  if (!dataAsOf) return null;
+
+  return (
+    <p className="predictions-message-meta">
+      {league.label} model data is current to {dataAsOf}.
+    </p>
   );
 }
 

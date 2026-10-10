@@ -23,3 +23,22 @@ html {
 *::after {
   box-sizing: border-box;
 }
+
+/* ONE SHAPE FOR THE SMALL UPPERCASE MARKERS that sit beside a value: the
+   stale badge and the NFL's flexed-kickoff marker.
+   Shared rather than copied. tokens.css carries no radius or letter-spacing
+   token, so these literals have to live somewhere - and they lived in
+   .stale-badge until a second copy appeared with the flex marker, which is
+   exactly how two markers drift apart. Each variant keeps only its own
+   colour and border, in its own stylesheet, because .stale-badge's border is
+   --accent while its text is --accent-text and collapsing them to
+   currentColor would change an existing page. */
+.stale-badge,
+.game-row-flex {
+  padding: 0 var(--space-1);
+  font-family: var(--font-display);
+  font-size: var(--text-label);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}

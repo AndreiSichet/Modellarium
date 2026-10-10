@@ -5,6 +5,8 @@ import App from './App';
 import { createPredictionFor, getHealth, getSchedule } from './api';
 import { byDate, soonestGames } from './components/GamesPage';
 import { sportSlugFromPath } from './components/PredictionsLayout';
+import { SPORTS } from './components/SportsRail';
+import { LEAGUES } from './data/leagues';
 
 jest.mock('./api');
 
@@ -152,17 +154,36 @@ describe('routing', () => {
     await screen.findByRole('heading', { name: 'Upcoming', level: 1 });
     const upcomingShape = shapeOf(upcoming);
 
-    expect(generalShape).toEqual(upcomingShape);
+    // GENERAL IS A SUPERSET NOW, NOT A TWIN. While basketball was the only
+    // sport these two shapes were identical, and that equality is what the
+    // test asserted. General spans every sport and Upcoming is scoped to one,
+    // so with the NFL in the rail they differ legitimately - and the property
+    // worth keeping is the one that made the equality true in the first
+    // place: they are the SAME component, so for the leagues both pages show,
+    // the rendering is identical.
+    const basketballIds = new Set(upcomingShape.sections);
+    expect(basketballIds.size).toBeGreaterThan(0);
+    expect(generalShape.sections.filter((id) => basketballIds.has(id)))
+      .toEqual(upcomingShape.sections);
+    expect(
+      generalShape.shortcuts.filter((label) =>
+        upcomingShape.shortcuts.includes(label)
+      )
+    ).toEqual(upcomingShape.shortcuts);
+    expect(generalShape.more).toEqual(upcomingShape.more);
+    expect(generalShape.rows).toBeGreaterThanOrEqual(upcomingShape.rows);
 
     // ALL THREE leagues get a section on both pages. The WNBA has no games
     // for seven months and the G League none until late December, and a
     // section is what keeps each page reachable from anywhere other than a
     // typed URL.
-    expect(generalShape.sections).toEqual([
-      'league-basketball-nba',
-      'league-basketball-wnba',
-      'league-basketball-gleague',
-    ]);
+    // A SECTION PER LEAGUE ON GENERAL, derived from the constant rather than
+    // listed - the WNBA has no games for seven months and the G League none
+    // until late December, and a section is what keeps each league page
+    // reachable from anywhere other than a typed URL.
+    expect(generalShape.sections).toEqual(
+      LEAGUES.map((league) => `league-${league.sport}-${league.slug}`)
+    );
   });
 
   test('an unknown sport renders inline with the rail, and costs no request', async () => {
@@ -416,5 +437,8 @@ test('the rail still lists only sports that exist', async () => {
   renderAt('/predictions');
 
   const rail = screen.getByRole('navigation', { name: 'Sports' });
-  await waitFor(() => expect(within(rail).getAllByRole('link')).toHaveLength(1));
+  // Derived, for the reason AppShell's copy of this test gives.
+  await waitFor(() =>
+    expect(within(rail).getAllByRole('link')).toHaveLength(SPORTS.length)
+  );
 });

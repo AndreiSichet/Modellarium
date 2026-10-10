@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 import App from './App';
 import { createPrediction, getHealth, getSchedule } from './api';
+import { SPORTS } from './components/SportsRail';
 
 jest.mock('./api');
 
@@ -77,8 +78,19 @@ describe('sports rail', () => {
     renderAt('/predictions/basketball');
 
     const rail = screen.getByRole('navigation', { name: 'Sports' });
-    await waitFor(() => expect(within(rail).getAllByRole('link')).toHaveLength(1));
-    expect(within(rail).getByRole('link', { name: /Basketball/ })).toBeInTheDocument();
+
+    // DERIVED FROM THE CONSTANT, NOT A LITERAL COUNT. This asserted 1 and
+    // went red the moment a second sport existed, which is the right failure
+    // for the wrong reason: what the test is for is that the rail lists
+    // exactly the sports that EXIST, with no placeholder entries. Counting
+    // SPORTS keeps that intent and cannot go stale on a third sport.
+    await waitFor(() =>
+      expect(within(rail).getAllByRole('link')).toHaveLength(SPORTS.length)
+    );
+    SPORTS.forEach(({ label }) => {
+      expect(within(rail).getByRole('link', { name: new RegExp(label) }))
+        .toBeInTheDocument();
+    });
   });
 });
 

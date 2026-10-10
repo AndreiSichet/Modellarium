@@ -10,7 +10,7 @@ import {
 } from '../api';
 import { DEV_FIXTURES_ON, DEV_HEALTH, DEV_SCHEDULE, devPredictionFor } from '../data/devFixtures';
 import { leagueBySlug } from '../data/leagues';
-import { predictableDateFor } from '../dates';
+import { isPredictable, predictableDateFor } from '../dates';
 import SportsRail, { findSport } from './SportsRail';
 import './PredictionsLayout.css';
 
@@ -61,11 +61,14 @@ function PredictionsLayout() {
       // judged by the NBA's cutoff and would have been POSTed to the NBA
       // endpoint. `getSchedule` now maps the field and drops anything it
       // cannot route, so a league here is always real.
-      const predictable = schedule.filter((game) => {
-        const league = leagueBySlug(game.leagueSlug);
-        const cutoff = predictableDateFor(freshness, league);
-        return cutoff ? game.gameDate <= cutoff : false;
-      });
+      //
+      // AND THE RULE IS NOW PER LEAGUE, not a date for everyone. Basketball
+      // keeps the date rule; the NFL's answer arrives on the fixture itself,
+      // because its rule is a dependency the inference service measures and
+      // a copy of it here would drift. dates.isPredictable dispatches.
+      const predictable = schedule.filter((game) =>
+        isPredictable(game, freshness, leagueBySlug(game.leagueSlug))
+      );
 
       const predicted = await Promise.all(
         predictable.map(async (game, index) => {
@@ -97,6 +100,15 @@ function PredictionsLayout() {
             awayTeamName: game.awayTeamName,
             awayTeamAbbr: game.awayTeamAbbr,
             gameDate: game.gameDate,
+            // CARRIED THROUGH OR THE KICKOFF NEVER SHOWS. GameRow reads
+            // these from the game it is handed, not from the schedule, so
+            // omitting them here made formatKickoff fall back to the bare
+            // date for every NFL row - the time would simply have been
+            // absent, with nothing failing anywhere.
+            kickoffUtc: game.kickoffUtc,
+            flex: game.flex,
+            week: game.week,
+            predictable: game.predictable,
             prediction: summary.prediction,
           };
         })

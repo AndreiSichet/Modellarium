@@ -73,6 +73,10 @@ public class ScheduleService {
                 away.getId(),
                 away.getAbbreviation(),
                 away.getName(),
-                game.getGameDate());
+                game.getGameDate(),
+                game.getPredictable(),
+                game.getKickoffUtc(),
+                game.getFlex(),
+                game.getWeek());
     }
 }

@@ -409,6 +409,81 @@ class InferenceWireShapeTest {
                 assertThat(game.gameDate()).isNotNull();
             });
         }
+
+        @Test
+        void leavesTheFourNflOnlyFieldsNullForBasketball() {
+            List<InferenceScheduledGame> games = mapper.readValue(
+                    Fixture.read("schedule.json"), new TypeReference<>() {
+                    });
+
+            // NULL, NOT false AND NOT ZERO. The three basketball leagues send
+            // none of these: they decide predictability from a date the client
+            // computes, have no kickoff time and no week. `false` would say
+            // "this fixture cannot be predicted", which is a different and
+            // wrong claim - the client must be able to see that there is no
+            // server-side answer at all, which is why these are object types.
+            assertThat(games).allSatisfy(game -> {
+                assertThat(game.predictable()).isNull();
+                assertThat(game.kickoffUtc()).isNull();
+                assertThat(game.flex()).isNull();
+                assertThat(game.week()).isNull();
+            });
+        }
+    }
+
+    @Nested
+    class NflSchedule {
+        /**
+         * CAPTURED FROM A CONTAINER BOOTED ON THE SYNTHETIC NFL TABLES, so it
+         * is a real response and carries no Wikipedia data.
+         *
+         * The NFL history is CC BY-SA 4.0 and no NFL table is committed, which
+         * would normally rule out committing a captured schedule too - a
+         * fixture list is source data. Phase 4's synthetic generator resolves
+         * it: every venue is the string "Synthetic Stadium", every date and
+         * score is from a seeded PRNG, and the only things shared with the
+         * real tables are the schema and the 32 project-authored franchise
+         * ids. So this is captured rather than hand-written - which is what
+         * lets it catch a field rename - without redistributing anything.
+         *
+         * Its one limitation, stated: the generator emits no TBD kickoff, so
+         * this fixture cannot pin a null `kickoff_utc`. The real schedule has
+         * 24 of those and the frontend covers that case in Nfl.test.js.
+         */
+        @Test
+        void deserialisesPredictableKickoffFlexAndWeek() {
+            List<InferenceScheduledGame> games = mapper.readValue(
+                    Fixture.read("schedule-nfl.json"), new TypeReference<>() {
+                    });
+
+            assertThat(games).hasSize(32);
+
+            InferenceScheduledGame first = games.get(0);
+            assertThat(first.homeTeamId()).isEqualTo(1613000001L);
+            assertThat(first.awayTeamId()).isEqualTo(1613000002L);
+            assertThat(first.gameDate()).isEqualTo(LocalDate.of(2026, 9, 13));
+            assertThat(first.week()).isEqualTo(1);
+            assertThat(first.flex()).isFalse();
+            assertThat(first.predictable()).isTrue();
+
+            // AN INSTANT, NOT A STRING. The wire carries an offset datetime;
+            // if this stopped parsing, every NFL row would render with no
+            // kickoff and nothing would fail.
+            assertThat(first.kickoffUtc())
+                    .isEqualTo(Instant.parse("2026-09-13T20:00:00Z"));
+
+            // BOTH VALUES OF predictable ARE PRESENT, so this fixture pins the
+            // field rather than one of its two states.
+            assertThat(games).anySatisfy(
+                    game -> assertThat(game.predictable()).isTrue());
+            assertThat(games).anySatisfy(
+                    game -> assertThat(game.predictable()).isFalse());
+
+            assertThat(games).allSatisfy(game -> {
+                assertThat(game.week()).isNotNull();
+                assertThat(game.predictable()).isNotNull();
+            });
+        }
     }
 
     @Nested

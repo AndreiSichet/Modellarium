@@ -1,7 +1,7 @@
 import { Link, useOutletContext, useParams } from 'react-router-dom';
 
 import { LEAGUES, leagueCopy, leaguesForSport } from '../data/leagues';
-import { dataAsOfFor } from '../dates';
+import { dataAsOfFor, isPredictable } from '../dates';
 import GameList from './GameList';
 import LeagueShortcuts, { useActiveSection } from './LeagueShortcuts';
 import { findSport } from './SportsRail';
@@ -26,7 +26,10 @@ function sectionId(league) {
 function GamesPage() {
   const { sport: slug } = useParams();
   const sport = slug ? findSport(slug) : null;
-  const { games, schedule, predictableDateFor } = useOutletContext();
+  // `health` as well as the ready-made predictableDateFor, because the
+  // per-league dispatch needs the raw freshness to answer the date rule and
+  // the NFL's rule does not use a date at all.
+  const { games, schedule, health, predictableDateFor } = useOutletContext();
 
   const unknownSport = Boolean(slug) && !sport;
 
@@ -42,9 +45,16 @@ function GamesPage() {
       id: sectionId(league),
       league,
       date,
+      // THE SAME DISPATCH AS THE LAYOUT, with exactDate because General and
+      // Upcoming show the predictable DAY rather than everything up to the
+      // cutoff. For the NFL that distinction does not apply: its predictable
+      // set is a slate across Thursday, Sunday and Monday, so the flag on the
+      // fixture is the whole answer and a date would be the wrong question.
       games: soonestGames(
         games.filter(
-          (game) => game.leagueSlug === league.slug && game.gameDate === date
+          (game) =>
+            game.leagueSlug === league.slug
+            && isPredictable(game, health, league, { exactDate: true })
         )
       ),
     };

@@ -1,0 +1,50 @@
+/* Tokens only, as everywhere outside tokens.css and data/teams.js. */
+
+.week-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.week-group-title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-subheading);
+  line-height: var(--leading-heading);
+  color: var(--ink);
+}
+
+/* A fixture with no numbers yet. Quieter than a predicted row, so the week
+   reads as "these are coming" rather than as a list of failures, but present
+   and legible rather than hidden. */
+.week-not-yet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.week-not-yet-teams {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.week-not-yet-side {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.week-not-yet-against {
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.week-not-yet-reason {
+  font-family: var(--font-body);
+  font-size: var(--text-small);
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+}

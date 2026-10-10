@@ -21,6 +21,14 @@ function GameTab({ game, health, league }) {
           awayLabel={away.abbr}
           homeValue={formatWin(probability, true)}
           awayValue={formatWin(probability, false)}
+          // THE QUALIFIER, ON THE SAME SURFACE THE Q1/1H WINNERS USE. The
+          // NFL's winner model is trained on decided games, so its
+          // probability means P(home wins | not tied) and a reader shown a
+          // bare percentage is shown a different quantity. Absent for
+          // basketball, where the full-game moneyline has no such condition,
+          // so those pages render exactly as before.
+          note={prediction.homeWinInterpretation}
+          model={prediction.winnerModel}
         />
         <TeamMetric
           label="Spread"
@@ -29,11 +37,16 @@ function GameTab({ game, health, league }) {
           homeValue={formatSpread(margin, true)}
           awayValue={formatSpread(margin, false)}
           note="A negative number means that side is favoured by it."
+          model={prediction.marginModel}
         />
       </MarketGroup>
 
       <MarketGroup title="Totals">
-        <Metric label="Total points" value={formatValue(prediction.totalPoints)} />
+        <Metric
+          label="Total points"
+          value={formatValue(prediction.totalPoints)}
+          model={prediction.totalsModel}
+        />
       </MarketGroup>
 
       {/* Only the groups this league serves. The WNBA has no rebound or
@@ -71,7 +84,7 @@ export function MarketGroup({ title, children }) {
   );
 }
 
-export function Metric({ label, value, tag, note }) {
+export function Metric({ label, value, tag, note, model }) {
   return (
     <div className="market-row">
       <dt className="market-label">
@@ -81,12 +94,15 @@ export function Metric({ label, value, tag, note }) {
       <dd className="market-value">
         {value}
         {note ? <span className="market-note">{note}</span> : null}
+        {model ? <span className="market-model">{model}</span> : null}
       </dd>
     </div>
   );
 }
 
-function TeamMetric({ label, homeLabel, awayLabel, homeValue, awayValue, note }) {
+function TeamMetric({
+  label, homeLabel, awayLabel, homeValue, awayValue, note, model,
+}) {
   return (
     <div className="market-row">
       <dt className="market-label">{label}</dt>
@@ -100,6 +116,7 @@ function TeamMetric({ label, homeLabel, awayLabel, homeValue, awayValue, note })
           <span className="market-side-value">{homeValue}</span>
         </span>
         {note ? <span className="market-note">{note}</span> : null}
+        {model ? <span className="market-model">{model}</span> : null}
       </dd>
     </div>
   );

@@ -23,6 +23,7 @@ export const LEAGUES = [
     slug: 'nba',
     label: 'NBA',
     sport: 'basketball',
+    rule: 'date',
     markets: { rebounds: true, assists: true, quarterHalf: true, playerProps: true },
     seasonStatus: 'No games today — the season begins 20 October 2026',
     seasonNote: [
@@ -35,6 +36,7 @@ export const LEAGUES = [
     label: 'WNBA',
     sport: 'basketball',
     freshness: 'wnba',
+    rule: 'date',
     markets: { rebounds: false, assists: false, quarterHalf: false, playerProps: false },
     seasonStatus: 'No games today — the 2026 season is over',
     // THIS COPY IS NOT THE NBA'S, AND THE DIFFERENCE IS MEASURED.
@@ -69,6 +71,7 @@ export const LEAGUES = [
     label: 'G League',
     sport: 'basketball',
     freshness: 'gleague',
+    rule: 'date',
     // Three markets, like the WNBA: no rebounds, assists, quarter/half or
     // player props, so the detail page renders one tab and therefore no
     // tablist at all.
@@ -102,6 +105,69 @@ export const LEAGUES = [
           : 'The G League regular season has not been scheduled yet.',
         'The season opens before that with the Showcase Cup, which is not predicted here — the models are trained on regular-season games only, so Cup fixtures appear nowhere.',
         'Predictions are available from the first regular-season game, because the models carry the previous season forward rather than waiting for form to build up.',
+      ];
+    },
+  },
+  {
+    slug: 'nfl',
+    label: 'NFL',
+    sport: 'american-football',
+    freshness: 'nfl',
+    // THE SERVER DECIDES, AND THIS IS THE ONLY LEAGUE THAT SAYS SO.
+    //
+    // Basketball predictability is a date - one day after that league's
+    // cutoff - which this client computes. The NFL's is a dependency: both
+    // teams' previous games must be in history. That was measured in phase 2
+    // and implemented in the inference service in phase 4, so the answer
+    // travels with each fixture as `predictable` and dates.isPredictable
+    // dispatches on this flag. A second copy of the dependency rule in
+    // JavaScript would drift from the one that refuses the request.
+    rule: 'server',
+    // Three markets, so one tab and therefore no tablist - the same shape as
+    // the WNBA and G League.
+    markets: { rebounds: false, assists: false, quarterHalf: false, playerProps: false },
+    // The licence requires attribution wherever this league's data is shown.
+    // Taken from the `source` field the API returns rather than written here,
+    // so it cannot drift from the backend; this flag only says the line is
+    // required for this league.
+    attributionRequired: true,
+    // The league page groups by week rather than listing by date, and shows
+    // fixtures that cannot be predicted yet. A week is the unit an NFL
+    // reader thinks in, and the predictable set is a slate across Thursday,
+    // Sunday and Monday - so a flat date list would strip out the structure
+    // that makes sense of it.
+    weeklySlate: true,
+    seasonStatus: ({ schedule }) => {
+      const opens = firstFixtureDate(schedule, 'nfl');
+      return opens
+        ? 'No games to predict yet — the week’s slate is not set'
+        : 'No games today — no fixtures are scheduled yet';
+    },
+    // THIS COPY IS THE NFL'S MECHANISM, NOT BASKETBALL'S.
+    //
+    // No "ten games in" and nothing about rolling-window warm-up: the NFL
+    // models carry form across weeks and the gate on a prediction is the
+    // dependency rule, not an amount of history. And nothing about injury
+    // reports - those are an NBA feature and this league has none.
+    //
+    // Two states, because they read very differently to a visitor: fixtures
+    // are cached but none is predictable yet (typically Monday night to the
+    // morning after), or nothing is cached at all (the offseason), where no
+    // date is claimed and none is invented - the same discipline the G
+    // League's copy follows.
+    seasonNote: ({ schedule }) => {
+      const opens = firstFixtureDate(schedule, 'nfl');
+
+      if (!opens) {
+        return [
+          'No NFL fixtures are scheduled here yet, so there is nothing to predict.',
+          'No date is shown for the next game because none has been published.',
+        ];
+      }
+
+      return [
+        'Predictions for the next games appear once both teams have played their previous game.',
+        'The week’s slate usually arrives the morning after Monday night’s game.',
       ];
     },
   },
