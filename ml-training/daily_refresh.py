@@ -436,7 +436,16 @@ def swap_and_verify(volume: Path, previous: str, identifier: str,
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--volume", default=str(DEFAULT_VOLUME))
-    parser.add_argument("--leagues", default="nba,wnba,gleague")
+    # DERIVED, NEVER A LITERAL. A hand-written list silently drops a
+    # league the moment one is added: the NFL was in LEAGUES and absent
+    # from this default, and daily-refresh.yml passes no --leagues at
+    # all, so every scheduled run would have rebuilt three leagues and
+    # then staged the fourth's tables from whatever the repo happened
+    # to hold - stale on a machine that had them, a hard failure on a
+    # clean checkout. Same shape as the hardcoded season list and the
+    # hardcoded row counts: an expectation with no expiry inside
+    # something built to run unattended.
+    parser.add_argument("--leagues", default=",".join(LEAGUES))
     parser.add_argument("--step-timeout", type=int, default=5400)
     parser.add_argument("--full-refetch", action="store_true",
                         help="re-fetch EVERY season, including completed "

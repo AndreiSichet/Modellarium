@@ -63,6 +63,11 @@ PROBE = None
 # real snapshot, and what the cleanup globs for.
 PROBE_PREFIX = "9999-"
 
+# Anchoring a league name on its own output line needs a literal
+# newline, and a backslash escape inside the f-string that uses it
+# is not available until 3.12.
+NEWLINE = chr(10)
+
 results = []
 
 
@@ -336,6 +341,85 @@ def check_failure_before_swap() -> None:
            f"still {before}")
 
 
+def check_workflow_invocation() -> None:
+    r"""Run daily_refresh with the arguments daily-refresh.yml actually uses.
+
+    THE POINT IS THE ARGUMENTS IT DOES NOT PASS. The workflow invokes
+
+        daily_refresh.py --volume "D:\modellarium-data" \
+                         --outcome-file "refresh-outcome.txt"
+
+    and nothing else, so `--leagues` takes its default. When that default was
+    a hand-written "nba,wnba,gleague" the NFL was in LEAGUES and absent from
+    it, and no existing check could see that: checks 3 to 6 all pass
+    `--leagues` explicitly, so every one of them exercised a league list the
+    workflow never sends.
+
+    ONE DELIBERATE DIFFERENCE, AND IT IS NOT ON THE PATH UNDER TEST: this adds
+    `--no-restart`. The workflow's run restarts the real compose service,
+    which reads the LIVE volume; driven against a copy it would bounce the
+    live service and then roll this copy back when /health reported the live
+    snapshot. Which leagues are rebuilt and which tables are staged is decided
+    before any restart, so nothing being asserted here depends on it.
+    """
+    section("7  THE WORKFLOW'S OWN INVOCATION REBUILDS AND STAGES EVERY LEAGUE")
+    outcome_file = VOLUME / "verify-outcome.txt"
+    done = subprocess.run(
+        [sys.executable, "-W", "ignore", str(HERE / "daily_refresh.py"),
+         "--volume", str(VOLUME),
+         "--outcome-file", str(outcome_file),
+         # the one deviation; see the docstring
+         "--no-restart"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=PROJECT, timeout=7200)
+    out = (done.stdout or "") + (done.stderr or "")
+
+    record("the run is GREEN", done.returncode == refresh.EXIT_OK,
+           f"exit {done.returncode}")
+
+    # THE ASSERTION THAT CATCHES A DROPPED LEAGUE, and the reason the table
+    # count below cannot do it alone: stage() copies REQUIRED_FILES out of the
+    # repo whatever --leagues said, so on a machine whose working tree already
+    # holds a league's tables a three-league run still stages nine files - it
+    # just stages one league's from a rebuild that never ran. Only the rebuild
+    # output says which leagues were actually rebuilt.
+    rebuilt = [name for name in refresh.LEAGUES
+               if f"{NEWLINE}  {name}{NEWLINE}" in out]
+    missing_leagues = [name for name in refresh.LEAGUES if name not in rebuilt]
+    record("every league in LEAGUES was rebuilt by this run",
+           not missing_leagues,
+           f"rebuilt {rebuilt}; never rebuilt {missing_leagues or 'none'}")
+
+    # THE STAGED SNAPSHOT, WHICH IS NOT THE SERVED ONE. On a nothing-new run
+    # no swap happens and the staging directory is removed, so reading the
+    # pointer would inspect the PREVIOUS snapshot and report its table count -
+    # which is how the first version of this assertion passed under the plant.
+    # validate() prints this line about the snapshot it just staged, derived
+    # from REQUIRED_FILES, and raises before printing it if any are missing.
+    expected = f"all {len(REQUIRED_FILES)} required tables present"
+    record(f"the run validated a staged snapshot with all "
+           f"{len(REQUIRED_FILES)} tables",
+           expected in out,
+           f"looked for {expected!r}: "
+           + ("found" if expected in out else "NOT FOUND"))
+
+    # Separately, what is actually in front of the service now.
+    pointer = refresh.read_pointer(VOLUME)
+    snapshot = VOLUME / SNAPSHOTS_DIR / pointer
+    absent = missing_files(snapshot) if snapshot.is_dir() else list(REQUIRED_FILES)
+    record("the snapshot now being served has them too", not absent,
+           f"{pointer}: {len(REQUIRED_FILES) - len(absent)} of "
+           f"{len(REQUIRED_FILES)} present"
+           + (f"; missing {absent}" if absent else ""))
+
+    outcome = (outcome_file.read_text(encoding="utf-8").strip()
+               if outcome_file.is_file() else "(no outcome file)")
+    record("it reported a verdict the workflow can read",
+           outcome in {"advanced", "nothing-new"}, f"outcome {outcome!r}")
+    if outcome_file.is_file():
+        outcome_file.unlink()
+
+
 def resolve_volume(args) -> Path:
     """Which volume to write to, refusing production unless asked by name.
 
@@ -468,6 +552,7 @@ a league is added, this has to wait until a snapshot carrying it exists.""")
         check_failure_before_swap()
         check_validation_blocks_swap()
         check_rollback(original)
+        check_workflow_invocation()
     finally:
         section("RESTORING")
         if refresh.read_pointer(VOLUME) != original:
