@@ -166,7 +166,13 @@ def main():
               f"{detail['fetched']:>2} fetched, {detail['reused']:>2} reused")
 
     print()
-    print(f"  {stats.summary()}")
+    # THE PREFIX IS READ BY ml-training/daily_refresh.py, which keeps
+    # only marked lines from a successful fetch step and discards the
+    # rest of its output. Changing the literal here without changing
+    # FETCH_STATS_PREFIX there makes this line vanish from the refresh
+    # log; the refresh prints a count of reporting fetch steps so that
+    # shows up rather than passing unnoticed.
+    print(f"  FETCH-STATS: {stats.summary()}")
     if stats.http_429 or stats.maxlag_errors:
         print(f"  NOTE: the API throttled this run "
               f"({stats.http_429} x 429, {stats.maxlag_errors} x maxlag). "

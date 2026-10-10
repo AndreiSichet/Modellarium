@@ -55,6 +55,16 @@ NEWLINE = chr(10)
 EXIT_OK = 0
 EXIT_FAILED = 1
 
+# THE ONE LINE OF A SUCCESSFUL STEP THAT SURVIVES. run_step
+# captures stdout and throws it away, which is right for 19 steps
+# of progress chatter and wrong for the fetchers' request
+# counters: a run that was throttled looked identical to one that
+# was not, and the 429 count for the first NFL fetch is gone for
+# good. A fetcher prints its summary behind this prefix and
+# nothing else is kept. fetch_nfl_seasons.py prints it; the five
+# nba_api fetchers have no counters to print.
+FETCH_STATS_PREFIX = "FETCH-STATS:"
+
 # Per league: the pipeline steps that rebuild its history, in order, and the
 # tables the snapshot takes from the result.
 #
@@ -64,6 +74,12 @@ EXIT_FAILED = 1
 # pipeline happened to write".
 LEAGUES = {
     "nba": {
+        # THE ONLY LEAGUE WITH AVAILABILITY FEATURES, declared rather than
+        # assumed. availability_lines() reads this instead of naming the
+        # leagues that lack them, which is how the NFL ended up with no line
+        # at all: the other three were spelled out and a fourth was simply
+        # not in the list.
+        "availability": True,
         "steps": [
             PROJECT / "data-pipeline" / "ingestion" / "fetch_games.py",
             PROJECT / "data-pipeline" / "preprocessing" / "validate_games.py",
@@ -223,7 +239,7 @@ def cutoffs(root: Path) -> dict:
             for league, spec in LEAGUES.items()}
 
 
-def run_step(script: Path, timeout: int, env: dict = None) -> None:
+def run_step(script: Path, timeout: int, env: dict = None) -> list:
     print(f"    {script.name} ...", end=" ", flush=True)
     started = time.monotonic()
     done = subprocess.run([sys.executable, "-W", "ignore", str(script)],
@@ -238,8 +254,21 @@ def run_step(script: Path, timeout: int, env: dict = None) -> None:
             f"{script.name} exited {done.returncode}\n{tail}")
     print(f"ok ({elapsed:.0f}s)")
 
+    # Only lines behind the marker, and only from a fetch step. Everything
+    # else a successful step wrote stays discarded.
+    surfaced = []
+    if script.name.startswith("fetch_"):
+        for line in (done.stdout or "").splitlines():
+            stripped = line.strip()
+            if stripped.startswith(FETCH_STATS_PREFIX):
+                surfaced.append(
+                    stripped[len(FETCH_STATS_PREFIX):].strip())
+        for line in surfaced:
+            print(f"      {script.name}: {line}")
+    return surfaced
 
-def rebuild(leagues: list, timeout: int, full_refetch: bool = False) -> None:
+
+def rebuild(leagues: list, timeout: int, full_refetch: bool = False) -> list:
     section("REBUILDING, PER LEAGUE")
 
     env = None
@@ -251,12 +280,26 @@ def rebuild(leagues: list, timeout: int, full_refetch: bool = False) -> None:
         print("  MODELLARIUM_FULL_REFETCH=1 - every season will be "
               "re-fetched, including completed ones")
 
+    collected, fetch_steps = [], 0
     for league in leagues:
         print(f"  {league}")
         for script in LEAGUES[league]["steps"]:
             if not script.is_file():
                 raise RuntimeError(f"{script} does not exist")
-            run_step(script, timeout, env=env)
+            lines = run_step(script, timeout, env=env)
+            if script.name.startswith("fetch_"):
+                fetch_steps += 1
+            collected.extend(f"{script.name}: {line}" for line in lines)
+
+    # A COUNT, SO A VANISHING LINE IS VISIBLE. Printing a note for each
+    # fetcher without counters would be five lines of noise every morning;
+    # printing nothing would let the one line that does exist disappear
+    # silently the day its marker breaks, which is the failure mode this
+    # whole change exists to remove.
+    print()
+    print(f"  {len(collected)} of {fetch_steps} fetch step(s) reported "
+          f"request counters")
+    return collected
 
 
 def stage(volume: Path, identifier: str) -> Path:
@@ -468,6 +511,12 @@ def main() -> int:
     parser.add_argument("--skip-rebuild", action="store_true",
                         help="stage and swap whatever the repo already "
                              "holds; for exercising the swap itself")
+    parser.add_argument("--stats-file",
+                        help="write the fetch steps' request counters here, "
+                             "one per line, for the job summary to read. "
+                             "Same shape as --outcome-file: the workflow "
+                             "cannot grep a step's stdout, because run_step "
+                             "captures and discards it.")
     parser.add_argument("--outcome-file",
                         help="write 'advanced', 'nothing-new' or 'failed' "
                              "here. The exit code cannot carry the "
@@ -599,19 +648,33 @@ def availability_lines() -> list:
         detail = (state.get("detail") or "").strip()
         loud = nba in ("unreachable", "source_failed")
 
+        with_features = [name for name, config in LEAGUES.items()
+                         if config.get("availability")]
+        if with_features != ["nba"]:
+            # injury_availability.availability_state() answers for the NBA
+            # alone. If another league ever declares availability features it
+            # needs its own state, and silently reusing the NBA's would be the
+            # one-date-under-three-leagues bug again.
+            return [f"  availability declared for {with_features} but only the "
+                    f"NBA has a state to report - this needs a per-league "
+                    f"lookup before it can be trusted"]
+
         lines = []
         if loud:
-            lines.append(f"  nba      AVAILABILITY {str(nba).upper()}")
+            lines.append(f"  {'nba':<9}AVAILABILITY {str(nba).upper()}")
         else:
-            lines.append(f"  nba      availability {nba}")
+            lines.append(f"  {'nba':<9}availability {nba}")
         if detail:
             lines.append(f"           {detail[:150]}")
         if loud:
             lines.append("           The four availability features resolve to NaN, so the")
             lines.append("           NBA is served on 34 of 38 features. Game data is")
             lines.append("           unaffected; this does NOT fail the refresh.")
-        lines.append("  wnba     availability not_applicable (no such features)")
-        lines.append("  gleague  availability not_applicable (no such features)")
+        for name, config in LEAGUES.items():
+            if config.get("availability"):
+                continue
+            lines.append(f"  {name:<9}availability not_applicable "
+                         f"(no such features)")
         return lines
     except Exception as error:  # noqa: BLE001
         return [f"  availability state could not be determined: "
@@ -638,11 +701,20 @@ def _run(args, volume, leagues, record_outcome) -> int:
                              identifier, record_outcome)
 
     try:
+        fetch_stats = []
         if args.skip_rebuild:
             section("REBUILD SKIPPED")
             print("  staging whatever this checkout already holds")
         else:
-            rebuild(leagues, args.step_timeout)
+            fetch_stats = rebuild(leagues, args.step_timeout)
+
+        # WRITTEN HERE, NOT AT THE END. A run that fails during validation or
+        # the swap still made the requests, so its counters are exactly the
+        # ones worth reading - writing them only on success would lose them
+        # on the morning they matter most.
+        if args.stats_file:
+            Path(args.stats_file).write_text(
+                chr(10).join(fetch_stats), encoding="utf-8")
 
         staging = stage(volume, identifier)
         after = validate(staging)

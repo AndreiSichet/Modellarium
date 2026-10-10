@@ -165,7 +165,8 @@ jobs:
 
           .\.ct-venv\Scripts\python.exe -W ignore ml-training\daily_refresh.py `
             --volume "D:\modellarium-data" `
-            --outcome-file "refresh-outcome.txt" @extra
+            --outcome-file "refresh-outcome.txt" `
+            --stats-file "refresh-stats.txt" @extra
           $code = $LASTEXITCODE
 
           $outcome = "failed"
@@ -214,9 +215,42 @@ jobs:
             "| | |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             "|---|---|" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             "| snapshot | $($served.snapshot) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            "| NBA data_as_of | $($health.data_as_of) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            "| WNBA data_as_of | $($health.wnba.data_as_of) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            "| G League data_as_of | $($health.gleague.data_as_of) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            # DERIVED FROM /health, NOT A LIST OF LEAGUE NAMES. These rows
+            # named three leagues, so the NFL's cutoff was absent from the
+            # summary on the morning it first shipped. The availability block
+            # carries one key per league the service knows about, which makes
+            # it the list to iterate - a fifth league appears on its own.
+            $leagues = @($health.availability.PSObject.Properties.Name | Sort-Object)
+            foreach ($lg in $leagues) {
+              # THE NBA'S CUTOFF IS TOP-LEVEL AND EVERY OTHER LEAGUE'S IS
+              # NESTED. Handled by name because that asymmetry is real; what
+              # must never happen is another league FALLING BACK to the
+              # top-level value, which would print the NBA's date under a
+              # different league's name.
+              if ($lg -eq "nba") { $asOf = $health.data_as_of }
+              else { $asOf = $health.$lg.data_as_of }
+              if (-not $asOf) { $asOf = "(none reported)" }
+              "| $($lg.ToUpper()) data_as_of | $asOf |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
+
+            # THE FETCHERS' REQUEST COUNTERS, FOR THE SAME REASON. run_step
+            # discards a successful step's output, so the 429 and maxlag
+            # counts for the first NFL fetch were captured and thrown away
+            # and are gone for good. Only the marked summary line survives,
+            # and it belongs where someone looks on a green morning.
+            if (Test-Path "refresh-stats.txt") {
+              $stats = @(Get-Content "refresh-stats.txt" | Where-Object { $_.Trim() })
+              if ($stats.Count -gt 0) {
+                "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+                "### Fetch request counters" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+                foreach ($line in $stats) {
+                  "- $line" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+                  if ($line -match "([1-9][0-9]*) HTTP 429" -or $line -match "([1-9][0-9]*) maxlag") {
+                    Write-Host "::warning::the API throttled a fetch step - $line"
+                  }
+                }
+              }
+            }
 
             # AVAILABILITY BELONGS IN THE SUMMARY, NOT ONLY THE STEP LOG. The
             # refresh prints it loudly in WHAT CHANGED, but a 12-minute log is
@@ -224,7 +258,9 @@ jobs:
             # run that is green BECAUSE game data is fine can still be serving
             # the NBA on 34 of 38 features.
             $avail = $health.availability.nba.state
-            "| availability | $avail |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            foreach ($lg in $leagues) {
+              "| $($lg.ToUpper()) availability | $($health.availability.$lg.state) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
             if ($avail -eq "unreachable" -or $avail -eq "source_failed") {
               "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
               "**Availability is $avail.** The four availability features resolve to NaN, so the NBA is served on 34 of 38 features. Game data is unaffected and this does not fail the refresh." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
