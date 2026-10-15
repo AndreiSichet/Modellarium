@@ -9,7 +9,7 @@ Written: 21 September 2026 · Last updated: 6 October 2026
 
 Since first writing, the app gained a second league (chapter 20), a third
 (chapter 21), and a job that keeps every league's data current on its own
-(chapter 22). Where this document previously said something that those
+(chapter 23). Where this document previously said something that those
 changes made false, the correction is left visible rather than quietly
 rewritten — a document is only true as of its date.
 
@@ -53,7 +53,7 @@ requirement.
 9. [The backend — what it is, and the database](#9-the-backend--what-it-is-and-the-database)
 10. [The backend — every file, explained one by one](#10-the-backend--every-file-explained-one-by-one)
 11. [The backend — how a request travels through the system](#11-the-backend--how-a-request-travels-through-the-system)
-12. [The backend — the eight endpoints, exact contracts](#12-the-backend--the-eight-endpoints-exact-contracts)
+12. [The backend — the nine endpoints, exact contracts](#12-the-backend--the-nine-endpoints-exact-contracts)
 13. [The backend — the schedule sync job](#13-the-backend--the-schedule-sync-job)
 14. [Frontend insights](#14-frontend-insights)
 15. [Running everything](#15-running-everything)
@@ -63,9 +63,10 @@ requirement.
 19. [The accuracy experiments — seven ideas tried, seven rejected](#19-the-accuracy-experiments--seven-ideas-tried-seven-rejected)
 20. [The WNBA — a second league](#20-the-wnba--a-second-league)
 21. [The G League — a third league](#21-the-g-league--a-third-league)
-22. [How the data stays current — the daily refresh](#22-how-the-data-stays-current--the-daily-refresh)
-23. [Known limitations and what comes next](#23-known-limitations-and-what-comes-next)
-24. [Quick reference](#24-quick-reference)
+22. [The NFL — a fourth league, and a different sport](#22-the-nfl--a-fourth-league-and-a-different-sport)
+23. [How the data stays current — the daily refresh](#23-how-the-data-stays-current--the-daily-refresh)
+24. [Known limitations and what comes next](#24-known-limitations-and-what-comes-next)
+25. [Quick reference](#25-quick-reference)
 
 ---
 
@@ -73,10 +74,11 @@ requirement.
 
 ### What it does
 
-Modellarium predicts the outcome of basketball games before they are played —
-the NBA, and since October 2026 the WNBA as well. For an NBA game it can
-reach, it produces **eighteen separate numbers** across three families; for a
-WNBA game, three.
+Modellarium predicts the outcome of games before they are played, across
+**four leagues and two sports** — the NBA, the WNBA, the NBA G League and,
+since October 2026, the NFL. For an NBA game it can reach, it produces
+**eighteen separate numbers** across three families; for a game in any of the
+other three, three numbers.
 
 **Family one — the whole game (seven numbers, the original set)**
 
@@ -118,9 +120,19 @@ than explained afterwards — players are called up and sent down between
 games, so the team that played last week may not be the team playing tonight.
 Chapter 21 is the whole of it.
 
+**The NFL — the same three numbers, and a different sport entirely**
+
+American football, and the first thing here that is not basketball. Again its
+own pipeline, models and pages — but this one also brought a different data
+source (Wikipedia articles rather than a sports API), a licence that forbids
+committing any of its data to the repository, and a different answer to the
+question *when can this game be predicted*. It is the hardest of the four,
+and for a reason you can state in one line: an NFL team plays **17 games a
+season** where an NBA team plays 82. Chapter 22 is the whole of it.
+
 Nothing is scraped from a bookmaker and nothing is guessed. Every number comes
 from models trained here on real results — eleven seasons for the NBA, twelve
-for the WNBA, twenty-three for the G League.
+for the WNBA, twenty-three for the G League, fifteen for the NFL.
 
 ### What it is made of
 
@@ -368,9 +380,9 @@ predictions — but they are still recorded, because they affect how much rest
 a team has had.
 
 **Snapshot** — one complete, self-consistent set of results tables for all
-three leagues, produced by a single run of the pipeline and stored under its
+four leagues, produced by a single run of the pipeline and stored under its
 own timestamped name. The app serves exactly one snapshot at a time
-(chapter 22).
+(chapter 23).
 
 **Pointer** (the `current` file) — a few bytes of text naming which snapshot
 is live. Changing which data the app serves means rewriting those few bytes,
@@ -507,7 +519,7 @@ serving reads them. Nothing else crosses between the two.
     3 leagues                      model_dataset.csv     (training table)
           |                              |
           |                              |  rebuilt and swapped in
-          |                              |  every morning (Chapter 22)
+          |                              |  every morning (Chapter 23)
           |                              v
           |                        modellarium-data/snapshots/<date>/
           |
@@ -531,7 +543,7 @@ serving reads them. Nothing else crosses between the two.
    Inference service (FastAPI)  ────>  injury-service     (Chapters 7, 8)
       |
       |  loads at startup: the live snapshot's 6 results tables,
-      |  from the shared folder (Chapter 22), + all 29 model artifacts
+      |  from the shared folder (Chapter 23), + all 29 model artifacts
       v
    A prediction
 ```
@@ -1080,7 +1092,7 @@ chosen when that league was built, and nothing re-chooses them.
 used to say that WNBA results were fixed into the deployed image and only
 moved forward when somebody ran the pipeline by hand. That stopped being true
 in October 2026. Every league's results are now rebuilt and swapped in each
-morning by a different job — chapter 22 — so when the 2027 WNBA season starts
+morning by a different job — chapter 23 — so when the 2027 WNBA season starts
 in May, the app picks the new games up on its own.
 
 The distinction is worth holding on to, because the two are easy to run
@@ -1530,7 +1542,7 @@ A separate table rather than extra columns on `prediction`. The WNBA prices
 three markets against the NBA's seven, so sharing one table would mean four
 columns that are always empty for a WNBA row and nothing in the row saying
 which league it belongs to. The `game` table *is* shared, which is safe
-because none of the three leagues' team ids overlap.
+because none of the four leagues' team ids overlap.
 
 #### Table: `player_prop_prediction` — five numbers per player per request
 
@@ -1757,7 +1769,7 @@ watching the Python service's own logs during a click: one `/health` hit, zero
 
 ---
 
-## 12. The backend — the eight endpoints, exact contracts
+## 12. The backend — the nine endpoints, exact contracts
 
 Base address while running locally: `http://localhost:8080`
 
@@ -1965,9 +1977,77 @@ chapter 21 explains was a tie broken on serving cost rather than a winner.
 **Response 400** in three cases, each with the reason in the message: the
 fixture cannot be scored because a rolling window is incomplete; the date is
 more than one day past the newest data; or the team ids belong to a different
-league. That last one is worth naming — the three leagues' id ranges do not
+league. That last one is worth naming — the four leagues' id ranges do not
 overlap, so sending NBA ids to this endpoint is a mistake the server can
 detect rather than a prediction it should attempt.
+
+### 12.4d `POST /api/predictions/nfl` — the three NFL numbers
+
+Request body is the same shape as the other four. The response carries more
+than any other league's, and every extra field is there for a reason the other
+three do not have.
+
+**Response 200** (a real capture, 15 October 2026):
+```json
+{ "gameId": 1048,
+  "homeTeamAbbreviation": "JAX",
+  "awayTeamAbbreviation": "HOU",
+  "gameDate": "2026-10-18",
+  "prediction": {
+    "homeWinProbability": 0.6702245874848459,
+    "homeMargin": 5.013803005218506,
+    "totalPoints": 46.263837795378656,
+    "homeWinInterpretation": "P(home wins | not tied)",
+    "winnerModel": "linear/mov/elo_context",
+    "marginModel": "xgboost/mov/elo_context",
+    "totalsModel": "linear/mov/elo_context_carry8",
+    "winnerNote": "TIES Elo alone",
+    "marginNote": "TIES Elo alone",
+    "totalsNote": "no Elo baseline; judged against naive only",
+    "imputedFeatures": [],
+    "season": 2026,
+    "week": 6,
+    "dataAsOf": "2026-10-12",
+    "stale": false,
+    "daysBehind": 3,
+    "source": "English Wikipedia, CC BY-SA 4.0",
+    "predictedAt": "2026-10-15T16:34:06.433449534Z" } }
+```
+
+The four fields no other league sends:
+
+- **`source`** — required by the licence on the NFL's data. A client cannot
+  display the number without being able to display where it came from.
+- **`week`** — stored on the row rather than attached at response time, unlike
+  the model names beside it, because it genuinely varies per game and an NFL
+  result is discussed by week.
+- **the three `…Note` fields** — the measured verdict against a one-number
+  baseline, from the test receipt. `TIES Elo alone` means exactly that, and it
+  travels so a reader is not shown more confidence than was earned.
+- **`imputedFeatures`** — which inputs were filled in rather than observed,
+  empty here. The NFL is the only league that *scores* an incomplete row
+  instead of refusing it, so it is also the only one that has to say when it
+  did.
+
+Note `"stale": false` with a cutoff three days old. For the basketball
+leagues that would read as stale; the NFL plays weekly and has its own rule,
+which chapter 22 explains.
+
+**Response 400** in three cases, and the third is unlike any other league's:
+there is no such fixture; the date given is not the date that fixture is
+scheduled for; or **both teams have not yet played their previous game**. That
+last one is the NFL's predictability rule, and it is a dependency rather than
+a date — so the message names which side is holding things up:
+
+```
+Not predictable yet: LAR (the home side) has not yet played its week 5
+fixture 2026_5_BUF_LAR on 2026-10-12; ARI (the away side) has not yet
+played its week 5 fixture 2026_5_DET_ARI on 2026-10-11.
+```
+
+Most NFL fixtures are refused at any moment — 179 of 193 today — so a 400 from
+this endpoint is usually correct rather than a fault. `GET /api/health` reports
+`predictableFixtures` for the NFL so a client does not have to guess.
 
 ### 12.5 `GET /api/teams?league=NBA` — one league's teams
 
@@ -1996,7 +2076,7 @@ anything keying on the short code.
 ```
 
 **There is one freshness block per league, and the website needs every one of
-them.** The three leagues' data ends on three different dates, so a page that
+them.** The four leagues' data ends on four different dates, so a page that
 used the top-level date for a WNBA game would mark it predictable whenever NBA
 data was fresh — and then ask for a prediction the server refuses. A league
 this endpoint says nothing about is treated as having no predictable date at
@@ -2012,7 +2092,7 @@ loaded twice and another not at all.
 on Python, while 12.4 no longer does.
 
 > **One field is deliberately not forwarded.** The Python service's own
-> `/health` also reports **which data snapshot it is serving** (chapter 22) —
+> `/health` also reports **which data snapshot it is serving** (chapter 23) —
 > the authoritative answer to "is the app actually running on today's data".
 > This pass-through does not carry it, because the website has no use for it;
 > ask the Python service directly on port 8000 when that is the question.
@@ -2136,7 +2216,7 @@ that is not there.
 
 The app only offers a prediction for a game it can actually reach — one day
 past the end of that league's data. **That cutoff is asked for per league**,
-because all three leagues' data ends on a different date.
+because all four leagues' data ends on a different date.
 
 Using the NBA's date for a WNBA game would be wrong in a specific and
 embarrassing way: it would mark WNBA games as predictable whenever NBA data
@@ -2311,10 +2391,10 @@ injury    http://localhost:8001
 #### The results folder has to exist first
 
 The prediction service reads its results from a folder **outside** the project
-(`D:/modellarium-data`), which chapter 22 explains. On a machine that has
+(`D:/modellarium-data`), which chapter 23 explains. On a machine that has
 never run this before, that folder is empty or missing and **the service will
 refuse to start rather than guess** — which is deliberate, and is the whole
-point of chapter 22's "no fallback" rule.
+point of chapter 23's "no fallback" rule.
 
 Creating it is a one-off:
 
@@ -2450,7 +2530,7 @@ slow job hide the others' results.
 | Job | What it proves |
 |---|---|
 | **backend** | The full application starts against a real database, and all tests pass |
-| **frontend** | 148 tests pass and the production build compiles |
+| **frontend** | 184 tests pass and the production build compiles |
 | **inference-service** | The service genuinely boots and reports all models loaded |
 | **docker-build** | Every container image still builds from a clean checkout |
 
@@ -3943,7 +4023,7 @@ that is no longer true** — it is worth leaving the correction visible rather
 than quietly deleting the sentence. When this chapter was written, the WNBA's
 results were fixed into the deployed image, so the 2027 season would have
 opened with the app still serving 2026 data until a person intervened.
-Chapter 22 removed that: every league's data is now rebuilt and swapped in
+Chapter 23 removed that: every league's data is now rebuilt and swapped in
 daily. The claim was corrected in the interface copy too, and the test that
 pinned the old sentence was pointed at the new one rather than deleted.
 
@@ -4216,7 +4296,7 @@ guardrail should have been doing. 17.24 has the full account.
 ### What is missing
 
 **The G League has no retraining job.** Like the WNBA, it ships the models
-chosen when it was built. Its *data* refreshes daily (chapter 22); its models
+chosen when it was built. Its *data* refreshes daily (chapter 23); its models
 do not change on their own.
 
 **No team colours**, as above.
@@ -4227,7 +4307,380 @@ elements exist, but not how 31 neutral badges look side by side.
 
 ---
 
-## 22. How the data stays current — the daily refresh
+## 22. The NFL — a fourth league, and a different sport
+
+In October 2026 the app gained American football. Everything before it was
+basketball: three leagues, one sport, one data source, one set of rules about
+what a prediction means. This chapter is the whole of the NFL, and it is
+longer than the two league chapters before it because more of it is genuinely
+new rather than the same machinery pointed at a new league code.
+
+### What is actually different this time
+
+The WNBA and the G League were *new leagues*. The NFL is a **new sport**, and
+five things follow from that which did not follow from either of them.
+
+| | the three basketball leagues | the NFL |
+|---|---|---|
+| where the data comes from | one library, three league codes | **Wikipedia articles, parsed** |
+| can the data be committed? | yes | **no — the licence forbids it** |
+| team identity | the source gives a stable id | **we author the id ourselves** |
+| when is a game predictable? | a date: the day after our newest data | **a dependency: when both teams' last games are in** |
+| what does "stale" mean? | the newest result is over two days old | **a finished game has no result yet** |
+
+Each of those is a section below. None of them is a preference — each is
+forced by something about the sport or its data, and each one broke an
+assumption that had held for three leagues.
+
+### Why the NFL at all
+
+The same reason as the WNBA and the G League: it tests whether the machinery
+generalises. But those two tested it against a *smaller* league and a
+*messier* one, both still basketball, both from the same library.
+
+The NFL tests something harder. If the pipeline, the models, the service, the
+database and the website can absorb a different sport with a different data
+source and a different licence, then the shape of the system is right rather
+than merely reusable. And if it cannot, that is worth knowing before a fifth
+league is attempted.
+
+It is also the hardest prediction problem here, for a reason anyone who
+watches the sport will recognise: **17 games a season.** The NBA plays 82, so
+by midseason there is a lot of evidence about each team. An NFL team's whole
+season is shorter than an NBA team's first two months.
+
+### The corpus
+
+| | NBA | WNBA | G League | **NFL** |
+|---|---|---|---|---|
+| seasons | 11 | 12 | 23 | **15** (2012–2026) |
+| games | 13,199 | 2,655 | 9,628 | **3,728** |
+| teams | 30 | 15 | 31 | **32** |
+| games per team per season | 82 | 22–44 | 24–50 | **16–17** |
+| home win rate | 56.4% | 55.4% | 56.0% | **55.1%** |
+
+The home win rate landing in the same narrow band as three basketball leagues
+is a sanity check rather than a coincidence: home advantage is real in every
+one of them and roughly the same size, which is what you would expect if the
+pipeline is reading the sides of each game correctly. Had the NFL come out at
+45% or 70%, something would have been wrong with the parsing rather than
+interesting about football.
+
+### Where the data comes from, and why that is a whole section
+
+The three basketball leagues all come from `nba_api`, a Python library that
+asks the NBA's own servers for structured data. You ask for a season and you
+get back a clean table.
+
+**There is no such library for the NFL in this project**, so the data comes
+from **English Wikipedia** — the season articles and the team season articles,
+which list every game with its date, its kickoff time, its opponent and its
+result. Those pages are fetched as *wikitext*, the raw markup Wikipedia stores
+rather than the web page you see, and parsed.
+
+That is a much less pleasant source than an API, and the parser is
+correspondingly the most defensive piece of code in the project. Two of its
+rules are worth understanding because they come up again later.
+
+**1. A score written during a game is not a result.** Wikipedia is edited
+live. During a Sunday afternoon game somebody will write the current score
+into the table, and that number is not the final score. So the parser
+**refuses to record any result from a game that kicked off less than five
+hours ago** — by five hours an NFL game is certainly over. The constant is
+called `HOURS_UNTIL_FINAL`, and it matters later because the staleness rule
+reads the same constant.
+
+**2. "Mountain time" does not mean one thing.** The articles give kickoff
+times in US time zone names, and Arizona is in the Mountain zone but does not
+observe daylight saving — so for about half the year an Arizona kickoff
+written as "1:25 p.m. Mountain" is an hour away from a Denver kickoff written
+identically. The parser keeps a per-team override for exactly this, and it is
+tested on both cases rather than assumed.
+
+### The licence, and the one rule it forces
+
+Wikipedia's text is published under **CC BY-SA 4.0**. Two obligations follow.
+
+**Attribution.** Wherever an NFL prediction is shown, the source has to be
+shown with it. So the API sends a `source` field reading *"English Wikipedia,
+CC BY-SA 4.0"* on every NFL prediction, and the website renders it as a
+visible line on the NFL pages. No other league has that field, because no
+other league's data requires it.
+
+**Share-alike**, which is the stricter one. A database derived from CC BY-SA
+content inherits the licence, and this repository is not licensed to
+redistribute one. So:
+
+> **No NFL data table is committed to the repository. Not the raw articles,
+> not the processed tables, nothing.**
+
+That is a hard line rather than a tidiness preference, and it created a
+genuine problem. The automated tests boot the real inference service to check
+it starts correctly, and the service **refuses to start** without the three
+NFL tables. But those tables cannot be in the repository, so the test machine
+has nothing to boot against.
+
+**The answer is invented data.** A small script generates NFL tables with the
+right *shape* and completely made-up contents: every score comes from a
+random-number generator with a fixed seed, and every stadium is literally the
+string `Synthetic Stadium`. The only things shared with the real tables are
+the column layout and the 32 team ids, and those ids are a table a person in
+this project wrote rather than anything from Wikipedia.
+
+Two guards keep that from becoming a hazard:
+
+- The synthetic set carries a **marker file**, and the production service
+  **refuses to boot if it sees one** — so invented scores can never reach a
+  real prediction. Only the test environment sets the environment variable
+  that allows them.
+- The generator **refuses to overwrite real tables**, which matters because
+  the test command names a directory that on a development machine holds
+  46 MB of genuine history.
+
+And the test asserts the data it booted on *is* synthetic. If that assertion
+ever fails, it means a real NFL table has found its way into a checkout —
+which is a licence problem, not a test problem, and the test is phrased so
+that it says so.
+
+### Team identity is authored, not given
+
+In the basketball leagues, every team arrives with a numeric id from the
+library, and that id is stable across renames and relocations. The G League
+chapter leans on this heavily: 19 of its 40 franchises changed name under an
+unchanging id.
+
+**Wikipedia gives no such id.** It gives article titles, which change when a
+team moves. So the project keeps its own table: 32 franchises, each with an
+id this project assigned, mapped to the article titles that franchise has used
+in each season. The ids are in the `1613000001`–`1613000032` range, chosen so
+they cannot collide with any basketball league's.
+
+One consequence is worth spelling out, because it looks like an
+inconsistency. The database seeder **updates NFL team names on every startup**
+— and deliberately does *not* do that for the NBA or the WNBA, even though the
+NFL has fewer renames than the WNBA does.
+
+The reason is not how often names change; it is **where names come from**. A
+basketball rename arrives in the data on its own, because the library supplies
+the current name. An NFL rename only exists if a person edits the franchise
+table — so if the seeder ignored that table, editing the authoritative source
+of truth would have no effect on a running database. That would make it
+silently non-authoritative, which is the opposite of what reference data is
+for.
+
+### What is predicted, and what the honest verdict is
+
+Three markets, matching the WNBA and G League shape:
+
+| market | what it is | model |
+|---|---|---|
+| **winner** | probability the home team wins | linear |
+| **margin** | the home team's points minus the away team's | gradient-boosted trees |
+| **total** | both teams' points added together | linear |
+
+The selection used the same walk-forward design as the other two leagues —
+train on earlier seasons, validate on the next one, repeat — and the test
+seasons were scored exactly once.
+
+**The results, and they are reported with their caveat attached:**
+
+| market | test score | against a naive guess | against Elo alone |
+|---|---|---|---|
+| winner | 65.2% accuracy | better | **tie** |
+| margin | 10.23 points average error | better | **tie** |
+| total | 10.24 points average error | better | *(no Elo baseline exists)* |
+
+"Elo alone" means a single rating number per team, updated game by game, with
+no other input at all — the simplest serious baseline there is. **The models
+tie it on both markets where the comparison is possible.** They beat a naive
+guess reliably, and they do not reliably beat one number per team.
+
+**Where that verdict is recorded, and where it deliberately is not.** It is
+in the test receipt, in the model manifest, and on the API — every NFL
+prediction carries a per-market note reading `TIES Elo alone`. It is **not**
+shown on the website.
+
+That split is worth stating plainly rather than smoothing over, because the
+two halves were decided for different reasons and they pull against each
+other. The API carries it so that no client can present the number as more
+certain than it is. The website leaves it off because a sentence comparing a
+model to a baseline is a model-selection note written for engineers, and a
+reader cannot act on it — the same judgement the WNBA's withdrawn caveat
+reached (chapter 20). A future reader who notices the asymmetry has not found
+a bug; they have found a decision taken twice, from two directions.
+
+**This is consistent with the rest of the project rather than a disappointment
+unique to football.** Chapter 19 records seven attempts to improve the NBA
+models and seven rejections, all pointing at the same conclusion: these sports
+have a ceiling that a richer model does not break. Seventeen games a season
+puts that ceiling lower here than anywhere else.
+
+### "When can this be predicted" is a different question here
+
+This is the most interesting difference, and the one most likely to be
+"fixed" wrongly by someone who has read the basketball code.
+
+For the three basketball leagues the rule is a **date**: a game is predictable
+if it falls on the day after our newest data. That rule exists because their
+features include *rest days* — how long since this team last played — and that
+cannot be computed for a game two weeks out, because we do not yet know
+whether a game sits in between.
+
+**Every NFL feature reads only each team's own earlier games**, and the team
+ratings update only on games that have been played. So the real condition is
+not about dates at all:
+
+> An NFL game can be predicted once **both teams' previous games are in our
+> history**.
+
+The difference is not academic. Measured on the live data, the dependency rule
+makes **a whole week's slate predictable at once** — currently 14 fixtures.
+The date rule would offer one day and refuse 13 of those 14.
+
+So the date check is **replaced** rather than loosened, and when it refuses it
+says which side is holding things up:
+
+```
+Not predictable yet: LAR (the home side) has not yet played its week 5
+fixture 2026_5_BUF_LAR on 2026-10-12; ARI (the away side) has not yet played
+its week 5 fixture 2026_5_DET_ARI on 2026-10-11.
+```
+
+Most NFL fixtures are refused at any given moment — 179 of 193 today — so an
+error from this endpoint is usually correct behaviour rather than a fault.
+
+**Because a client cannot work this out from a date, the service tells it.**
+The health endpoint reports `predictable_fixtures` for the NFL and for no
+other league, since for the others a client can compute the answer itself.
+
+### An incomplete row is scored rather than refused
+
+Another deliberate difference from the two leagues immediately before it.
+
+The WNBA and G League models are mathematically unable to handle a missing
+value, so if a feature is unavailable their endpoints refuse the request. For
+a season's first game, "days since the last game" is genuinely unknown — an
+offseason is not rest — so those leagues simply cannot predict a season
+opener.
+
+The NFL's models carry an **imputer**: a fitted rule that fills a missing
+value with the training data's average, alongside a flag (`SEASON_OPENER`)
+telling the model the value was *supplied* rather than *observed*. So an NFL
+season opener scores exactly as it did during training, and the response says
+**which features were filled in** rather than hiding it.
+
+Do not "harmonise" these three leagues. The difference is a property of the
+models that were selected, not an inconsistency in the code.
+
+### Staleness had to become per-league, and that was a real bug
+
+Added on 15 October 2026, and it is the clearest example in the project of a
+rule that was correct for three leagues and wrong for the fourth.
+
+"Stale" means *our data is behind*, and the app shows a `STALE` badge when it
+is. For three leagues the test was: **is the newest result more than two days
+old?** That is a fair proxy for a league that plays most days — if the NBA has
+not recorded a game in three days, something is wrong.
+
+**The NFL plays once a week.** Between a Monday night game and the following
+Thursday there are three days with nothing to ingest, and the shared rule
+called that stale while the data was complete. It did exactly that: on
+15 October the NFL page showed `STALE` with a cutoff of 12 October, and every
+game that had been played was present.
+
+So the NFL asks the question that actually matters:
+
+> Is there a game that has **finished** and is **not in our history**?
+
+A game counts as finished five hours after kickoff — the *same constant the
+parser uses* to decide a score is final rather than live. That is not a
+coincidence and the two must not drift apart: if staleness used a longer
+window than the parser, the service would call itself stale during the period
+when the parser is deliberately refusing to record the result, which is to
+say it would report a fault for doing the right thing.
+
+Two details that a simpler version would get wrong:
+
+- **A fixture with no announced kickoff time** (the NFL publishes 24 of
+  these) is judged on its *date* instead — overdue once a full day has
+  passed, by which time a game is over in every US time zone. Treating an
+  unknown time as midnight would report a game as missing hours before it
+  kicked off.
+- **Only regular-season weeks are checked.** No playoff game will ever appear
+  in a regular-season history table, so a playoff fixture would make the
+  service permanently stale.
+
+The health endpoint now reports *which* game is missing rather than only that
+something is, because "stale" with no further detail sends a reader to the
+logs.
+
+### The website: a weekly sport does not look like a daily one
+
+American football appears in the sports list as **"American football"**, never
+as "Football" — for a European reader that word means a different sport, and
+the slug becomes part of the URL (`/predictions/american-football`).
+
+Three things on the pages are shaped by the sport rather than copied from
+basketball:
+
+**A week, not a day.** The basketball pages show one day's games, because
+that is how those leagues are consumed. The NFL league page groups fixtures
+under **Week 6**, **Week 7** headings, because a week is the unit a reader
+thinks in and the predictable set is a slate spread over Thursday, Sunday and
+Monday. Fixtures that cannot be predicted yet are **shown and marked**, not
+hidden — otherwise the page looks empty for most of the week with no
+explanation.
+
+**Kickoff times in the reader's own zone.** Basketball rows show a date. NFL
+rows show a date *and* a time, converted to wherever the reader is. That is
+less cosmetic than it sounds: a Sunday-night game kicks off at 00:15 UTC the
+*following* day, so its official date and its local date disagree. Both halves
+of what is displayed come from the same instant, or they would contradict each
+other — a reader in Bucharest sees `2026-10-16, 03:15` for a game the NFL
+lists on the 15th. A fixture whose time is not yet announced shows the date
+alone, and a fixture whose time may still move is marked `flex`.
+
+**The attribution line**, as the licence requires, on the league page and on
+every NFL game page. The words come from the API's own `source` field rather
+than being typed into the website, so the line cannot end up claiming
+something the backend has stopped saying.
+
+### What verifies all this
+
+The same discipline as everywhere else in the project: every check is paired
+with a deliberately-broken version of the code that it must catch.
+
+| | |
+|---|---|
+| 25 already-played games | the live prediction path reproduces the training data **exactly**, to the last decimal |
+| every predictable fixture | the served features equal the pipeline's own output exactly |
+| the serving checks | **10 checks, 10 deliberate breakages, all 10 caught** |
+| the parser and validator | 13 checks, including the five-hour rule |
+| the basketball leagues | every prediction byte-for-byte unchanged after the NFL was added |
+
+That last row is the one that matters most. Adding a sport touched the
+inference service, the database schema, the backend and the website — and a
+dedicated comparison tool captured every basketball prediction before the
+change and re-checked it afterwards. The NBA, WNBA and G League came out
+**identical**, which is the evidence that a fourth league cost the first three
+nothing.
+
+### What is not done
+
+- **No quarter-by-quarter or player markets** for the NFL. Basketball has
+  both; football has neither, and each would need its own data pipeline.
+- **No automatic retraining** for the NFL. Its *data* refreshes daily like
+  every other league, but its models were fitted once and only change if
+  someone retrains them.
+- **Calibration was measured and nothing was adopted.** The NFL's win
+  probabilities are more improvable than the NBA's on this measure — there is
+  five times as much room — but the honest judgement is that the 2026 season
+  is not finished, and fitting a correction on a partial season would be
+  fitting it on too little. Chapter 24 carries this as an open item.
+
+---
+
+## 23. How the data stays current — the daily refresh
 
 This chapter is about the piece that makes the app keep working without
 anyone touching it. It was added in October 2026, and before it the app could
@@ -4371,7 +4824,7 @@ values, no missing games. None of that can answer the question that actually
 decides whether a snapshot is usable: **can a live prediction actually be
 built from it?**
 
-So there is a separate check that tries exactly that, for all three leagues,
+So there is a separate check that tries exactly that, for all four leagues,
 before anything is swapped. It was demonstrated on a snapshot that was
 structurally complete — every file present, the right size — with one table's
 contents replaced by four words of nonsense. The file-level check saw nothing
@@ -4447,7 +4900,7 @@ live. Asking the running service about its health does.
 
 ---
 
-## 23. Known limitations and what comes next
+## 24. Known limitations and what comes next
 
 These are understood and accepted, not oversights.
 
@@ -4455,11 +4908,19 @@ These are understood and accepted, not oversights.
    2026, the season opens 20 October 2026, and the model horizon is one day.
    The site explains this rather than showing an empty page.
 
-2. **Predictions only one day ahead.** The models use "days since last game" as
-   an input. For a fixture further out, with unplayed games in between, that
-   would be measured against the wrong previous game. The Python service
-   enforces the limit. This is now the **only** reason most listed fixtures are
-   unpredictable, since the fixture list itself is no longer the blocker.
+2. **Predictions only one day ahead — for the three basketball leagues.**
+   Their models use "days since last game" as an input. For a fixture further
+   out, with unplayed games in between, that would be measured against the
+   wrong previous game. The Python service enforces the limit, and it is the
+   **only** reason most listed basketball fixtures are unpredictable, since
+   the fixture list itself is no longer the blocker.
+
+   **The NFL is deliberately exempt**, and this must not be "harmonised".
+   None of its features reads a previous game's date, so the limit would be
+   an invented restriction: measured on live data it would refuse 13 of the
+   14 fixtures that are genuinely predictable. Its rule is a dependency
+   instead — both teams' previous games must be in history — and chapter 22
+   explains it.
 
 3. **The data is currently stale.** Every prediction made today is flagged
    `stale = true`. Correct behaviour, honestly reported.
@@ -4492,9 +4953,9 @@ These are understood and accepted, not oversights.
 
 7. ~~**The game history is baked into the container image.**~~ **Resolved in
    October 2026 — and the mounted volume predicted here is exactly what it
-   got.** All six served tables, across all three leagues, now arrive on a
+   got.** All nine served tables, across all four leagues, now arrive on a
    shared folder the service reads at startup, and the image carries no
-   results table at all. Chapter 22 is the whole of it.
+   results table at all. Chapter 23 is the whole of it.
 
    **The models are still baked in, and that is deliberate rather than the
    same oversight left half-done.** Data changes every day; a model changes
@@ -4535,9 +4996,10 @@ These are understood and accepted, not oversights.
     `played` flag as expected — that had a second reader nobody had listed. See
     17.19.
 
-14. **Test coverage is better but still thin.** Twelve backend tests, and
-    every one guards something that actually went wrong. All five Python
-    response shapes are pinned, which closes the largest gap. What is still
+14. **Test coverage is better but still thin.** Twenty-eight backend tests
+    and 184 on the website, and nearly every one guards something that
+    actually went wrong. Every Python response shape is pinned, which closes
+    the largest gap. What is still
     missing is the layer in between: nothing exercises a prediction endpoint
     end to end — website request, database write, response — so the wiring
     between the pieces is still checked by hand. **The shapes are guarded; the
@@ -4556,7 +5018,7 @@ These are understood and accepted, not oversights.
     2026.** This was previously called the most consequential item on the
     list, because the failure was silent — the app would keep answering with
     last season's data and keep reporting that correctly. Every league's data
-    is now rebuilt and swapped in daily (chapter 22), so the 2027 season will
+    is now rebuilt and swapped in daily (chapter 23), so the 2027 season will
     be picked up without anyone remembering.
 
     **What remains is narrower and is not silent: neither the WNBA nor the G
@@ -4573,7 +5035,35 @@ These are understood and accepted, not oversights.
 19. **The WNBA has no rebound, assist, quarter or player markets.** Three
     markets against the NBA's eighteen. Not a defect — nothing was built and
     nothing is advertised — but it is why the WNBA game page looks sparse
-    beside an NBA one.
+    beside an NBA one. The same is true of the G League and the NFL.
+
+20. **No NFL team colours.** All 32 badges render in the neutral grey. Team
+    colours are facts about the world, and writing 32 sets of them from
+    memory would be inventing them — the same reason the G League's 31 are
+    neutral too. Adding them is a small code change that needs a source.
+
+21. **The NFL's models tie a single rating number.** On both markets where
+    the comparison can be made, the models match "Elo alone" — one number per
+    team, updated game by game — rather than beating it. They do beat a naive
+    guess reliably. This is reported on every prediction rather than buried,
+    and it is consistent with chapter 19's finding that these sports have a
+    ceiling; 17 games a season puts it lowest here.
+
+22. **The NFL's win probabilities are measurably improvable and nothing was
+    adopted.** Unlike the NBA's — which were measured and found already good
+    — the NFL's have about five times as much room for a post-hoc correction,
+    and the curve is overconfident in the middle in a way a standard technique
+    could exploit. It was not attempted, for a reason rather than an
+    oversight: the 2026 season is not finished, and the only clean window to
+    judge a correction on is the completed season. Fitting one now would mean
+    fitting on a partial season and judging it on less. **This is the one open
+    accuracy item with a measured reason to expect a gain.**
+
+23. **No automatic retraining outside the NBA.** All four leagues' *data*
+    refreshes every morning (chapter 23), but only the NBA has a weekly job
+    that retrains a candidate model and checks it has not got worse. The
+    WNBA's, G League's and NFL's models were fitted once and change only if
+    someone retrains them deliberately.
 
 ### The roadmap, in priority order
 
@@ -4600,7 +5090,7 @@ These are understood and accepted, not oversights.
 
 ---
 
-## 24. Quick reference
+## 25. Quick reference
 
 ### Start everything
 
@@ -4630,29 +5120,37 @@ cd frontend  && npm test -- --watchAll=false
 ### Endpoints
 
 ```
-GET  /api/teams?league=NBA             one league's teams (30 NBA, 15 WNBA)
+GET  /api/teams?league=NBA             one league's teams
+                                       (30 NBA, 15 WNBA, 31 G League, 32 NFL)
 GET  /api/health                       freshness per league + models loaded
-GET  /health         (port 8000)       the above, plus table fingerprints
-                                       and the injury state per league
-GET  /api/games/schedule?daysAhead=14  cached fixtures, both leagues
+GET  /health         (port 8000)       the above, plus table fingerprints,
+                                       the injury state per league, and for
+                                       the NFL how many fixtures are
+                                       predictable right now
+GET  /api/games/schedule?daysAhead=14  cached fixtures, all four leagues,
+                                       each row saying which league it is
 POST /api/predictions                  the 7 whole-game numbers
 POST /api/predictions/quarter-half     the 6 Q1 / first-half numbers
 POST /api/predictions/player-props     5 numbers per player, both teams
 POST /api/predictions/wnba             the 3 WNBA numbers
 POST /api/predictions/gleague          the 3 G League numbers
+POST /api/predictions/nfl              the 3 NFL numbers, with the licence
+                                       line and the week
 ```
 
 ### Tables
 
 ```
-team                      76 rows (30 NBA, 15 WNBA, 31 G League), per league
-game                      cached fixtures + anything predicted, all 3 leagues
+team                      108 rows, per league
+                          (30 NBA, 15 WNBA, 31 G League, 32 NFL)
+game                      cached fixtures + anything predicted, all 4 leagues
 prediction                7 whole-game numbers per request   (NBA)
 player                    created on demand
 quarter_half_prediction   6 numbers per request               (NBA)
 player_prop_prediction    5 numbers per player per request    (NBA)
 wnba_prediction           3 numbers per request
 gleague_prediction        3 numbers per request
+nfl_prediction            3 numbers per request, plus the week
 ```
 
 ### Useful database checks
@@ -4706,7 +5204,7 @@ Get-NetTCPConnection -LocalPort 8080 -State Listen |
 
 | File | Why |
 |---|---|
-| `modellarium-data/current` | Names the snapshot the live service is serving (chapter 22). The copies of these tables in the repository are for seeding and tests, **not** what is served |
+| `modellarium-data/current` | Names the snapshot the live service is serving (chapter 23). The copies of these tables in the repository are for seeding and tests, **not** what is served |
 | `data-pipeline/data/processed/games_final.csv` | The NBA game history the pipeline produces, and the model's single most important input |
 | `ml-training/common.py` | The feature list — the contract between training and serving |
 | `ml-training/live_features.py` | Rebuilds features for an unplayed game |
