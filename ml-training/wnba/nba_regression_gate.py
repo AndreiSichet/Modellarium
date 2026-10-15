@@ -114,6 +114,14 @@ HEALTH_CONTEXT_FIELDS = {
     # compared as context, where a change makes the league CANNOT COMPARE, so
     # nothing here is unguarded.
     "predictable_fixtures", "predictableFixtures", "fixtures",
+    # AND ITS MISSING-RESULT REPORT, for the same reason one step on. The
+    # NFL's staleness is "a finished game has no result", so between a Sunday
+    # kickoff and the next morning's refresh these are legitimately non-zero
+    # and then legitimately zero again. Diffing them would make the gate go
+    # red on a Sunday evening and green on Monday with no code having changed
+    # - the fourth time the clock would have moved under this gate, after
+    # daysBehind twice and schedule_count once.
+    "missing_results", "missing_result_ids",
 }
 
 

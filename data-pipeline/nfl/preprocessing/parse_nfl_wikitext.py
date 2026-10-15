@@ -57,6 +57,22 @@ COL_ALIASES = {
     "Score": "Result",
 }
 
+# HOW LONG AFTER KICKOFF A GAME IS CERTAINLY OVER. One number, two readers,
+# and they are two sides of one fact about how long a football game lasts.
+#
+#   HERE: a score written fewer than this many hours after kickoff may be a
+#   live in-progress score, so it must not enter history as a result.
+#
+#   live_nfl_features.missing_results: a fixture whose kickoff is MORE than
+#   this many hours past should have a result by now, and if it has none the
+#   served data is behind.
+#
+# They have to agree. If this were larger here than there, staleness would be
+# reported for a window in which the parser is still deliberately refusing to
+# record the result - the service would call itself stale for doing the right
+# thing. Imported rather than restated for that reason.
+HOURS_UNTIL_FINAL = 5
+
 # Zone labels as the articles write them. IANA names, not fixed offsets: a
 # fixed offset is wrong for Arizona for part of every season, which section 33
 # already records. Used ONLY for the "kicked off less than five hours ago"
@@ -671,7 +687,7 @@ def parse_article(season, link_target, text, now=None):
             status = "fixture"
         too_recent = False
         if status == "played" and kickoff is not None and \
-                (now - kickoff) < datetime.timedelta(hours=5):
+                (now - kickoff) < datetime.timedelta(hours=HOURS_UNTIL_FINAL):
             # A score written during the game must never enter history.
             status, too_recent = "in_progress", True
         played = status == "played"

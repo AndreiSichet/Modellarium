@@ -400,6 +400,186 @@ def check_8_no_second_feature_implementation():
 # PLANTS
 # =========================================================================
 
+def _one_week_state(state, fixtures_rows, played_ids=()):
+    """A state carrying exactly these fixtures and this history.
+
+    CONSTRUCTED RATHER THAN SAMPLED, because the two cases that matter are a
+    day with nothing due and a Monday-night game that is missing. Neither can
+    be reached reliably from whatever the current snapshot happens to hold:
+    the snapshot has no Monday fixture one day old, and asserting on the
+    weekday of its earliest fixture would change answer every week. The
+    identity and manifest are the real ones, so kickoff conversion still goes
+    through the real zone map.
+    """
+    built = dict(state)
+    built["fixtures"] = pd.DataFrame(fixtures_rows)
+    # HISTORY REDUCED TO ITS IDS, which is all `missing_results` reads of it -
+    # the question is only "does this fixture have a result". Filtering the
+    # real games list cannot work here: these fixtures are invented, so no
+    # real game carries their id and every one of them would read as missing.
+    built["games"] = [{"game_id": game_id} for game_id in played_ids]
+    return built
+
+
+def _fixture(game_id, date, week, local, zone, home, away, home_fid, away_fid):
+    return {
+        "game_id": game_id, "season": 2026, "week": week, "date": date,
+        "kickoff_local": local, "kickoff_zone_as_written": zone,
+        "away_franchise_id": away_fid, "away": away,
+        "home_franchise_id": home_fid, "home": home,
+        "neutral_site": 0, "flex_two_dates": 0, "venue": "Test Field",
+    }
+
+
+def check_10_the_two_cases_the_defect_turned_on(state):
+    """A Wednesday with nothing missing, and a Monday night missing on Tuesday.
+
+    These are the two days the old rule could not tell apart. On both it
+    reported the same thing - stale - because both sit three days past a
+    Monday cutoff. One of them is correct and the other is the bug.
+    """
+    # Week 6 of 2026: Sunday the 18th, and Monday night the 19th. Monday
+    # Night Football kicks off 8:15 p.m. Eastern, which is 00:15Z on Tuesday.
+    sunday = _fixture("2026_6_CHI_ATL", "2026-10-18", 6, "1:00p.m.",
+                      "Eastern Time Zone", "ATL", "CHI",
+                      1613000002, 1613000006)
+    monday = _fixture("2026_6_NYJ_BUF", "2026-10-19", 6, "8:15p.m.",
+                      "Eastern Time Zone", "BUF", "NYJ",
+                      1613000004, 1613000022)
+
+    notes = []
+
+    # ---- CASE 1: Wednesday, nothing due, nothing missing -> NOT stale ----
+    # Both of the week's games are played and in history, and the next
+    # fixture is eight days out. This is the state the service was actually
+    # in on 15 October and wrongly called stale.
+    wednesday_state = _one_week_state(
+        state,
+        [_fixture("2026_8_MIA_CIN", "2026-10-29", 8, "1:00p.m.",
+                  "Eastern Time Zone", "CIN", "MIA", 1613000007, 1613000017)],
+        played_ids=(),
+    )
+    days, stale, late = L.freshness(wednesday_state, "2026-10-21T12:00:00Z")
+    if stale or late:
+        return False, (f"a Wednesday with nothing due reported stale, "
+                       f"naming {[e['game_id'] for e in late]}")
+    notes.append(f"Wed 21 Oct, nothing due: days_behind={days}, NOT stale")
+
+    # ---- CASE 2: Monday night missing on Tuesday -> STALE ----
+    # The Sunday game is in history; the Monday-night one is not. Checked at
+    # noon UTC on Tuesday, which is 11h45 after its 00:15Z kickoff.
+    tuesday_state = _one_week_state(state, [sunday, monday],
+                                    played_ids=("2026_6_CHI_ATL",))
+    _d, stale, late = L.freshness(tuesday_state, "2026-10-20T12:00:00Z")
+    if not stale:
+        return False, "Monday night's result missing on Tuesday, reported fresh"
+    ids = [entry["game_id"] for entry in late]
+    if ids != ["2026_6_NYJ_BUF"]:
+        return False, (f"expected only the Monday-night game to be late, "
+                       f"got {ids}")
+    notes.append("Tue 20 Oct, Monday night missing: STALE, naming only "
+                 "2026_6_NYJ_BUF (the played Sunday game is not listed)")
+
+    # ---- the same Tuesday state, five hours earlier, mid-game ----
+    # 02:00Z Tuesday is 1h45 into the Monday-night game. The parser is still
+    # refusing to treat a score as final, so the service must not yet be
+    # calling itself behind.
+    _d, stale, _late = L.freshness(tuesday_state, "2026-10-20T02:00:00Z")
+    if stale:
+        return False, "stale while the Monday-night game was still being played"
+    notes.append("the same state at 02:00Z, mid-game: NOT stale")
+
+    # ---- and the old rule cannot tell case 1 from case 2 ----
+    # Both are three days past their respective cutoffs, which is what made
+    # one of them a false alarm.
+    wed_days, _s, _l = L.freshness(wednesday_state, "2026-10-21T12:00:00Z")
+    tue_days, _s, _l = L.freshness(tuesday_state, "2026-10-20T12:00:00Z")
+    if not (wed_days > 2 and tue_days > 2):
+        return False, (f"both cases must sit past the old two-day threshold "
+                       f"for the contrast to mean anything; got {wed_days} "
+                       f"and {tue_days}")
+    notes.append(f"the OLD rule says stale for BOTH (days_behind "
+                 f"{wed_days} and {tue_days}) - that is the defect")
+
+    return True, "; ".join(notes)
+
+
+def check_9_staleness_is_the_weekly_rule(state):
+    """Stale means a finished game has no result - not a days-since count.
+
+    THE TWO CASES THE DEFECT TURNED ON. A days-since rule reported STALE on
+    a Wednesday with every played game present, because the NFL had not
+    played since Monday; and it would have said the same thing on a Tuesday
+    when Monday night's result really was missing. The rule has to separate
+    those, so both are asserted, and the days_behind figure is printed beside
+    each to show it does not distinguish them.
+    """
+    fixtures = state["fixtures"]
+    if fixtures.empty:
+        return False, "no fixtures to judge"
+
+    # The earliest fixture with a stated kickoff is the one to build both
+    # cases around, derived rather than named - a fixed date would go stale
+    # with the snapshot, which is the shape of defect this check exists for.
+    timed = [row for _i, row in L._ordered_fixtures(state).iterrows()
+             if L.kickoff_for(state, row)[0] is not None]
+    if not timed:
+        return False, "no fixture with a stated kickoff"
+    row = timed[0]
+    kickoff = pd.Timestamp(L.kickoff_for(state, row)[0])
+    label = f"wk{int(row['week'])} {row['away']}@{row['home']}"
+
+    notes = []
+
+    # 1. BEFORE it kicks off, and well past the old two-day threshold.
+    before = kickoff - pd.Timedelta(hours=6)
+    days, stale, late = L.freshness(state, before)
+    if stale or late:
+        return False, (f"not yet kicked off and already stale: {len(late)} "
+                       f"missing at {before.isoformat()}")
+    if days <= 2:
+        return False, (f"this case only means something past the old "
+                       f"threshold; days_behind was {days} at "
+                       f"{before.isoformat()}")
+    notes.append(f"6h before {label}: days_behind={days} (the OLD rule would "
+                 f"say stale), new rule says fresh")
+
+    # 2. DURING the game - inside the window the parser refuses to record a
+    #    result in, so calling it stale would blame the service for the
+    #    parser doing the right thing.
+    _d, stale, late = L.freshness(state, kickoff + pd.Timedelta(hours=1))
+    if stale or late:
+        return False, "stale one hour after kickoff, while the game is on"
+    notes.append("1h after kickoff: fresh (inside the in-progress window)")
+
+    # 3. AFTER it is certainly over, with no result in history.
+    after = kickoff + pd.Timedelta(hours=L.HOURS_UNTIL_FINAL + 1)
+    _d, stale, late = L.freshness(state, after)
+    if not stale:
+        return False, (f"{label} finished at {after.isoformat()} with no "
+                       f"result and the rule said fresh")
+    ids = [entry["game_id"] for entry in late]
+    if str(row["game_id"]) not in ids:
+        return False, f"stale, but {row['game_id']} is not in {ids[:3]}"
+    notes.append(f"{L.HOURS_UNTIL_FINAL}h+ after it: STALE, naming "
+                 f"{row['game_id']}")
+
+    # 4. The threshold is the parser's, not a second copy of 5.
+    import parse_nfl_wikitext as W
+    if L.HOURS_UNTIL_FINAL is not W.HOURS_UNTIL_FINAL:
+        return False, "the hours threshold is not the parser's constant"
+    notes.append(f"threshold is parse_nfl_wikitext.HOURS_UNTIL_FINAL "
+                 f"= {W.HOURS_UNTIL_FINAL}")
+
+    # 5. Only regular-season weeks are judged.
+    weeks = sorted(set(int(w) for w in fixtures["week"]))
+    if not set(weeks) <= set(L.REGULAR_SEASON_WEEKS):
+        return False, f"fixtures carry non-regular-season weeks: {weeks}"
+    notes.append(f"weeks {min(weeks)}-{max(weeks)}, all regular season")
+
+    return True, "; ".join(notes)
+
+
 def plant_1(state, frame, models):
     """Corrupt one feature of the production frame; check 1 must notice."""
     broken = frame.copy()
@@ -540,6 +720,54 @@ def plant_8():
         target.unlink(missing_ok=True)
 
 
+def plant_9(state):
+    """Put the days-since rule back; check 9 must notice.
+
+    This is the defect as it shipped, not an invented one: a cutoff more than
+    STALE_AFTER_DAYS old is stale regardless of whether anything is missing.
+    """
+    import datetime
+
+    original = L.freshness
+
+    def days_since(st, now=None):
+        today = pd.Timestamp(now).date() if now is not None \
+            else datetime.date.today()
+        days = (pd.Timestamp(today) - st["data_as_of"]).days
+        return days, days > 2, []
+
+    L.freshness = days_since
+    try:
+        ok, _detail = check_9_staleness_is_the_weekly_rule(state)
+    finally:
+        L.freshness = original
+    return not ok
+
+
+def plant_10(state):
+    """Ignore the history check; check 10 must notice.
+
+    A rule that only looks at the clock calls the Wednesday stale, because
+    the fixture it finds has a kickoff in the past relative to nothing.
+    """
+    original = L.missing_results
+
+    def clock_only(st, now=None):
+        now = pd.Timestamp(now)
+        if now.tz is None:
+            now = now.tz_localize("UTC")
+        days = (pd.Timestamp(now.date()) - st["data_as_of"]).days
+        return [{"game_id": "ALL", "week": 0, "kickoff_utc": "",
+                 "home": "", "away": ""}] if days > 2 else []
+
+    L.missing_results = clock_only
+    try:
+        ok, _detail = check_10_the_two_cases_the_defect_turned_on(state)
+    finally:
+        L.missing_results = original
+    return not ok
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--synthetic-root", type=Path,
@@ -583,6 +811,10 @@ def main() -> int:
          lambda: check_7_feature_lists_are_the_manifest(state)),
         ("8  no second feature implementation",
          check_8_no_second_feature_implementation),
+        ("9  staleness is the weekly rule, not a days-since count",
+         lambda: check_9_staleness_is_the_weekly_rule(state)),
+        ("10 a Wednesday with nothing missing, a Monday night missing "
+         "on Tuesday", lambda: check_10_the_two_cases_the_defect_turned_on(state)),
     ]
 
     passed = 0
@@ -604,6 +836,10 @@ def main() -> int:
          lambda: plant_6(state, args.synthetic_root)),
         ("7  a market short one feature", lambda: plant_7(state)),
         ("8  a second features_for in the module", plant_8),
+        ("9  the days-since staleness rule restored",
+         lambda: plant_9(state)),
+        ("10 staleness read off the clock, ignoring history",
+         lambda: plant_10(state)),
     ]
     caught = 0
     for label, run in plants:

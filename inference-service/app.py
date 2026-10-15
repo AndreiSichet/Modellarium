@@ -53,6 +53,7 @@ from live_nfl_features import (  # noqa: E402
     NotScoreable as NflNotScoreable,
     SOURCE_ATTRIBUTION as NFL_SOURCE,
     SyntheticDataRefused,
+    freshness as nfl_freshness_from_state,
     get_live_features as get_live_nfl_features,
     kickoff_for as nfl_kickoff_for,
     load_state as load_nfl_state,
@@ -723,7 +724,7 @@ def health():
     days_behind, stale = freshness()
     wnba_days_behind, wnba_stale = wnba_freshness()
     gleague_days_behind, gleague_stale = gleague_freshness()
-    nfl_days_behind, nfl_stale = nfl_freshness()
+    nfl_days_behind, nfl_stale, nfl_missing = nfl_freshness()
     nfl_ready = len(nfl_predictable_fixtures(state.nfl_state))
     return {
         "status": "ok",
@@ -764,6 +765,13 @@ def health():
             "data_as_of": state.nfl_data_as_of.date().isoformat(),
             "days_behind": nfl_days_behind,
             "stale": nfl_stale,
+            # WHY it is stale, not only that it is. The rule is "a finished
+            # game has no result", so the useful report is which game - a
+            # bare boolean sends a reader to the logs. Empty when fresh, and
+            # a count plus the ids rather than the whole fixture, because
+            # this block is read by a monitor as often as by a person.
+            "missing_results": len(nfl_missing),
+            "missing_result_ids": [row["game_id"] for row in nfl_missing[:10]],
             "predictable_fixtures": nfl_ready,
             "fixtures": len(state.nfl_state["fixtures"]),
             "prediction_rule": "both teams' previous games in history",
@@ -1362,10 +1370,22 @@ def predict_wnba(request: PredictionRequest):
 
 
 def nfl_freshness() -> tuple:
-    """The NFL's own staleness, against its own cutoff."""
-    days_behind = (pd.Timestamp(datetime.now().date())
-                   - state.nfl_data_as_of).days
-    return days_behind, days_behind > STALE_AFTER_DAYS
+    """(days_behind, stale, the fixtures that make it stale).
+
+    STALENESS IS PER LEAGUE, AND THE NFL'S IS NOT A DAYS-SINCE COUNT.
+    `STALE_AFTER_DAYS = 2` suits a league that plays most days: for the NBA,
+    the WNBA and the G League, a cutoff more than two days old does mean
+    results are missing. The NFL plays weekly, so the gap between a Monday
+    night and the following Thursday is three days of nothing to ingest - and
+    the shared rule called that stale while the data was complete. It did
+    exactly that on 15 October 2026: STALE against a cutoff of the 12th, with
+    every played game present.
+
+    The rule lives in `live_nfl_features.freshness`, beside the fixtures and
+    history it reads, rather than here - and it asks whether any finished
+    game is missing a result instead of how old the newest one is.
+    """
+    return nfl_freshness_from_state(state.nfl_state)
 
 
 def validate_nfl_matchup(request: "PredictionRequest") -> pd.Timestamp:
@@ -1482,7 +1502,7 @@ def predict_nfl(request: PredictionRequest):
             imputed=features["missing"].get(market, []),
         )
 
-    days_behind, stale = nfl_freshness()
+    days_behind, stale, _missing = nfl_freshness()
     return NflResponse(
         home_team_id=request.home_team_id,
         away_team_id=request.away_team_id,

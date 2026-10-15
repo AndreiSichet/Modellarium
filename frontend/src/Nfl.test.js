@@ -361,6 +361,38 @@ describe('the game detail page', () => {
     ).toBeInTheDocument();
   });
 
+  test('only the NFL Win probability row carries a note AND a model', async () => {
+    // WHY THIS IS A TEST AND NOT A LOOK AT THE PAGE. The label was wrapping
+    // onto two lines because `.market-note` and `.market-model` are
+    // `flex-basis: 100%` children of the value cell, and a full-width child
+    // still contributes its max-content width to its parent's - so the value
+    // cell claimed the room the label needed. jsdom has no layout engine and
+    // cannot see the wrap; what it CAN see is the structural difference that
+    // causes it, which is the part that distinguishes the NFL from basketball.
+    await detail();
+
+    const row = screen.getByText('Win probability').closest('.market-row');
+    expect(row.querySelector('.market-note')).not.toBeNull();
+    expect(row.querySelector('.market-model')).not.toBeNull();
+  });
+
+  test('basketball Win probability carries neither, so it cannot wrap for this reason', async () => {
+    getSchedule.mockResolvedValue([NBA_FIXTURE]);
+    renderAt(`/predictions/basketball/nba/${NBA_SUMMARY.gameId}`);
+    await screen.findByText(/Atlanta Hawks/);
+
+    const row = screen.getByText('Win probability').closest('.market-row');
+    expect(row.querySelector('.market-note')).toBeNull();
+    expect(row.querySelector('.market-model')).toBeNull();
+
+    // Its Spread row DOES carry a note - a longer string than the NFL's
+    // qualifier - and has never wrapped, because "Spread" is one word. That
+    // is why the defect is the NFL's alone rather than a shared one.
+    const spread = screen.getByText('Spread').closest('.market-row');
+    expect(spread.querySelector('.market-note')).not.toBeNull();
+    expect('Spread'.split(' ')).toHaveLength(1);
+  });
+
   test('the manifest note is NOT rendered', async () => {
     await detail();
 

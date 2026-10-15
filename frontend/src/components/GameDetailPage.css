@@ -85,10 +85,28 @@
   border-bottom: 1px solid var(--rule);
 }
 
+/* THE LABEL IS SIZED BY ITS CONTENT AND IS NEVER SQUEEZED INTO A WRAP.
+   `.market-note` and `.market-model` are `flex-basis: 100%` children of
+   `.market-value` - their own line INSIDE that cell - but a full-width child
+   still contributes its max-content width to its parent's, so the value cell
+   claimed room for "P(home wins | not tied)" and "linear/mov/elo_context" and
+   the label lost it. Two-word labels then wrapped: "Win probability" broke
+   onto two lines on the NFL detail page, where it is the only label sharing a
+   row with both a note and a model.
+
+   Basketball is unaffected either way. Its Win probability row passes neither
+   a note nor a model, so nothing inflated its value cell; its Spread row does
+   carry a note, but "Spread" is one word and cannot wrap. For a row whose
+   value already fits, `flex: 1 1 0` plus the cell's own `flex-end` puts the
+   content exactly where `space-between` did. */
 .market-label {
   display: flex;
   align-items: baseline;
+  /* Still wrapping, because QuarterHalfTab passes a ConfidenceTag as a second
+     child and that may need its own line. What must not wrap is the label
+     text, which flex-basis auto on this item now guarantees. */
   flex-wrap: wrap;
+  flex: 0 0 auto;
   gap: var(--space-1);
   font-family: var(--font-display);
   font-size: var(--text-small);
@@ -101,6 +119,11 @@
   align-items: baseline;
   justify-content: flex-end;
   flex-wrap: wrap;
+  /* Takes the space the label does not, and wraps its note and model inside
+     rather than widening the row. `min-width: 0` is what lets it shrink below
+     its longest child. */
+  flex: 1 1 0;
+  min-width: 0;
   gap: var(--space-1) var(--space-3);
   font-family: var(--font-display);
   font-size: var(--text-small);

@@ -60,7 +60,9 @@ import pandas as pd  # noqa: E402
 
 import build_nfl_model_dataset as B  # noqa: E402
 import nfl_franchises as F  # noqa: E402
-from parse_nfl_wikitext import ZONE_OVERRIDE, ZONES, kickoff_utc  # noqa: E402
+from parse_nfl_wikitext import (  # noqa: E402
+    HOURS_UNTIL_FINAL, ZONE_OVERRIDE, ZONES, kickoff_utc,
+)
 from served_data import data_root  # noqa: E402
 
 MODELS_DIR = ML_TRAINING / "models_nfl"
@@ -451,10 +453,98 @@ def upcoming(state: dict) -> list:
     return out
 
 
-def freshness(state: dict, today=None) -> tuple:
-    today = pd.Timestamp(today or datetime.date.today())
-    days_behind = (today - state["data_as_of"]).days
-    return days_behind, days_behind
+# The NFL plays 18 regular-season weeks. Both served tables are regular
+# season only, so this is a guard rather than a filter today - but a playoff
+# fixture could NEVER acquire a result in a regular-season history table, so
+# one appearing here would wedge the service as permanently stale. Checked
+# rather than assumed, for the same reason the other three leagues filter on
+# the game-id type digit.
+REGULAR_SEASON_WEEKS = frozenset(range(1, 19))
+
+
+def missing_results(state: dict, now=None) -> list:
+    """Regular-season fixtures that should have a result by now and have none.
+
+    THIS IS THE NFL'S STALENESS RULE, AND IT IS NOT A DAYS-SINCE COUNT.
+    The other three leagues play most days, so "the newest result is more
+    than two days old" is a fair proxy for "we are behind" there. The NFL
+    plays weekly: between a Monday night and the following Thursday there is
+    nothing to ingest, and a days-since rule calls those three days stale
+    while the data is in fact complete. That is what it did - it reported
+    STALE on 15 October against a cutoff of the 12th, with every played game
+    present.
+
+    So staleness here asks the question that actually matters: is there a
+    game that has finished and is not in history? A fixture is late when its
+    kickoff is more than HOURS_UNTIL_FINAL hours past, which is the same
+    threshold the parser uses to decide a score is final rather than live -
+    see its comment. Below that window the parser is deliberately refusing to
+    record the result, so reporting staleness there would be calling the
+    service stale for doing the right thing.
+
+    THE FIXTURES TABLE HOLDS ONLY UNPLAYED FIXTURES, so presence here is
+    nearly enough on its own - but the history check stays, because the
+    snapshot is rebuilt once a day and a game played at 23:00Z sits in both
+    tables until the next morning's refresh. That overlap is exactly the
+    window this rule exists to describe, and the `game_id` test is what makes
+    it resolve on its own rather than needing the fixture to disappear.
+
+    A TBD KICKOFF HAS NO INSTANT TO BE LATE AGAINST. Treating it as midnight
+    would report a game as missing hours before it kicked off, so a fixture
+    with no stated time is judged on its DATE instead: once a full day has
+    passed, a game scheduled that day is over in every US zone whatever time
+    it started. The NFL publishes 24 such fixtures, so this is not a corner.
+    """
+    now = pd.Timestamp(now or datetime.datetime.now(datetime.timezone.utc))
+    if now.tz is None:
+        now = now.tz_localize("UTC")
+    deadline = now - pd.Timedelta(hours=HOURS_UNTIL_FINAL)
+
+    in_history = {str(game["game_id"]) for game in state["games"]}
+
+    late = []
+    for _index, row in _ordered_fixtures(state).iterrows():
+        game_id = str(row["game_id"])
+        if int(row["week"]) not in REGULAR_SEASON_WEEKS:
+            continue
+        if game_id in in_history:
+            continue
+
+        kickoff, _zone = kickoff_for(state, row)
+        game_date = pd.Timestamp(row["date"]).date()
+
+        if kickoff is None:
+            # Judged on the date; see the docstring.
+            overdue = (now.date() - game_date).days > 1
+            when = f"{game_date} (kickoff TBD)"
+        else:
+            overdue = pd.Timestamp(kickoff) <= deadline
+            when = str(kickoff)
+
+        if overdue:
+            late.append({
+                "game_id": game_id,
+                "week": int(row["week"]),
+                "kickoff_utc": when,
+                "home": str(row["home"]),
+                "away": str(row["away"]),
+            })
+    return late
+
+
+def freshness(state: dict, now=None) -> tuple:
+    """(days_behind, stale, the fixtures that make it stale).
+
+    `days_behind` is still reported because it is a real fact - how old the
+    newest result is - but it no longer DECIDES anything. Returning the list
+    rather than only the boolean is what lets /health say which game is
+    missing instead of only that something is.
+    """
+    today = pd.Timestamp(now).date() if now is not None \
+        else datetime.date.today()
+    days_behind = (pd.Timestamp(today) - state["data_as_of"]).days
+    late = missing_results(state, now)
+    return days_behind, bool(late), late
 
 
 if __name__ == "__main__":
