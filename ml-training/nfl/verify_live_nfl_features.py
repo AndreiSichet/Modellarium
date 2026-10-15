@@ -565,51 +565,97 @@ def check_9_staleness_is_the_weekly_rule(state):
     if fixtures.empty:
         return False, "no fixtures to judge"
 
-    # The earliest fixture with a stated kickoff is the one to build both
-    # cases around, derived rather than named - a fixed date would go stale
-    # with the snapshot, which is the shape of defect this check exists for.
+    # The earliest fixture with a stated kickoff is the one to build the cases
+    # around, derived rather than named - a fixed date would go stale with the
+    # snapshot, which is the shape of defect this check exists for.
     timed = [row for _i, row in L._ordered_fixtures(state).iterrows()
              if L.kickoff_for(state, row)[0] is not None]
     if not timed:
         return False, "no fixture with a stated kickoff"
     row = timed[0]
+    sampled = str(row["game_id"])
     kickoff = pd.Timestamp(L.kickoff_for(state, row)[0])
     label = f"wk{int(row['week'])} {row['away']}@{row['home']}"
+
+    # THE ASSERTIONS ARE ABOUT THE SAMPLED FIXTURE, NOT ABOUT GLOBAL
+    # STALENESS, AND THE FIRST VERSION GOT THAT WRONG.
+    #
+    # It asserted `not stale` at an instant before the sampled kickoff. That
+    # holds only if NO fixture is overdue then, which is a fact about the
+    # whole table rather than about this game - and the earliest fixture in
+    # the repo's seed table is a Sunday with several games, so an hour after
+    # the first of them the others are already more than five hours past and
+    # the state is legitimately stale. The check failed on correct behaviour,
+    # against a DATA_DIR it happened not to be run with.
+    #
+    # Membership is the right question anyway: the rule's job is to decide,
+    # per fixture, whether that game should have a result by now. Asking it
+    # about one fixture tests the decision; asking it about the aggregate
+    # tests the decision plus whatever else the table holds.
+    in_history = {str(game["game_id"]) for game in state["games"]}
+    if sampled in in_history:
+        return False, (f"{sampled} is already in history, so the rule can "
+                       f"never list it and every case below would be vacuous")
+
+    def late_at(when):
+        """(the ids the rule calls overdue, the stale flag) at one instant.
+
+        DELIBERATELY DOES NOT RAISE. An earlier version asserted the flag
+        against the list's emptiness here and raised on a mismatch - which
+        made plant 9 CRASH the run instead of being caught, because a flag
+        set without evidence is precisely what that plant simulates. A harness
+        that raises on a planted defect reports nothing and takes the
+        remaining plants with it; the same shape as plant 4's KeyError. The
+        consistency is checked below, as a case that can fail.
+        """
+        _days, stale, late = L.freshness(state, when)
+        return [entry["game_id"] for entry in late], stale
 
     notes = []
 
     # 1. BEFORE it kicks off, and well past the old two-day threshold.
     before = kickoff - pd.Timedelta(hours=6)
-    days, stale, late = L.freshness(state, before)
-    if stale or late:
-        return False, (f"not yet kicked off and already stale: {len(late)} "
-                       f"missing at {before.isoformat()}")
+    days, _stale, _late = L.freshness(state, before)
+    ids, stale = late_at(before)
+    # The flag IS the emptiness of the list, so a caller reading one cannot
+    # get a different answer from the other. This is where a rule that
+    # reports staleness without naming a game fails.
+    if stale != bool(ids):
+        return False, (f"at {before.isoformat()} the rule reported "
+                       f"stale={stale} with {len(ids)} overdue fixture(s) - "
+                       f"the flag and the list disagree")
+    if sampled in ids:
+        return False, (f"{label} had not kicked off at {before.isoformat()} "
+                       f"and the rule already called it overdue")
     if days <= 2:
         return False, (f"this case only means something past the old "
                        f"threshold; days_behind was {days} at "
                        f"{before.isoformat()}")
     notes.append(f"6h before {label}: days_behind={days} (the OLD rule would "
-                 f"say stale), new rule says fresh")
+                 f"say stale), {sampled} NOT overdue"
+                 + (f" ({len(ids)} other fixture(s) are)" if ids else ""))
 
     # 2. DURING the game - inside the window the parser refuses to record a
-    #    result in, so calling it stale would blame the service for the
+    #    result in, so calling it overdue would blame the service for the
     #    parser doing the right thing.
-    _d, stale, late = L.freshness(state, kickoff + pd.Timedelta(hours=1))
-    if stale or late:
-        return False, "stale one hour after kickoff, while the game is on"
-    notes.append("1h after kickoff: fresh (inside the in-progress window)")
+    ids, _s = late_at(kickoff + pd.Timedelta(hours=1))
+    if sampled in ids:
+        return False, (f"{label} was called overdue one hour after kickoff, "
+                       f"while the game was still being played")
+    notes.append(f"1h after kickoff: {sampled} NOT overdue (inside the "
+                 f"in-progress window)")
 
     # 3. AFTER it is certainly over, with no result in history.
     after = kickoff + pd.Timedelta(hours=L.HOURS_UNTIL_FINAL + 1)
-    _d, stale, late = L.freshness(state, after)
-    if not stale:
+    ids, stale = late_at(after)
+    if sampled not in ids:
         return False, (f"{label} finished at {after.isoformat()} with no "
-                       f"result and the rule said fresh")
-    ids = [entry["game_id"] for entry in late]
-    if str(row["game_id"]) not in ids:
-        return False, f"stale, but {row['game_id']} is not in {ids[:3]}"
-    notes.append(f"{L.HOURS_UNTIL_FINAL}h+ after it: STALE, naming "
-                 f"{row['game_id']}")
+                       f"result and the rule did not list it; it listed "
+                       f"{ids[:3]}")
+    if not stale:
+        return False, "listed as overdue and yet not reported stale"
+    notes.append(f"{L.HOURS_UNTIL_FINAL}h+ after it: {sampled} IS overdue "
+                 f"and the service reports stale")
 
     # 4. The threshold is the parser's, not a second copy of 5.
     import parse_nfl_wikitext as W
