@@ -215,21 +215,57 @@ def check_4_elo_is_replayed(state):
     dataset_path = (state["root"] / "nfl" / "processed"
                     / "nfl_model_dataset.csv")
     if not dataset_path.is_file():
-        return False, f"{dataset_path.name} absent, so there is nothing to contrast"
+        # A SERVED SNAPSHOT DOES NOT CARRY THIS TABLE, and should not - it
+        # holds the three tables the service reads and nothing else. So this
+        # check only has something to contrast against when the verifier is
+        # pointed at the repo's data copy. Saying so, because "absent" on its
+        # own reads as a missing file rather than as the wrong DATA_DIR.
+        return False, (f"{dataset_path.name} absent under {state['root']}, so "
+                       f"there is nothing to contrast. A served snapshot "
+                       f"carries only the three served tables; point "
+                       f"DATA_DIR at data-pipeline/data to run this check.")
 
     stored = pd.read_csv(dataset_path)
     frame = production_frame(state)
     merged = stored[["game_id", "HOME_ELO_MOV"]].merge(
-        frame[["game_id", "HOME_ELO_MOV"]], on="game_id",
+        frame[["game_id", "HOME_ELO_MOV", "date"]], on="game_id",
         suffixes=("_phase2", "_production"))
-    differing = (merged.HOME_ELO_MOV_phase2
-                 != merged.HOME_ELO_MOV_production).sum()
+    differing_rows = merged[merged.HOME_ELO_MOV_phase2
+                            != merged.HOME_ELO_MOV_production]
+    differing = len(differing_rows)
     if differing == 0:
         return False, ("phase 2's stored Elo equals the production Elo on "
                        "every row, so this check cannot distinguish replay "
                        "from reading the column")
 
-    row = frame.iloc[-1]
+    # THE SAMPLE COMES FROM THE DATASET, NOT FROM THE NEWEST GAME.
+    #
+    # This used to be `frame.iloc[-1]`, the newest played game - and
+    # `nfl_model_dataset.csv` is a phase 2 artifact that the daily refresh does
+    # NOT rebuild, so the newest game leaves the dataset behind as soon as one
+    # more week is ingested. On 2026-10-15 exactly one of 3,728 production rows
+    # was missing from it, and `iloc[-1]` picked that one game: `plant_4` then
+    # looked it up and raised KeyError, so the check and its plant were both
+    # out of action. A sample chosen from the newest END of a frame that grows
+    # is a reference with no expiry, the same shape as section 35's hardcoded
+    # season list and section 25's hardcoded game ids.
+    #
+    # AND IT MUST BE A ROW WHERE THE TWO DIFFER, not merely one the dataset
+    # holds. The plant works by overwriting the served value with the stored
+    # one; on a row where stored already equals production that overwrite is a
+    # no-op, the check would pass under the plant, and the plant would report
+    # NOT CAUGHT while the defect it simulates was live.
+    usable = frame[frame.game_id.isin(set(differing_rows.game_id))]
+    if usable.empty:
+        return False, ("no production row is both present in "
+                       f"{dataset_path.name} and differing from it, so there "
+                       "is no row on which this check can tell replay from a "
+                       "stored read")
+
+    # Sorted here rather than trusting the frame's order: "the newest usable
+    # game" has to mean the newest by date whatever order build_rows emitted.
+    usable = usable.sort_values("date")
+    row = usable.iloc[-1]
     served = L.get_live_features(int(row.home_franchise_id),
                                  int(row.away_franchise_id), row.date, state)
     if not same(served["full"]["HOME_ELO_MOV"], row["HOME_ELO_MOV"]):
@@ -247,11 +283,22 @@ def check_4_elo_is_replayed(state):
         return False, ("changing home_advantage did not move the served Elo, "
                        "so it is not being replayed from the parameters")
 
+    # The dataset's coverage is REPORTED rather than asserted. It falling
+    # behind the games table is the normal consequence of the daily refresh
+    # rebuilding the served tables and not this one - it is not a serving
+    # defect, and failing on it would be a guard blocking correct work. What
+    # would be a defect is having no usable row left, and that is the refusal
+    # above.
+    behind = len(frame) - len(merged)
     return True, (f"phase 2's stored Elo differs from production's on "
-                  f"{differing:,} of {len(merged):,} rows; serving matches "
+                  f"{differing:,} of {len(merged):,} rows; sampled "
+                  f"{row['game_id']} ({pd.Timestamp(row['date']).date()}), the "
+                  f"newest of them present in the dataset; serving matches "
                   f"production and MOVES when the parameters change "
                   f"({row['HOME_ELO_MOV']:.4f} -> "
-                  f"{moved['full']['HOME_ELO_MOV']:.4f})")
+                  f"{moved['full']['HOME_ELO_MOV']:.4f}). The dataset covers "
+                  f"{len(merged):,} of {len(frame):,} production rows "
+                  f"({behind} newer game(s) not in it)")
 
 
 def check_5_kickoff_conversion(state):
@@ -651,7 +698,14 @@ def plant_4(state):
                     and game["away_franchise_id"] == away
                     and pd.Timestamp(game["date"]).date()
                     == pd.Timestamp(when).date()):
-                row = stored.loc[game["game_id"]]
+                # GUARDED, so a sample the dataset does not hold cannot turn
+                # this plant into a crash. It used to raise KeyError, which
+                # took down the whole verifier run rather than reporting a
+                # plant that failed to fire. Leaving the value untouched means
+                # check 4 passes and this plant reports NOT CAUGHT - visible,
+                # and attributable to the sample rather than to the rule.
+                if game["game_id"] in stored.index:
+                    row = stored.loc[game["game_id"]]
                 break
         if row is not None:
             out["full"]["HOME_ELO_MOV"] = float(row["HOME_ELO_MOV"])
