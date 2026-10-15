@@ -1,5 +1,5 @@
 import { formatKickoff } from '../dates';
-import { teamFor } from '../data/teams';
+import { nameOf } from '../data/teams';
 import GameRow from './GameRow';
 import TeamBadge from './TeamBadge';
 import './WeekGroups.css';
@@ -140,7 +140,7 @@ function Side({ teamId, name, abbr }) {
   return (
     <span className="week-not-yet-side">
       <TeamBadge teamId={teamId} abbr={abbr} />
-      <span className="game-row-team-name">{name || teamFor(teamId).name}</span>
+      <span className="game-row-team-name">{nameOf(teamId, name)}</span>
     </span>
   );
 }

@@ -1,4 +1,4 @@
-import { badgeTextColour, teamFor } from '../data/teams';
+import { abbrOf, badgeTextColour, teamFor } from '../data/teams';
 import './TeamBadge.css';
 
 /**
@@ -25,7 +25,7 @@ function TeamBadge({ teamId, abbr }) {
       style={{ background: team.primary, color: badgeTextColour(team) }}
       aria-hidden="true"
     >
-      {abbr || team.abbr}
+      {abbrOf(teamId, abbr)}
     </span>
   );
 }

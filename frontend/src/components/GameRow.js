@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 
 import { formatSpread, formatWin } from '../predictionFormat';
 import { formatKickoff } from '../dates';
-import { teamFor } from '../data/teams';
+import { nameOf } from '../data/teams';
 import TeamBadge from './TeamBadge';
 import './GameRow.css';
 
@@ -11,7 +11,7 @@ function TeamLine({ teamId, name, abbr, spread, win }) {
     <>
       <div className="game-row-team">
         <TeamBadge teamId={teamId} abbr={abbr} />
-        <span className="game-row-team-name">{name || teamFor(teamId).name}</span>
+        <span className="game-row-team-name">{nameOf(teamId, name)}</span>
       </div>
       <div className="game-row-cell">{spread}</div>
       <div className="game-row-cell">{win}</div>

@@ -4,7 +4,8 @@ import { useOutletContext, useParams } from 'react-router-dom';
 import { createQuarterHalfPrediction, getPlayerPropPredictions } from '../api';
 import { DEV_FIXTURES_ON, devPlayerPropsFor, devQuarterHalfFor } from '../data/devFixtures';
 import { findLeague } from '../data/leagues';
-import { teamFor } from '../data/teams';
+import { abbrOf, nameOf } from '../data/teams';
+import { formatKickoff } from '../dates';
 import Breadcrumb from './Breadcrumb';
 import DetailTabs, { PLAYER_STATS, isPlayerTab, panelId, tabId, tabsFor } from './DetailTabs';
 import Attribution from './Attribution';
@@ -94,7 +95,13 @@ function GameDetailPage() {
           { label: 'Predictions', to: '/predictions' },
           { label: sport.label, to: `/predictions/${sport.slug}` },
           { label: league.label, to: `/predictions/${sport.slug}/${league.slug}` },
-          { label: `${teamFor(game.awayTeamId).abbr} @ ${teamFor(game.homeTeamId).abbr}` },
+          {
+            // THE API'S ABBREVIATION FIRST, as TeamBadge beside it already
+            // does. Read from `teams.js` alone this was "? @ ?" for every
+            // NFL and G League game.
+            label: `${abbrOf(game.awayTeamId, game.awayTeamAbbr)}`
+              + ` @ ${abbrOf(game.homeTeamId, game.homeTeamAbbr)}`,
+          },
         ]}
       />
 
@@ -144,21 +151,48 @@ function GameDetailPage() {
   );
 }
 
+/**
+ * The two teams and when they play.
+ *
+ * THE SAME FORMATTER THE ROWS USE. This showed `game.gameDate` alone, which
+ * for an NFL fixture is the United States date and carries no time - so a
+ * Sunday-night game read "2026-10-15" on a page whose own rows read
+ * "2026-10-16, 03:15". `formatKickoff` returns the date derived from the
+ * kickoff instant, so both halves describe the same moment in the reader's
+ * zone, and basketball is unchanged because those fixtures carry no kickoff.
+ *
+ * THE FLEX MARKER TRAVELS WITH IT. A time that may still move is a caveat
+ * about the number shown, and dropping it on one surface while the rows carry
+ * it is how a qualifier quietly disappears.
+ */
 function GameHeader({ game }) {
+  const when = formatKickoff(game);
+
   return (
     <header className="game-header">
       <div className="game-header-side">
         <TeamBadge teamId={game.awayTeamId} abbr={game.awayTeamAbbr} />
-        <span className="game-header-team">{game.awayTeamName}</span>
+        <span className="game-header-team">
+          {nameOf(game.awayTeamId, game.awayTeamName)}
+        </span>
       </div>
 
       <div className="game-header-middle">
         <span className="game-header-at">@</span>
-        <span className="game-header-date">{game.gameDate}</span>
+        <span className="game-header-date">
+          {when.text}
+          {when.flex ? (
+            <span className="game-row-flex" title="The kickoff time may move">
+              flex
+            </span>
+          ) : null}
+        </span>
       </div>
 
       <div className="game-header-side game-header-side--home">
-        <span className="game-header-team">{game.homeTeamName}</span>
+        <span className="game-header-team">
+          {nameOf(game.homeTeamId, game.homeTeamName)}
+        </span>
         <TeamBadge teamId={game.homeTeamId} abbr={game.homeTeamAbbr} />
       </div>
     </header>

@@ -71,6 +71,38 @@ export function teamFor(teamId) {
   return TEAMS[teamId] || UNKNOWN_TEAM;
 }
 
+/**
+ * A team's abbreviation and name, PREFERRING WHAT THE API SENT.
+ *
+ * THIS TABLE DOES NOT COVER EVERY TEAM AND IS NOT MEANT TO. It holds 45 teams
+ * - the NBA's 30 and the WNBA's 15 - because its real job is COLOURS, and
+ * published colours for the G League's 31 franchises and the NFL's 32 are not
+ * something to invent. So `teamFor` answers UNKNOWN_TEAM for 63 of the 108
+ * teams this app serves, and UNKNOWN_TEAM's abbreviation is the literal "?".
+ *
+ * A LABEL LOOKED UP HERE WITHOUT AN API FALLBACK THEREFORE RENDERS "?" FOR
+ * TWO WHOLE LEAGUES. That shipped: the NFL detail page's breadcrumb read
+ * "? @ ?" and every market row was labelled "?", because both read
+ * `teamFor(id).abbr` directly. The G League had the identical defect and it
+ * was invisible only because no G League fixture is predictable today, so its
+ * detail page cannot currently be reached.
+ *
+ * `ScheduledGameDto` carries `homeTeamAbbr` and `homeTeamName` for every
+ * league, so the API always has an answer. These two helpers exist so that
+ * "API first, table second" is written once rather than at each of the five
+ * call sites - the same reason `trailing_mean` and `InferenceClient` were
+ * extracted. Colours still come from `teamFor` keyed by id, and the lookup
+ * stays by id and never by abbreviation: eight abbreviations belong to both
+ * an NBA and a WNBA team.
+ */
+export function abbrOf(teamId, abbr) {
+  return abbr || teamFor(teamId).abbr;
+}
+
+export function nameOf(teamId, name) {
+  return name || teamFor(teamId).name;
+}
+
 function luminance(hex) {
   const channels = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
   const [r, g, b] = channels.map((c) =>

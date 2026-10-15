@@ -1,10 +1,13 @@
+import fs from 'fs';
+import path from 'path';
+
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 import App from './App';
 import { createPredictionFor, getHealth, getSchedule } from './api';
 import { LEAGUES, leagueBySlug, leagueCopy } from './data/leagues';
-import { TEAMS } from './data/teams';
+import { TEAMS, abbrOf, nameOf } from './data/teams';
 import { isPredictable } from './dates';
 import { weekGroups } from './components/WeekGroups';
 import { SPORTS } from './components/SportsRail';
@@ -71,6 +74,34 @@ const NEXT_WEEK_TBD = {
   flex: false,
   week: 6,
   predictable: false,
+};
+
+// THE REAL SUNDAY-NIGHT ROLL-OVER, ids and instants from the live schedule.
+// Its `gameDate` is the United States date - the 15th - and it kicks off at
+// 00:15Z on the 16th, so the date a reader should see is NOT its gameDate.
+const SUNDAY_NIGHT = {
+  leagueSlug: 'nfl',
+  homeTeamId: 1613000010,
+  homeTeamAbbr: 'DEN',
+  homeTeamName: 'Denver Broncos',
+  awayTeamId: 1613000026,
+  awayTeamAbbr: 'SEA',
+  awayTeamName: 'Seattle Seahawks',
+  gameDate: '2026-10-15',
+  kickoffUtc: '2026-10-16T00:15:00Z',
+  flex: false,
+  week: 6,
+  predictable: true,
+};
+
+// MIDDAY UTC, WHICH IS THE SAME CALENDAR DAY IN EVERY ZONE ON EARTH - 12:00Z
+// on the 17th lands on the 17th from UTC-12 to UTC+12 and never on the 15th
+// anywhere. So an assertion that `gameDate` is not what gets rendered holds
+// wherever this suite runs, rather than only in a zone east of Greenwich.
+const DATE_DISAGREES = {
+  ...SUNDAY_NIGHT,
+  gameDate: '2026-10-15',
+  kickoffUtc: '2026-10-17T12:00:00Z',
 };
 
 const NBA_FIXTURE = {
@@ -353,6 +384,168 @@ describe('the game detail page', () => {
       document.querySelector('[aria-labelledby^="detail-tab-"]')
     ).toBeNull();
     expect(document.querySelector('[role="tabpanel"]')).toBeNull();
+  });
+});
+
+describe('team labels come from the API, never from teams.js', () => {
+  // `teams.js` holds 45 of the 108 teams this app serves, because its real
+  // job is COLOURS and published colours for the NFL's 32 franchises and the
+  // G League's 31 are not something to invent. `teamFor` therefore answers
+  // UNKNOWN_TEAM for all of them, and UNKNOWN_TEAM's abbreviation is the
+  // literal "?".
+
+  test('neither NFL team is in teams.js, which is what makes this possible', () => {
+    expect(TEAMS[SUNDAY_NIGHT.homeTeamId]).toBeUndefined();
+    expect(TEAMS[SUNDAY_NIGHT.awayTeamId]).toBeUndefined();
+  });
+
+  test('the detail page shows both abbreviations and no lone "?"', async () => {
+    getSchedule.mockResolvedValue([SUNDAY_NIGHT]);
+    renderAt(`/predictions/american-football/nfl/${NFL_SUMMARY.gameId}`);
+    await screen.findByText(/Denver Broncos/);
+
+    // WHAT SHIPPED: the breadcrumb read "? @ ?" and all four market-row side
+    // labels read "?", because both read `teamFor(id).abbr` with no API
+    // fallback. The badges were already right, which is why only part of the
+    // page was wrong and the screenshot was needed to see it.
+    expect(screen.queryAllByText('?')).toHaveLength(0);
+
+    expect(screen.getByText('SEA @ DEN')).toBeInTheDocument();
+    expect(screen.getAllByText('DEN').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('SEA').length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('the league page and General name NFL teams, with no lone "?"', async () => {
+    getSchedule.mockResolvedValue([SUNDAY_NIGHT, NOT_YET]);
+
+    const { unmount: closeLeague } = renderAt('/predictions/american-football/nfl');
+    await screen.findByRole('heading', { name: 'NFL Predictions', level: 1 });
+    expect(screen.getByText(/Denver Broncos/)).toBeInTheDocument();
+    // The unpredictable row too - it renders through its own component.
+    expect(screen.getByText(/Miami Dolphins/)).toBeInTheDocument();
+    expect(screen.queryAllByText('?')).toHaveLength(0);
+    closeLeague();
+
+    renderAt('/predictions');
+    await screen.findByText(/Denver Broncos/);
+    expect(screen.queryAllByText('?')).toHaveLength(0);
+  });
+
+  test('only TeamBadge reads the table directly, and only for colours', () => {
+    // THE ONLY TEST HERE THAT READS SOURCE RATHER THAN RENDERING IT, and it
+    // is here because this defect shipped TWICE in the same shape: the G
+    // League silently, then the NFL visibly. The three behavioural tests
+    // above cover the three surfaces that exist today; a fourth surface added
+    // later would pass all of them while reading `teamFor(id).abbr` again.
+    // The same reasoning as the design-token scan - a rule worth stating is
+    // worth enforcing where it can be broken.
+    const dir = path.join(__dirname, 'components');
+    const offenders = fs
+      .readdirSync(dir)
+      .filter((name) => name.endsWith('.js'))
+      .filter((name) => name !== 'TeamBadge.js')
+      .filter((name) => /\bteamFor\b/.test(fs.readFileSync(path.join(dir, name), 'utf8')));
+
+    // TeamBadge is exempt because it uses `teamFor` for `primary` and
+    // `secondary` - colours, which are the table's actual job and which the
+    // API does not send. Its LABEL already goes through abbrOf.
+    expect(offenders).toEqual([]);
+  });
+
+  test('the rule is API first, table second, and is league-agnostic', () => {
+    // A G League id, absent from the table for the same reason and carrying
+    // the identical defect - invisible only because no G League fixture is
+    // predictable today, so its detail page cannot currently be reached.
+    expect(TEAMS[1612709911]).toBeUndefined();
+    expect(abbrOf(1612709911, 'IWA')).toBe('IWA');
+    expect(nameOf(1612709911, 'Iowa Wolves')).toBe('Iowa Wolves');
+
+    // With nothing from the API the table still answers, so a basketball
+    // caller that passes no label is unchanged.
+    expect(abbrOf(1610612737, undefined)).toBe('ATL');
+    expect(nameOf(1610612737, undefined)).toBe('Atlanta Hawks');
+
+    // An id in neither place degrades to the placeholder rather than
+    // rendering nothing at all.
+    expect(abbrOf(999, undefined)).toBe('?');
+  });
+});
+
+describe('the kickoff on the detail page', () => {
+  async function headerText(fixture) {
+    getSchedule.mockResolvedValue([fixture]);
+    renderAt(`/predictions/american-football/nfl/${NFL_SUMMARY.gameId}`);
+    await screen.findByText(/Denver Broncos/);
+    return document.querySelector('.game-header-date').textContent;
+  }
+
+  test('the header uses the same formatter as the rows', async () => {
+    getSchedule.mockResolvedValue([SUNDAY_NIGHT]);
+    const { unmount: closeLeague } = renderAt('/predictions/american-football/nfl');
+    await screen.findByRole('heading', { name: 'NFL Predictions', level: 1 });
+    const row = document.querySelector('.game-row-when').textContent;
+    closeLeague();
+
+    const header = await headerText(SUNDAY_NIGHT);
+
+    // ONE FORMATTER, SO THE TWO SURFACES CANNOT DISAGREE. Asserted as
+    // equality rather than against a literal because `formatKickoff` renders
+    // the time through Intl at the DEFAULT locale: this runner resolves
+    // en-US and prints "3:15 AM", while a browser set to en-GB or ro-RO
+    // prints "03:15". Pinning either string would pin the environment.
+    expect(header).toBe(row);
+
+    // THE BUG: the header was `game.gameDate` alone, with no time at all.
+    expect(header).not.toBe(SUNDAY_NIGHT.gameDate);
+  });
+
+  test('the date comes from the kickoff instant, not from gameDate', async () => {
+    const header = await headerText(DATE_DISAGREES);
+
+    // 12:00Z is the 17th in every zone, so this holds wherever it runs.
+    expect(header).not.toMatch(/2026-10-15/);
+    expect(header).toMatch(/2026-10-1[678]/);
+  });
+
+  test('a TBD kickoff shows the date alone rather than a guessed time', async () => {
+    const header = await headerText({ ...SUNDAY_NIGHT, kickoffUtc: null });
+
+    // The NFL publishes 24 of these. No kickoff means no time, and the
+    // scheduled date is all there is to show.
+    expect(header).toBe(SUNDAY_NIGHT.gameDate);
+  });
+
+  test('a flexed kickoff is marked on the header too', async () => {
+    const header = await headerText({ ...SUNDAY_NIGHT, flex: true });
+
+    // A time that may still move is a caveat about what is shown, and the
+    // rows carry it - dropping it here is how a qualifier vanishes from one
+    // surface while looking present on another.
+    expect(header).toMatch(/flex/i);
+  });
+
+  test('the instant really is 03:15 on the 16th in Bucharest', () => {
+    // THIS TESTS THE INSTANT, NOT OUR CODE, and it is here because the
+    // defect was reported in those terms. Pinned to an explicit zone and
+    // locale so it means the same thing on every runner.
+    const reading = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Bucharest',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(new Date(SUNDAY_NIGHT.kickoffUtc));
+
+    expect(reading).toBe('16/10/2026, 03:15');
+    expect(SUNDAY_NIGHT.gameDate).toBe('2026-10-15');
+  });
+
+  test('basketball is unchanged: no kickoff, so the bare date', async () => {
+    getSchedule.mockResolvedValue([NBA_FIXTURE]);
+    renderAt(`/predictions/basketball/nba/${NBA_SUMMARY.gameId}`);
+    await screen.findByText(/Atlanta Hawks/);
+
+    expect(document.querySelector('.game-header-date').textContent).toBe(
+      NBA_DATE
+    );
   });
 });
 

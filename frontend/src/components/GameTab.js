@@ -1,5 +1,5 @@
 import { formatSpread, formatValue, formatWin } from '../predictionFormat';
-import { teamFor } from '../data/teams';
+import { abbrOf } from '../data/teams';
 import { dataAsOfFor } from '../dates';
 
 function GameTab({ game, health, league }) {
@@ -8,8 +8,10 @@ function GameTab({ game, health, league }) {
 
   if (!prediction) return <NoPrediction health={health} league={league} />;
 
-  const home = teamFor(game.homeTeamId);
-  const away = teamFor(game.awayTeamId);
+  // THE API'S ABBREVIATION FIRST. `teams.js` holds no G League or NFL team,
+  // so looking these up there alone labelled every NFL market row "?".
+  const home = abbrOf(game.homeTeamId, game.homeTeamAbbr);
+  const away = abbrOf(game.awayTeamId, game.awayTeamAbbr);
   const { homeWinProbability: probability, homeMargin: margin } = prediction;
 
   return (
@@ -17,8 +19,8 @@ function GameTab({ game, health, league }) {
       <MarketGroup title="Outcome">
         <TeamMetric
           label="Win probability"
-          homeLabel={home.abbr}
-          awayLabel={away.abbr}
+          homeLabel={home}
+          awayLabel={away}
           homeValue={formatWin(probability, true)}
           awayValue={formatWin(probability, false)}
           // THE QUALIFIER, ON THE SAME SURFACE THE Q1/1H WINNERS USE. The
@@ -32,8 +34,8 @@ function GameTab({ game, health, league }) {
         />
         <TeamMetric
           label="Spread"
-          homeLabel={home.abbr}
-          awayLabel={away.abbr}
+          homeLabel={home}
+          awayLabel={away}
           homeValue={formatSpread(margin, true)}
           awayValue={formatSpread(margin, false)}
           note="A negative number means that side is favoured by it."
