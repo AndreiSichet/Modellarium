@@ -157,3 +157,17 @@ data-pipeline/data/nfl/
 # kept ignored as well: an existing checkout still has 46 MB of fetched
 # wikitext there, and it must not become committable by being orphaned.
 data-pipeline/nfl/data/
+
+# ---------------------------------------------------------------- NHL data
+# Same licence boundary as the NFL, and for the same reason: the source is
+# English Wikipedia, CC BY-SA 4.0, and share-alike on a derived table in a
+# public repository is a commitment the owner has deliberately declined.
+# No un-ignoring exception here either - if a serving phase ever needs an NHL
+# table it arrives on the volume, never through git. See
+# data-pipeline/nhl/DATA_LICENSE.md, which IS committed.
+#
+# ONE root for every league, so served_data's "the snapshot layout mirrors
+# the repo's" rule holds for five leagues. The NFL had to move here after the
+# fact and keeps its old path ignored as well, because a checkout already
+# held data there; this league starts here, so there is no second path.
+data-pipeline/data/nhl/
