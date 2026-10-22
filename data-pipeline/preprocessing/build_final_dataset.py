@@ -115,7 +115,25 @@ def attach_advanced_rolling(df: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 def read_known_fetch_failures() -> set:
-    """Game ids fetch_quarter_scores.py has ever failed on."""
+    """Game ids fetch_quarter_scores.py has ever failed on.
+
+    THERE ARE TWO LISTS ABOUT MISSING QUARTER SCORES AND THEY ANSWER OPPOSITE
+    QUESTIONS. This one is log-derived and must TOLERATE a new failure, or
+    `attach_quarter_half()` below crashes a whole retrain the first time any
+    game fails for any reason - which is why NOTES_HISTORY.md section 25
+    replaced a literal list with this log, and why the check downstream is
+    one-directional: a logged game that merged fine is not a problem, because
+    with an append-only log a stale entry cannot be retracted.
+
+    The other is `fetch_quarter_scores.KNOWN_UNFETCHABLE_QUARTER_SCORES`,
+    which is AUTHORED, carries evidence per entry, decides that script's exit
+    code, and must NOT tolerate a new failure - zero tolerance is the point,
+    so a partial fetch carries the NBA's tables rather than being staged. It
+    can have the reverse guard section 25 ruled out here, because an authored
+    list can be edited where a log cannot.
+
+    Do not merge them, and do not point this function at that list.
+    """
     if not QUARTER_SCORES_FAILURES_PATH.exists():
         return set()
 

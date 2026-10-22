@@ -1,5 +1,6 @@
 """Pull per-game player box scores from nba_api's BoxScoreTraditionalV3, one"""
 
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -172,7 +173,55 @@ def fetch_one(game_id: str) -> str:
     record_failure(game_id, last_error or "unknown error")
     return "failed"
 
-def main():
+# DELIBERATELY EMPTY, and that is a finding rather than an omission.
+#
+# `player_boxscores_failures.log` holds 795 distinct games, every one from
+# season 2025-26, with "empty PlayerStats frame" (653) and JSONDecodeError
+# (142). All 795 are RESOLVED: measured 2026-10-22 on the runner's checkout,
+# `raw/player_boxscores/` holds 13,213 files against 13,213 games in
+# games_final - a complete corpus. They were a transient source problem during
+# the 2026-08-25 backfill and later runs fetched every one. The log is
+# append-only, so it still records them; nothing is permanently unfetchable
+# here.
+#
+# Kept as an empty dict rather than deleted so the guard below has the same
+# shape as fetch_quarter_scores.py's, and so the day a game genuinely cannot
+# be served there is an obvious place for it - with evidence. See
+# KNOWN_UNFETCHABLE_QUARTER_SCORES for what an entry has to carry.
+KNOWN_UNFETCHABLE_PLAYER_BOXSCORES: dict = {}
+
+
+def post_run_verdict(failed_ids) -> tuple:
+    """(exit_code, lines) from one run's per-game outcomes."""
+    listed = set(KNOWN_UNFETCHABLE_PLAYER_BOXSCORES)
+    failed = {str(game_id).zfill(10) for game_id in failed_ids}
+    lines = []
+
+    recovered = sorted(game_id for game_id in listed
+                       if game_id not in failed
+                       and (OUTPUT_DIR / f"{game_id}.csv").exists())
+    if recovered:
+        lines.append(f"FAIL: {len(recovered)} listed game(s) NOW FETCH: "
+                     f"{', '.join(recovered)}. Remove them from "
+                     f"KNOWN_UNFETCHABLE_PLAYER_BOXSCORES.")
+        return 1, lines
+
+    unexpected = sorted(failed - listed)
+    if unexpected:
+        lines.append(f"FAIL: {len(unexpected)} game(s) failed and are NOT "
+                     f"listed as permanently unfetchable:")
+        for game_id in unexpected[:20]:
+            lines.append(f"  {game_id}")
+        if len(unexpected) > 20:
+            lines.append(f"  ... and {len(unexpected) - 20} more")
+        lines.append("  Any failure for a game fetched in this run fails the "
+                     "step; with per-league isolation the NBA keeps "
+                     "yesterday's tables and these are retried tomorrow.")
+        return 1, lines
+    return 0, lines
+
+
+def main() -> int:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     game_ids = load_game_ids()
@@ -187,6 +236,7 @@ def main():
     )
 
     counts = {"skipped": 0, "fetched": 0, "failed": 0}
+    failed_ids = []
     processed = 0
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -194,7 +244,10 @@ def main():
 
         try:
             for future in as_completed(futures):
-                counts[future.result()] += 1
+                outcome = future.result()
+                counts[outcome] += 1
+                if outcome == "failed":
+                    failed_ids.append(futures[future])
                 processed += 1
 
                 if processed % PROGRESS_EVERY == 0:
@@ -220,9 +273,15 @@ def main():
         f"{counts['failed']:,} failed."
     )
 
+    code, lines = post_run_verdict(failed_ids)
+
     if counts["failed"]:
         print(f"Failed game ids logged to {FAILURES_LOG_PATH}.")
         print("Rerunning this script retries only those, since the rest are on disk.")
 
+    for line in lines:
+        print(line)
+    return code
+
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

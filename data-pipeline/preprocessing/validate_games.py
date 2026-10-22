@@ -1,11 +1,38 @@
-"""Read-only quality gate for the raw game data in data-pipeline/data/raw/."""
+"""Read-only quality gate for the raw game data in data-pipeline/data/raw/.
+
+IT VALIDATES THE RAW PER-SEASON FILES, NOT THE PROCESSED TABLE, AND THAT IS
+DELIBERATE. Applying these same checks to `games_final.csv` sliced by its
+`SEASON` column fails 2020-21 with "160 GAME_DATE values outside expected
+season range", every time. The cause is not bad data: the 2019-20 COVID
+bubble's 80 regular-season games of 2020-08-01 to 2020-08-14 are labelled
+2020-21 by `build_rolling_features.derive_season`, which starts a season at
+`month >= 8`, while `season_date_bounds` below starts it on September 1. In
+the raw files those games sit in `games_2019-20.csv`, whose bounds run to
+2020-08-31, so they pass. The GAME_ID is the authority - `0021900001` is
+2019-20 - and moving SEASON onto it belongs to the drop-and-retrain spec,
+because it shifts Elo on 14,612 rows by up to 66 points. Until then: raw
+files only. Measured 2026-10-22.
+
+EXIT CODE IS A CONTRACT. Until 2026-10-22 this script printed `RESULT: FAIL`
+and exited 0, so the daily refresh's NBA validation step could not fail - and
+`run_step` discards a non-fetch step's stdout, so the message was invisible
+too. It now exits 1 on any failed season, and on a season that is in scope
+with no file at all.
+"""
 
 import re
+import sys
 from pathlib import Path
 
 import pandas as pd
 
 RAW_DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "raw"
+INGESTION_DIR = Path(__file__).resolve().parents[1] / "ingestion"
+if str(INGESTION_DIR) not in sys.path:
+    sys.path.insert(0, str(INGESTION_DIR))
+
+EXIT_OK = 0
+EXIT_FAILED = 1
 
 CRITICAL_COLUMNS = ["TEAM_ID", "GAME_ID", "GAME_DATE", "WL", "PTS"]
 VALID_WL_VALUES = {"W", "L"}
@@ -99,12 +126,39 @@ def validate_file(season: str, path: Path, reference_columns):
 
     return passed, list(df.columns)
 
-def main():
+def seasons_in_scope() -> list:
+    """The seasons the fetcher is responsible for, DERIVED not listed.
+
+    Read from `fetch_games.seasons_through()` so the two cannot disagree: the
+    question "is a season missing" is only meaningful against the same scope
+    the fetcher works from, and a second copy of that list is how they drift.
+    """
+    from fetch_games import seasons_through
+
+    return seasons_through()
+
+
+def main() -> int:
     season_files = find_season_files()
+    on_disk = {season for season, _ in season_files}
+
+    try:
+        scope = seasons_in_scope()
+    except Exception as error:                                  # noqa: BLE001
+        # Refusing rather than guessing: without the scope there is no way to
+        # tell a missing season from a season that does not exist yet.
+        print(f"FAIL: cannot derive the seasons in scope ({type(error).__name__}:"
+              f" {error}). Refusing to validate against an unknown scope.")
+        return EXIT_FAILED
+
+    absent = [season for season in scope if season not in on_disk]
 
     if not season_files:
-        print(f"No games_<season>.csv files found in {RAW_DATA_DIR}")
-        return
+        # STILL A FAILURE, and it used to be a silent success. An empty raw
+        # directory means the fetch produced nothing at all.
+        print(f"FAIL: no games_<season>.csv files found in {RAW_DATA_DIR}, "
+              f"but {len(scope)} season(s) are in scope.")
+        return EXIT_FAILED
 
     reference_columns = None
     results = []
@@ -123,5 +177,18 @@ def main():
     else:
         print(f"All {len(results)} seasons passed validation.")
 
+    print(f"Seasons in scope: {len(scope)} ({scope[0]} .. {scope[-1]}), "
+          f"on disk: {len(on_disk)}")
+    if absent:
+        # A SEASON IN SCOPE WITH NO FILE IS A FAILURE. find_season_files()
+        # only sees what exists, so before this check a missing current season
+        # was invisible: the script reported "All 11 seasons passed" with the
+        # season in progress simply not there.
+        print(f"FAIL: in scope but no file: {', '.join(absent)}")
+
+    if failed or absent:
+        return EXIT_FAILED
+    return EXIT_OK
+
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

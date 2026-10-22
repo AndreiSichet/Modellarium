@@ -1,9 +1,12 @@
 """Pull raw game data from nba_api's LeagueGameFinder, one season at a time,"""
 
 import os
+import sys
 import time
 from datetime import date
 from pathlib import Path
+
+import pandas as pd
 
 from nba_api.stats.endpoints import leaguegamefinder
 
@@ -83,7 +86,77 @@ def fetch_season(season: str):
     )
     return finder.get_data_frames()[0]
 
-def main():
+REGULAR_SEASON_GAME_ID_DIGIT = "2"
+SCHEDULE_TIMEOUT_SECONDS = 30
+
+
+def first_regular_season_game(season: str):
+    """The earliest regular-season date the schedule shows, or None.
+
+    Raises on anything that is not a clean answer. The caller turns an
+    exception into a FAILED season on purpose: an unreadable schedule cannot
+    prove a season has not started.
+    """
+    from nba_api.stats.endpoints import scheduleleaguev2
+
+    # AN UNPUBLISHED SEASON RAISES IndexError FROM THE CONSTRUCTOR, not from
+    # get_data_frames() and not from indexing its result. Measured on 2027-28:
+    # nba_api's own parser does `["gameDates"][0]["games"][0]` in
+    # get_games_headers() while building the object, so the failure happens
+    # before any frame exists. The inference service records the same class of
+    # behaviour for WNBA 2027 but catches it one level out, which is why this
+    # needed measuring rather than copying.
+    #
+    # That exception is the API answering "nothing is scheduled" - an ordinary
+    # state of the world, NOT an unreadable schedule, so it must not become a
+    # failure. ONLY IndexError is absorbed; anything else propagates and the
+    # caller turns it into a failed season.
+    try:
+        frames = scheduleleaguev2.ScheduleLeagueV2(
+            season=season, league_id="00",
+            timeout=SCHEDULE_TIMEOUT_SECONDS).get_data_frames()
+    except IndexError:
+        return None
+    if not frames or frames[0].empty:
+        return None
+
+    frame = frames[0]
+    padded = frame["gameId"].astype(str).str.zfill(10)
+    regular = frame[padded.str[2] == REGULAR_SEASON_GAME_ID_DIGIT]
+    if regular.empty:
+        return None
+    dates = pd.to_datetime(regular["gameDate"], format="%m/%d/%Y %H:%M:%S",
+                           errors="coerce")
+    if dates.notna().sum() == 0:
+        raise RuntimeError(
+            f"the schedule for {season} has regular-season rows but no "
+            f"parseable gameDate, so the first game date is unknown")
+    return dates.min()
+
+
+def season_not_started(season: str, today=None):
+    """(True, why) if an empty fetch is legitimate; (False, why) otherwise."""
+    if today is None:
+        today = pd.Timestamp.now().normalize()
+
+    try:
+        first = first_regular_season_game(season)
+    except Exception as error:                                  # noqa: BLE001
+        return (False, f"the schedule could not be read "
+                       f"({type(error).__name__}: {error}), so it cannot be "
+                       f"shown that {season} has not started")
+
+    if first is None:
+        return (True, f"the schedule publishes no regular-season game for "
+                      f"{season} yet")
+    if first > today:
+        return (True, f"the schedule's first {season} game is "
+                      f"{first.date()}, still ahead of {today.date()}")
+    return (False, f"THE SCHEDULE SHOWS {season} STARTED {first.date()} - "
+                   f"games have been played and the fetch returned none")
+
+
+def main() -> int:
     RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     seasons = seasons_through()
@@ -128,9 +201,24 @@ def main():
         # opening night is around the 20th. Writing a header-only file would
         # make validate_games.py report an empty season as PASSED, which is a
         # vacuous pass of exactly the kind this project keeps removing.
+        #
+        # BUT "no games yet" IS ONLY ACCEPTED WHEN THE SCHEDULE AGREES. An
+        # empty result is indistinguishable, on its own, from a source that
+        # answered with nothing because it was broken - and that silence used
+        # to be recorded as a clean skip. The schedule is the second opinion:
+        # if its first regular-season game is still ahead, an empty fetch is
+        # the truth; if games have already been played, an empty fetch is a
+        # failure; and if the schedule cannot be read at all we cannot prove
+        # the season has not started, so that is a failure too.
         if games_df.empty:
-            print(f"  no games yet - season has not started. Nothing written.")
-            not_started.append(season)
+            verdict, detail = season_not_started(season)
+            if verdict is True:
+                print(f"  no games yet - {detail}. Nothing written.")
+                not_started.append(season)
+                time.sleep(DELAY_SECONDS)
+                continue
+            print(f"  EMPTY RESULT BUT {detail}")
+            failures.append(season)
             time.sleep(DELAY_SECONDS)
             continue
 
@@ -147,5 +235,18 @@ def main():
     if failures:
         print(f"Failed seasons: {', '.join(failures)}")
 
+    # ZERO TOLERANCE, AND IT IS THE ISOLATION THAT MAKES THAT AFFORDABLE. One
+    # failed season is one season of wrong data, and before 2026-10-22 this
+    # script printed the list and exited 0, so the daily refresh staged and
+    # swapped it. With per-league isolation a failure here means the NBA keeps
+    # yesterday's tables and is retried tomorrow, which is the safe outcome -
+    # so there is no longer any reason to tolerate a partial fetch.
+    if failures:
+        print(f"\nFAIL: {len(failures)} season(s) did not fetch. The NBA's "
+              f"tables will be carried forward rather than rebuilt from a "
+              f"partial corpus.")
+        return 1
+    return 0
+
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
