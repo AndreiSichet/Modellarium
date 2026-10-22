@@ -294,3 +294,67 @@ export function devPlayerPropsFor(gameDate) {
     },
   };
 }
+
+// ---------------------------------------------------------------- in season
+//
+// Captured 2026-10-21 from the running service, the day after the NBA season
+// opened and the first day since this project was built on which an injury
+// report was published.
+//
+// THESE SIT BESIDE THE FIXTURES ABOVE AND DO NOT REPLACE THEM. Everything
+// above was captured in the offseason, with a stale cutoff and no injury
+// report - a real state the app is in for about seven months of the year.
+// What no dev fixture had was the other half of those same fields.
+
+/**
+ * The in-season health shape: NOT stale, and one day behind.
+ *
+ * DEV_HEALTH above is stale with daysBehind in the hundreds, so a browser in
+ * dev mode has never once shown the not-stale banner state, and no dev
+ * fixture exercised the branch the frontend takes when data is current.
+ *
+ * The WNBA block is still stale here, against its OWN cutoff - which is the
+ * whole reason that block exists. In season the two leagues disagree about
+ * freshness, and this fixture is the first that makes them disagree.
+ */
+export const DEV_HEALTH_IN_SEASON = {
+  dataAsOf: '2026-10-20',
+  stale: false,
+  daysBehind: 1,
+  wnba: { dataAsOf: '2026-09-24', stale: true, daysBehind: 27 },
+};
+
+/**
+ * The player-props board two days into a season: BOTH SIDES EMPTY.
+ *
+ * This is not an invented edge case - it is what the service returned for
+ * Orlando vs Atlanta on 2026-10-21, and what it returns for every fixture
+ * until players accumulate enough history. A player needs eleven appearances
+ * before the rolling columns are usable, so these boards stay empty into
+ * mid-November.
+ *
+ * The note is a DIFFERENT sentence from the offseason one. Offseason says
+ * "AVAILABILITY UNKNOWN - no injury report was available"; this says the
+ * roster has no usable history. Two distinct reasons for an unknown, and the
+ * dev fixtures had only ever carried the first.
+ */
+export function devPlayerPropsInSeasonFor(gameDate) {
+  return {
+    gameId: 5,
+    gameDate,
+    homeTeam: {
+      teamId: 1610612753,
+      teamAbbreviation: 'ORL',
+      availabilityKnown: false,
+      availabilityNote: 'no players with usable history',
+      players: [],
+    },
+    awayTeam: {
+      teamId: 1610612737,
+      teamAbbreviation: 'ATL',
+      availabilityKnown: false,
+      availabilityNote: 'no players with usable history',
+      players: [],
+    },
+  };
+}

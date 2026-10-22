@@ -1,0 +1,1 @@
+{"detail":"HOME team 1610612753 has played 0 game(s) with quarter data this season - not enough for a complete window. 12 feature(s) would be NaN, e.g. ['HOME_ROLL5_Q1_MARGIN', 'HOME_ROLL5_Q1_PTS', 'HOME_ROLL5_Q1_PTS_ALLOWED']. The Q1/1H models are linear and cannot score a partial row; refuse the fixture rather than imputing."}

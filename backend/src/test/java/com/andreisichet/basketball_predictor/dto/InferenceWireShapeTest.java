@@ -714,4 +714,238 @@ class InferenceWireShapeTest {
                     .hasMessageContaining("response shape has changed");
         }
     }
+
+    /**
+     * The IN-SEASON captures, taken 2026-10-21 - the day after the NBA season
+     * opened, and the first day since this project was built on which an
+     * injury report was actually published.
+     *
+     * THESE SIT BESIDE THE OFFSEASON FIXTURES AND DO NOT REPLACE THEM. Every
+     * fixture above was captured with no injury report available, which is a
+     * real state the service returns for roughly seven months of the year and
+     * must stay under test. What had never been under test is the other half:
+     * a non-stale cutoff, a published report, and the two refusals that only
+     * happen when a season is a day old.
+     *
+     * Four shapes here are reachable at no other time of year:
+     *
+     *   1. stale=false with daysBehind=1. Every other fixture is stale with
+     *      daysBehind in the hundreds, so "not stale" had never been read off
+     *      the wire at all.
+     *   2. availability.nba.state = "used" with a real report_timestamp. The
+     *      offseason fixture carries "none_published" and a null stamp.
+     *   3. The quarter/half models REFUSING, because no team has a complete
+     *      rolling window two days into a season. The offseason fixture is a
+     *      successful six-market response.
+     *   4. An EMPTY player-props board, for the same reason one step further
+     *      on: no player has usable history yet.
+     *
+     * Nothing here pins a clock value. daysBehind, age_seconds and
+     * observed_at all move with the calendar rather than with the code, and
+     * the reasoning is the same one recorded on DAYS_BEHIND_FLOOR above.
+     */
+    @Nested
+    class InSeason {
+        /** The cutoff is the day BEFORE the fixture: the NBA rule is dataAsOf + 1. */
+        private static final LocalDate IN_SEASON_DATA_AS_OF = LocalDate.of(2026, 10, 20);
+        private static final LocalDate IN_SEASON_GAME_DATE = LocalDate.of(2026, 10, 21);
+
+        /** Orlando hosting Atlanta, one of the eleven fixtures on the rule date. */
+        private static final long ORL = 1610612753L;
+        private static final long ATL = 1610612737L;
+
+        @Test
+        void healthIsNotStaleAndCarriesTheSameModelCountAsTheOffseason() {
+            InferenceHealth health = mapper.readValue(
+                    Fixture.read("health-inseason.json"), InferenceHealth.class);
+
+            assertThat(health.status()).isEqualTo("ok");
+            assertThat(health.dataAsOf()).isEqualTo(IN_SEASON_DATA_AS_OF);
+
+            // The assertion the offseason fixtures cannot make. Theirs is
+            // isTrue() with daysBehind over a hundred; this is the other
+            // branch of the same field, read off a real response for the
+            // first time.
+            assertThat(health.stale()).isFalse();
+            assertThat(health.daysBehind()).isGreaterThan(0);
+            assertThat(health.daysBehind()).isLessThan(DAYS_BEHIND_FLOOR);
+
+            // A season opening must not change which models serve. Data
+            // advances daily; a model only through a reviewed promotion.
+            assertThat(health.modelsLoaded()).containsExactlyInAnyOrderEntriesOf(
+                    Map.of("team", 7, "quarter_half", 6, "player_props", 10,
+                            "wnba", 3, "gleague", 3, "nfl", 3));
+
+            // The two out-of-season leagues are still stale, and say so
+            // against their OWN cutoffs rather than the NBA's.
+            assertThat(health.wnba().dataAsOf()).isEqualTo(WNBA_DATA_AS_OF);
+            assertThat(health.wnba().stale()).isTrue();
+            assertThat(health.gleague().dataAsOf()).isEqualTo(GLEAGUE_DATA_AS_OF);
+            assertThat(health.gleague().stale()).isTrue();
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void theAvailabilityBlockCarriesAPublishedReportRatherThanNonePublished() {
+            Map<String, Object> body = mapper.readValue(
+                    Fixture.read("health-inseason.json"),
+                    new TypeReference<Map<String, Object>>() {
+                    });
+            Map<String, Object> availability =
+                    (Map<String, Object>) body.get("availability");
+            Map<String, Object> nba = (Map<String, Object>) availability.get("nba");
+
+            // THE SHAPE E12 EXISTED FOR. Offseason this reads
+            // "none_published" with a null report_timestamp and a detail
+            // sentence explaining the absence; in season it resolves.
+            assertThat(nba.get("state")).isEqualTo("used");
+            assertThat(nba.get("report_timestamp")).isEqualTo("2026-10-21T04:15:00");
+            assertThat(nba.get("for_date")).isEqualTo("2026-10-21");
+
+            // detail is the null half of a two-field pair: it explains a
+            // non-resolving state and is null when there is nothing to
+            // explain. An empty string here would read as an explanation.
+            assertThat(nba.get("detail")).isNull();
+
+            // Present, deliberately not pinned - these are clock values.
+            assertThat(nba).containsKeys("observed_at", "age_seconds", "source");
+
+            // The other three leagues name themselves out of scope. This is
+            // the project's "an unknown is never a zero" rule on the wire: a
+            // league with no availability features says so, rather than
+            // reporting a resolved state or a 0 that reads as "nobody out".
+            for (String league : List.of("wnba", "gleague", "nfl")) {
+                Map<String, Object> other =
+                        (Map<String, Object>) availability.get(league);
+                assertThat(other.get("state")).isEqualTo("not_applicable");
+                assertThat(other.get("detail")).asString().isNotEmpty();
+            }
+
+            // InferenceHealth declares neither availability nor served_data,
+            // so this asserts the thing that actually matters to the backend:
+            // a populated block it does not read does not break the parse. It
+            // is NOT a claim that the backend surfaces availability from
+            // /health - it does not, and the only availability that reaches a
+            // browser comes through the player-props board below.
+            assertThat(body).containsKey("served_data");
+            InferenceHealth parsed = mapper.readValue(
+                    Fixture.read("health-inseason.json"), InferenceHealth.class);
+            assertThat(parsed.dataAsOf()).isEqualTo(IN_SEASON_DATA_AS_OF);
+        }
+
+        @Test
+        void aFixtureOnTheRuleDateScoresAllSevenMarketsAndIsNotStale() {
+            InferenceResponse response = mapper.readValue(
+                    Fixture.read("predict-inseason.json"), InferenceResponse.class);
+
+            assertThat(response.dataAsOf()).isEqualTo(IN_SEASON_DATA_AS_OF);
+            assertThat(response.stale()).isFalse();
+            assertThat(response.daysBehind()).isLessThan(DAYS_BEHIND_FLOOR);
+
+            InferenceResponse.Predictions p = response.predictions();
+            assertThat(p).isNotNull();
+            assertThat(p.homeWinProbability()).isEqualTo(0.5410619974136353);
+            assertThat(p.homeMargin()).isEqualTo(0.8396134376525879);
+            assertThat(p.totalPoints()).isEqualTo(221.41098022460938);
+            assertThat(p.reboundMargin()).isEqualTo(-0.1728011518716812);
+            assertThat(p.totalRebounds()).isEqualTo(90.6750717163086);
+            assertThat(p.assistMargin()).isEqualTo(0.4007718563079834);
+            assertThat(p.totalAssists()).isEqualTo(47.22257995605469);
+
+            // A negative margin market, which the offseason fixture does not
+            // have: every one of its seven values is positive, so a sign bug
+            // on reboundMargin could not have been caught by it.
+            assertThat(p.reboundMargin()).isNegative();
+        }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        void theQuarterHalfModelsRefuseAnIncompleteWindowRatherThanImputing() {
+            // A 400, not a prediction. Captured because it is only reachable
+            // in the first days of a season and the offseason fixture beside
+            // it is a successful response - so the refusal had never been
+            // recorded in any form.
+            Map<String, Object> body = mapper.readValue(
+                    Fixture.read("predict-quarter-half-refused-inseason.json"),
+                    new TypeReference<Map<String, Object>>() {
+                    });
+
+            assertThat(body).containsOnlyKeys("detail");
+            String detail = (String) body.get("detail");
+
+            // The message has to name the team, the shortfall and the reason,
+            // because a refusal a caller cannot act on is as bad as a wrong
+            // number. All three are asserted rather than the message as a
+            // whole, which would pin the wording.
+            assertThat(detail).contains(String.valueOf(ORL));
+            assertThat(detail).contains("has played 0 game(s) with quarter data");
+            assertThat(detail).contains("12 feature(s) would be NaN");
+            assertThat(detail).contains("cannot score a partial row");
+            assertThat(detail).contains("refuse the fixture rather than imputing");
+
+            // And it must not read as a zero-valued prediction.
+            assertThat(body).doesNotContainKeys("predictions", "data_as_of");
+        }
+
+        @Test
+        void thePlayerPropsBoardIsEmptyThisEarlyAndSaysWhyRatherThanReturningZeroes() {
+            InferencePlayerPropsResponse response = mapper.readValue(
+                    Fixture.read("predict-player-props-inseason.json"),
+                    InferencePlayerPropsResponse.class);
+
+            assertThat(response.dataAsOf()).isEqualTo(IN_SEASON_DATA_AS_OF);
+            assertThat(response.teams()).hasSize(2);
+
+            // BOTH boards are empty two days into a season, and this is the
+            // shape a browser gets today. It is NOT the populated-roster
+            // shape: a player needs eleven appearances before availability
+            // carries any weight, which is a mid-November measurement and a
+            // separate backlog item. What is captured here is the honest
+            // empty board, which had also never been under test.
+            for (boolean home : List.of(true, false)) {
+                InferencePlayerPropsResponse.TeamBoard board = response.board(home);
+                assertThat(board.players()).isEmpty();
+                assertThat(board.availabilityKnown()).isFalse();
+                assertThat(board.availabilityNote())
+                        .isEqualTo("no players with usable history");
+            }
+
+            assertThat(response.board(true).teamId()).isEqualTo(ORL);
+            assertThat(response.board(false).teamId()).isEqualTo(ATL);
+
+            // The note is a DIFFERENT sentence from the offseason one, which
+            // says "AVAILABILITY UNKNOWN - no injury report was available".
+            // Two distinct reasons for an unknown, and neither is a zero.
+            assertThat(response.board(true).availabilityNote())
+                    .doesNotContain("AVAILABILITY UNKNOWN");
+        }
+
+        @Test
+        void theScheduleRunsWellPastTheRuleDateAndOnlyTheFirstDayIsPredictable() {
+            List<InferenceScheduledGame> games = mapper.readValue(
+                    Fixture.read("schedule-inseason.json"), new TypeReference<>() {
+                    });
+
+            assertThat(games).hasSize(118);
+
+            // The service hands over the whole horizon; MAX_DAYS_AHEAD = 1
+            // decides what is offerable, and that decision is the client's.
+            // So most of this list is deliberately not predictable, and a
+            // reader that assumed otherwise would offer 118 fixtures on a day
+            // when the data supports eleven.
+            assertThat(games).allSatisfy(game -> {
+                assertThat(game.gameDate()).isAfterOrEqualTo(IN_SEASON_GAME_DATE);
+                assertThat(game.homeTeamId()).isNotNull();
+                assertThat(game.awayTeamId()).isNotNull();
+            });
+
+            long onTheRuleDate = games.stream()
+                    .filter(game -> IN_SEASON_GAME_DATE.equals(game.gameDate()))
+                    .count();
+            assertThat(onTheRuleDate).isEqualTo(11);
+
+            assertThat(games.stream().map(InferenceScheduledGame::gameDate).distinct().count())
+                    .isEqualTo(14);
+        }
+    }
 }
