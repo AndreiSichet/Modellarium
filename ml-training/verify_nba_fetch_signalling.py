@@ -165,6 +165,24 @@ def check_schedule_gate():
     record("no-op guard: reverting the plant restores the verdict",
            again is True, f"-> {again}")
 
+    # THE DATE BOUND. An unpublished schedule and a source outage raise the
+    # same IndexError, so "unpublished" is only an explanation while the
+    # season is still ahead of its publication cutoff.
+    cutoff = FG.schedule_cutoff("2027-28")
+    record("the cutoff is derived from the season, not a fixed date",
+           cutoff == pd.Timestamp("2027-09-15"), f"-> {cutoff.date()}")
+
+    for offset, want, label in (
+            (-400, True, "unpublished, long before its cutoff"),
+            (-1, True, "unpublished, the day before the cutoff"),
+            (0, False, "unpublished ON the cutoff"),
+            (35, False, "unpublished well after the cutoff")):
+        today = cutoff + pd.Timedelta(days=offset)
+        started, why = FG.season_not_started("2027-28", today=today)
+        detail = "unreadable" if started is False else "accepted"
+        record(f"{'plant' if want is False else 'control'}: {label}",
+               started is want, f"{today.date()} -> {detail}")
+
 
 # ------------------------------------------- the known-unfetchable list
 def check_known_list():

@@ -89,6 +89,40 @@ def fetch_season(season: str):
 REGULAR_SEASON_GAME_ID_DIGIT = "2"
 SCHEDULE_TIMEOUT_SECONDS = 30
 
+# AFTER THIS DATE, "the schedule is not published" STOPS BEING AN EXPLANATION.
+#
+# A SCOPE DECISION KEPT AS A LITERAL, because it cannot be derived. Measured
+# 2026-10-22: ScheduleLeagueV2 exposes 195 columns and NOT ONE of them carries
+# a publication, release, updated or version date, so there is nothing in the
+# API to compute "when was this schedule published" from. What the API does
+# show is that a published season's rows begin in early October (2025-26 opens
+# 2025-10-02, 2026-27 opens 2026-10-03, both preseason), and the NBA has
+# historically released the full regular-season schedule in mid-to-late
+# August. Mid-September is therefore about three weeks clear of the first
+# game and a month clear of the usual release.
+#
+# Why it matters: an unpublished season and a source outage are the SAME
+# exception. nba_api's parser raises IndexError from the constructor for both
+# - `["gameDates"][0]["games"][0]` on an empty list - so absorbing IndexError
+# unconditionally would read a real outage as "the season has not started" and
+# accept an empty fetch. The date bound is what closes that: before the
+# cutoff an absent schedule is ordinary, after it the only honest reading is
+# that we cannot tell, which is a failure.
+SCHEDULE_PUBLISHED_BY_MONTH = 9
+SCHEDULE_PUBLISHED_BY_DAY = 15
+
+
+def season_start_year(season: str) -> int:
+    """"2026-27" -> 2026."""
+    return int(season.split("-")[0])
+
+
+def schedule_cutoff(season: str) -> "pd.Timestamp":
+    """The date after which this season's schedule must exist."""
+    return pd.Timestamp(year=season_start_year(season),
+                        month=SCHEDULE_PUBLISHED_BY_MONTH,
+                        day=SCHEDULE_PUBLISHED_BY_DAY)
+
 
 def first_regular_season_game(season: str):
     """The earliest regular-season date the schedule shows, or None.
@@ -147,8 +181,17 @@ def season_not_started(season: str, today=None):
                        f"shown that {season} has not started")
 
     if first is None:
+        cutoff = schedule_cutoff(season)
+        if today >= cutoff:
+            return (False, f"the schedule publishes no regular-season game "
+                           f"for {season}, and it is {today.date()}, past the "
+                           f"{cutoff.date()} cutoff by which that schedule "
+                           f"should exist - so this is UNREADABLE, not "
+                           f"not-started, and an empty fetch cannot be "
+                           f"explained by the season being in the future")
         return (True, f"the schedule publishes no regular-season game for "
-                      f"{season} yet")
+                      f"{season} yet, and it is {today.date()}, before the "
+                      f"{cutoff.date()} cutoff")
     if first > today:
         return (True, f"the schedule's first {season} game is "
                       f"{first.date()}, still ahead of {today.date()}")
