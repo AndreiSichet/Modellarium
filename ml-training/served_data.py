@@ -83,8 +83,68 @@ REQUIRED_FILES = [
 ]
 
 
+# TABLES A SNAPSHOT MAY CARRY AND NEED NOT, kept separate from REQUIRED_FILES
+# rather than mixed in with a flag, because the two have opposite failure
+# modes: an absent required table refuses the boot, an absent optional one is
+# a fact to report.
+#
+# WHY THIS EXISTS AT ALL: the NFL's quarantine table is written by a refresh
+# that postdates every snapshot currently retained. Adding it to
+# REQUIRED_FILES would make the seven snapshots already on the volume
+# unservable - including the one being served right now - so a rollback would
+# have nowhere to roll back to. That is the same ordering trap the NFL's own
+# LEAGUES entry has a comment about, arriving from the other direction.
+#
+# AN ABSENT OPTIONAL TABLE IS NOT AN EMPTY ONE, and `table_hashes` says
+# "absent" rather than hashing nothing. A snapshot built before the quarantine
+# existed has an UNKNOWN quarantine state, not a clean one - reporting zero
+# quarantined games for it would be inventing a fact about data nobody
+# checked.
+OPTIONAL_FILES = [
+    Path("nfl") / "processed" / "nfl_quarantine.csv",
+]
+
+
 POINTER_FILE = "current"
 SNAPSHOTS_DIR = "snapshots"
+
+# WHEN THE REFRESH LAST REACHED A VERDICT, kept on the volume beside the
+# pointer rather than inside a snapshot.
+#
+# WHY IT CANNOT LIVE IN A SNAPSHOT: the run that most needs recording is the
+# one that writes no snapshot at all. `nothing-new` is green and discards its
+# staging directory, so a snapshot-local record would be written on exactly
+# the days something moved and absent on the quiet ones - which inverts the
+# question. "Has the job run?" has to be answerable when the job changed
+# nothing, because a job that silently stopped running looks identical to a
+# league on a bye week.
+LAST_REFRESH_FILE = "last_refresh.json"
+
+# TWO THRESHOLDS, NOT ONE, AND BOTH ARE MEASURED RATHER THAN CHOSEN.
+#
+# The cron fires at 07:00 daily, but it only QUEUES - the runner is on a
+# machine that sleeps, so the job runs shortly after the host next wakes.
+# Measured 17-21 October 2026, the 07:00 slot actually executed at 13:38,
+# 12:28, 16:22 and 19:10 (CLAUDE.md s6). So consecutive runs legitimately sit
+# up to about 36 hours apart, and a single 26-hour alarm would have cried wolf
+# on an ordinary week - the same failure mode as a gate going red on the clock
+# rather than the code, which this project has recorded four times.
+#
+# So the two facts are separated instead of merged:
+#
+#   LATE      past one cron interval plus a couple of hours. The 07:00 slot
+#             was missed; on this runner that usually means a sleeping laptop
+#             and is NOT actionable on its own.
+#   OVERDUE   past the worst legitimate gap with margin. A whole cron slot
+#             produced nothing, which no amount of host sleep explains - the
+#             job is wedged, the runner is offline, or the schedule is
+#             disabled.
+#
+# Merging them would force a choice between crying wolf and hiding a real
+# miss. `hours_since` is reported alongside, because the number is the fact
+# and the state is the reading of it.
+REFRESH_LATE_HOURS = 26
+REFRESH_OVERDUE_HOURS = 40
 
 # Which league each served table belongs to, so /health can report them grouped
 # the way every other per-league field already is.
@@ -98,6 +158,7 @@ TABLE_LEAGUE = {
     "nfl/processed/nfl_games_final.csv": "nfl",
     "nfl/processed/nfl_fixtures.csv": "nfl",
     "nfl/processed/nfl_franchise_identity.csv": "nfl",
+    "nfl/processed/nfl_quarantine.csv": "nfl",
 }
 
 HASH_CHUNK_BYTES = 1 << 20
@@ -120,9 +181,15 @@ def table_hashes(root: Path = None) -> dict:
 
     root = root or data_root()
     hashes = {}
-    for relative in REQUIRED_FILES:
+    for relative in REQUIRED_FILES + OPTIONAL_FILES:
         key = relative.as_posix()
         league = TABLE_LEAGUE.get(key, "other")
+        if relative in OPTIONAL_FILES and not (root / relative).is_file():
+            # NAMED, not omitted and not hashed as empty. See OPTIONAL_FILES:
+            # a snapshot from before this table existed has an unknown state
+            # here, and leaving the key out would read as "nothing to say".
+            hashes.setdefault(league, {})[relative.name] = "absent"
+            continue
         digest = hashlib.sha256()
         try:
             with open(root / relative, "rb") as handle:
@@ -177,6 +244,118 @@ def data_root() -> Path:
     """
     configured = os.environ.get(DATA_DIR_ENV)
     return resolve_root(Path(configured)) if configured else REPO_DATA_ROOT
+
+
+def configured_root() -> Path:
+    """What DATA_DIR names, BEFORE the pointer is followed.
+
+    `data_root()` and `resolve_root()` both answer "where are the tables",
+    which for a volume is a snapshot directory several levels down. The
+    refresh's own record sits beside the pointer, one level up, so it needs
+    the configured path rather than the resolved one.
+    """
+    configured = os.environ.get(DATA_DIR_ENV)
+    return Path(configured) if configured else REPO_DATA_ROOT
+
+
+def write_last_refresh(volume: Path, outcome: str, snapshot: str = None,
+                       per_league: dict = None) -> Path:
+    """Record that the refresh reached a verdict, whatever the verdict was.
+
+    WRITTEN FOR EVERY TERMINAL OUTCOME INCLUDING THE GREEN QUIET ONE, because
+    the question this answers is "did the job run", not "did the data move".
+    A `nothing-new` run that recorded nothing would be indistinguishable from
+    a job that stopped being scheduled - and `nothing-new` is the normal
+    outcome between seasons, so that gap would be open for months at a time.
+
+    `failed` is recorded too, and separately from the timestamp: a job that
+    runs and fails every morning has a current `finished_at` and an outcome
+    nobody should read as healthy, which is why /health reports both rather
+    than collapsing them into one "fresh" boolean.
+    """
+    volume.mkdir(parents=True, exist_ok=True)
+    body = {
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "outcome": outcome,
+        "snapshot": snapshot,
+        "leagues": {league: entry.get("outcome")
+                    for league, entry in (per_league or {}).items()},
+    }
+    path = volume / LAST_REFRESH_FILE
+    path.write_text(json.dumps(body, indent=2) + chr(10), encoding="utf-8")
+    return path
+
+
+def read_last_refresh(volume: Path = None, now=None) -> dict:
+    """What /health reports about the refresh job itself.
+
+    `state` is one of:
+
+      ok           a verdict within REFRESH_LATE_HOURS
+      late         past that, which on this runner usually means host sleep
+      overdue      past REFRESH_OVERDUE_HOURS, which host sleep cannot explain
+      failed       the last verdict reached was a failure, however recent
+      not_a_volume this DATA_DIR is a plain data root - CI and the repo copy,
+                   where no refresh job exists to have run
+      unknown      a volume with no record, or one that cannot be read
+
+    `not_a_volume` AND `unknown` ARE DIFFERENT ANSWERS and are kept apart. The
+    first says no job was ever meant to write here; the second says one was
+    and did not. Collapsing them would make CI's permanent silence look like
+    the production job having stopped - a zero standing in for an unknown,
+    which is the conflation this project has four recorded bugs from.
+    """
+    volume = volume or configured_root()
+    if not (volume / POINTER_FILE).is_file():
+        return {"state": "not_a_volume", "last_verdict_at": None,
+                "hours_since": None, "outcome": None, "leagues": {},
+                "note": "DATA_DIR is a plain data root, not a volume, so no "
+                        "refresh job maintains a record here"}
+
+    path = volume / LAST_REFRESH_FILE
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+        finished = datetime.fromisoformat(body["finished_at"])
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return {"state": "unknown", "last_verdict_at": None,
+                "hours_since": None, "outcome": None, "leagues": {},
+                "note": f"{LAST_REFRESH_FILE} is absent or unreadable "
+                        f"({type(error).__name__}), so when the refresh last "
+                        f"ran is not known"}
+
+    now = now or datetime.now(timezone.utc)
+    if finished.tzinfo is None:
+        finished = finished.replace(tzinfo=timezone.utc)
+    hours = (now - finished).total_seconds() / 3600.0
+
+    if body.get("outcome") in ("failed", "partial", "drift-report-failed"):
+        state = "failed"
+        note = (f"the last verdict was {body.get('outcome')!r}; the data being "
+                f"served may be older than this timestamp")
+    elif hours >= REFRESH_OVERDUE_HOURS:
+        state = "overdue"
+        note = (f"no verdict for {hours:.1f}h, past "
+                f"{REFRESH_OVERDUE_HOURS}h - host sleep does not explain a "
+                f"gap this long")
+    elif hours >= REFRESH_LATE_HOURS:
+        state = "late"
+        note = (f"no verdict for {hours:.1f}h, past {REFRESH_LATE_HOURS}h. "
+                f"The cron QUEUES at 07:00 and the self-hosted runner starts "
+                f"when the host wakes, so this is usually a sleeping machine "
+                f"rather than a fault")
+    else:
+        state = "ok"
+        note = f"last verdict {hours:.1f}h ago"
+
+    return {
+        "state": state,
+        "last_verdict_at": body["finished_at"],
+        "hours_since": round(hours, 2),
+        "outcome": body.get("outcome"),
+        "snapshot": body.get("snapshot"),
+        "leagues": body.get("leagues") or {},
+        "note": note,
+    }
 
 
 def missing_files(root: Path) -> list:

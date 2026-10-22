@@ -95,18 +95,32 @@ def record(name, passed, detail):
 
 
 def fake_args(volume):
+    # EVERY FIELD _run READS, INCLUDING THE ONES IT ONLY READS WHEN A FILE
+    # WAS ASKED FOR. A namespace missing one does not quietly default - it
+    # raises AttributeError mid-run and the suite exits 2 without a verdict,
+    # which is how `summary_file` announced itself. Left deliberately strict:
+    # making write_summary tolerate a missing attribute would hide a genuinely
+    # unwired argument in production, where argparse always supplies it.
     return SimpleNamespace(
         volume=str(volume), skip_rebuild=True, no_restart=True,
         force_swap=False, full_refetch=False, step_timeout=900,
-        stats_file=None, outcome_file=None, leagues="")
+        stats_file=None, outcome_file=None, summary_file=None, leagues="")
 
 
 def run_refresh(volume, scratch_repo, leagues=None):
     """Run _run against the scratch volume. Returns (code, outcome, output)."""
     outcome = {}
 
-    def record_outcome(name):
+    def record_outcome(name, snapshot=None, per_league=None):
+        # THE WHOLE SIGNATURE, so the suite sees what the real one would write
+        # to the volume. The stub deliberately writes nothing - a verifier
+        # must not leave a record on a volume saying a refresh ran - but
+        # dropping the arguments would have let a terminal path hand over the
+        # wrong snapshot id unnoticed.
         outcome["name"] = name
+        outcome["snapshot"] = snapshot
+        outcome["leagues"] = {league: entry.get("outcome")
+                              for league, entry in (per_league or {}).items()}
 
     original_repo = D.REPO_DATA_ROOT
     D.REPO_DATA_ROOT = scratch_repo

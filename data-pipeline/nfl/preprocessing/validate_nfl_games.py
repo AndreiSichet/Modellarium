@@ -30,6 +30,20 @@ import parse_nfl_wikitext as P          # noqa: E402
 # Games whose two rows cannot be reconciled, listed with their evidence. An
 # unlisted bad game is fatal; a listed game that is no longer bad, or no
 # longer present, is fatal too, so this list cannot rot in either direction.
+# THE SEASONS IN WHICH A DISAGREEMENT IS QUARANTINED RATHER THAN FATAL.
+#
+# DERIVED, and deliberately NOT F.open_seasons(). `open_seasons()` is the
+# FETCHER's question - which seasons to re-read every run - and it answers
+# "the current one and the one before", because late corrections happen. This
+# asks a different one: which season is still being played, and therefore
+# still being edited by hand hours after a game. The 2025 season ended in
+# February 2026; a disagreement in it is a settled defect and must still fail,
+# which is what "completed seasons stay strict" means.
+#
+# Computed at import, like every other derived bound here. It moves on its own
+# when the calendar does, which is the point of not listing it.
+QUARANTINE_SEASONS = frozenset({F.current_season()})
+
 KNOWN_UNUSABLE_GAMES = {
     # game key -> evidence. Empty: every game in 2012-2026 reconciles.
 }
@@ -174,7 +188,29 @@ def validate_season(season, rows, articles, report):
               if len({r["status"] for r in v}) > 1}
 
     # ---- 1. pairing
-    bad_pairs, singles, repaired_sides = [], [], []
+    #
+    # THE OPEN SEASON IS JUDGED DIFFERENTLY, AND THIS VALIDATOR CANNOT READ
+    # THE QUARANTINE FILE TO DECIDE IT. It runs BEFORE build_nfl_tables.py in
+    # the refresh, so on the first run of a new disagreement that file does
+    # not yet contain the game - consulting it would make the first occurrence
+    # fatal and only the second tolerable, which is the worst of both. So the
+    # rule is applied here independently, and the two implementations are kept
+    # in step by one thing: they quarantine the same NARROW set.
+    #
+    # Quarantinable, in the CURRENT season only, is exactly what
+    # `build_nfl_tables.copies_agree` rejects on a properly paired game - the
+    # two copies disagree about the score, or about the date - plus the
+    # half-updated case where one article has the result and the other still
+    # shows a fixture. Those are the states an in-progress Wikipedia edit
+    # actually produces: someone updates one team's schedule table hours
+    # before the other's.
+    #
+    # NOT QUARANTINABLE IN ANY SEASON: a game that appears once, or three
+    # times, or whose two copies both claim the same side and cannot be
+    # resolved. Those are structural - the build cannot set aside a game it
+    # cannot identify - so they stay fatal everywhere, which is why the kind
+    # is tracked rather than every pairing problem being waved through.
+    bad_pairs, singles, repaired_sides, soft = [], [], [], []
     for key, pair in played_games.items():
         if len(pair) != 2:
             (singles if len(pair) == 1 else bad_pairs).append(
@@ -188,12 +224,14 @@ def validate_season(season, rows, articles, report):
             repaired_sides.append((key, how))
         if (home["points_for"], home["points_against"]) != \
                 (away["points_against"], away["points_for"]):
-            bad_pairs.append((key, f"scores {home['points_for']}-"
-                                   f"{home['points_against']} vs "
-                                   f"{away['points_against']}-"
-                                   f"{away['points_for']}"))
+            (soft if season in QUARANTINE_SEASONS else bad_pairs).append(
+                (key, f"scores {home['points_for']}-"
+                      f"{home['points_against']} vs "
+                      f"{away['points_against']}-"
+                      f"{away['points_for']}"))
         elif home["date"] != away["date"]:
-            bad_pairs.append((key, "dates differ"))
+            (soft if season in QUARANTINE_SEASONS else bad_pairs).append(
+                (key, "dates differ"))
     unlisted = [b for b in bad_pairs + singles
                 if b[0] not in KNOWN_UNUSABLE_GAMES]
     report.check(not unlisted, f"{season} pairing",
@@ -202,8 +240,26 @@ def validate_season(season, rows, articles, report):
         report.note(f"{season}: home/away resolved from the recap slug on "
                     f"{len(repaired_sides)} game(s) whose two articles both "
                     f"claimed the same side: {repaired_sides[:3]}")
-    report.check(not partly, f"{season} one side played, the other not",
+
+    # Half-updated: one article carries the result, the other still shows the
+    # fixture. In the current season the build sets it aside with the same
+    # evidence; in a completed one the articles have settled and it is a real
+    # defect.
+    soft_partly = partly if season in QUARANTINE_SEASONS else {}
+    report.check(not partly or season in QUARANTINE_SEASONS,
+                 f"{season} one side played, the other not",
                  f"{len(partly)}: {list(partly)[:3]}")
+
+    # ADVISORY, AND NAMED AS SUCH IN THE OUTPUT so it cannot be mistaken for
+    # a clean season. The games are listed, with their evidence, and the build
+    # writes the same set to nfl_quarantine.csv - which /health then reports,
+    # so a set-aside game is visible without reading the volume. An unknown is
+    # never a zero: the game does not reach either served table, and a
+    # silently smaller history is what this note exists to prevent.
+    for key, why in soft + [(k, "one side played, the other not")
+                            for k in soft_partly]:
+        report.note(f"{season}: QUARANTINED (open season, advisory) {key}: "
+                    f"{why}")
 
     # ---- 2. quarter sum, the only check that catches an identical edit
     boxes = index_boxes(articles)

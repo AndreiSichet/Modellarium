@@ -130,6 +130,73 @@ def write_csv(path, fieldnames, records):
     return len(records)
 
 
+# --------------------------------------------------------------------------
+# QUARANTINE, FOR THE OPEN SEASON ONLY
+#
+# Two copies of a game that contradict each other currently fail the NFL
+# build. For a COMPLETED season that is right: the articles have settled and a
+# disagreement is a real defect. For the OPEN season it is the wrong
+# instrument - the source is Wikipedia, anyone can edit it, and one half-typed
+# score should not cost the whole league a day of fresh data.
+#
+# So in the open season a disagreeing game is set aside with both copies and a
+# reason, the rest of the day's data lands, and the game is retried on the
+# next build. This is the rule the NHL's phase 1 already has, and the CSV
+# columns are deliberately the same - `nhl_quarantine.csv` is
+# season,date,copy_a,copy_b,reason,left_quarantine - so the two read alike.
+#
+# WHAT IS NOT SHARED: the NHL keys a game on ({both teams}, date +/- 1 day)
+# because its two copies can disagree about the date by a day; the NFL keys on
+# V.game_key, (date, team pair), because a flexed fixture is the only date
+# ambiguity and it is unplayed. Forcing one module over both would mean
+# forcing one key over both, so the shape is reused and the code is not.
+#
+# NO REVERSE GUARD THAT FAILS, AND THAT IS A DELIBERATE DIFFERENCE from the
+# NFL's authored KNOWN_UNUSABLE_GAMES list, where a listed game that stops
+# failing IS fatal (check_known_list enforces it). This file is GENERATED and
+# rebuilt every run, so a game leaving it is ordinary movement rather than a
+# stale hand-written entry. The movement is reported instead.
+QUARANTINE_COLUMNS = ["season", "date", "copy_a", "copy_b", "reason",
+                      "left_quarantine"]
+
+
+def copies_agree(home, away) -> tuple:
+    """(True, "") if the two copies of a played game tell the same story."""
+    if (home["points_for"], home["points_against"]) != \
+            (away["points_against"], away["points_for"]):
+        return False, (f"scores disagree: {home['points_for']}-"
+                       f"{home['points_against']} against "
+                       f"{away['points_against']}-{away['points_for']}")
+    if home["date"] != away["date"]:
+        return False, (f"dates disagree: {home['date'].isoformat()} against "
+                       f"{away['date'].isoformat()}")
+    return True, ""
+
+
+def describe_copy(row, is_home) -> str:
+    """One copy of a game, as the quarantine file records it.
+
+    `team_target` is the team-season article this copy was parsed from, which
+    is what makes a quarantine row actionable: it names the page to look at.
+    Same intent as the NHL's "<article> says home X, 2-3, REG".
+    """
+    return (f"{row['team_target']} says {'home' if is_home else 'away'} "
+            f"{row['team_fid']}, {row['points_for']}-"
+            f"{row['points_against']}, {row['wl']}, "
+            f"{row['date'].isoformat()}")
+
+
+def previous_quarantine(path) -> dict:
+    """{game_id: row} from the last build, so movement can be reported."""
+    if not path.is_file():
+        return {}
+    import csv
+
+    with path.open(encoding="utf-8", newline="") as handle:
+        return {row["date"] + "|" + row["season"]: row
+                for row in csv.DictReader(handle)}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seasons", nargs="*", type=int)
@@ -137,6 +204,20 @@ def main():
     seasons = args.seasons or F.seasons_through()
 
     rows, articles = collect(seasons)
+    # THE CURRENT SEASON ONLY, not F.open_seasons().
+    #
+    # `open_seasons()` is the FETCHER's question - which seasons to re-read
+    # every run - and it answers "the current one and the one before", because
+    # late corrections happen. Quarantine asks a different question: which
+    # season is still being played, and therefore still being edited by
+    # hand hours after a game. The 2025 season ended in February 2026; a
+    # disagreement in it is a settled defect and must still fail, which is
+    # what "completed seasons stay strict" means. Using open_seasons() here
+    # would have quietly relaxed strictness for a finished season - caught by
+    # the verifier asserting that 2025 is NOT quarantine-eligible.
+    open_now = {F.current_season()}
+    quarantine_path = PROCESSED / "nfl_quarantine.csv"
+    was_quarantined = previous_quarantine(quarantine_path)
     modal = home_venues(rows)
     # {(season, venue): the franchise whose home venue it is}
     owners = {(season, venue): fid
@@ -144,6 +225,7 @@ def main():
     games = V.group_games(rows)
 
     team_records, fixture_records, quarter_records = [], [], []
+    quarantine_records, left_quarantine = [], []
     signal_counts = collections.Counter()
     neutral_games = []
     renames = []
@@ -174,6 +256,20 @@ def main():
                             modal.get((season, home["team_fid"]))))
 
         if status == "played":
+            agreed, why = copies_agree(home, away)
+            marker = home["date"].isoformat() + "|" + str(season)
+            if agreed and marker in was_quarantined:
+                # LEFT QUARANTINE. Reported, not fatal: this file is rebuilt
+                # every run, so a game ceasing to disagree is the system
+                # working rather than a stale entry someone forgot.
+                left_quarantine.append((gid, home["date"].isoformat()))
+            if not agreed and season in open_now:
+                quarantine_records.append(dict(
+                    season=season, date=home["date"].isoformat(),
+                    copy_a=describe_copy(home, True),
+                    copy_b=describe_copy(away, False),
+                    reason=why, left_quarantine=0))
+                continue
             for row, other in ((home, away), (away, home)):
                 margin = row["points_for"] - row["points_against"]
                 team_records.append(dict(
@@ -271,7 +367,42 @@ def main():
           f"({n1 // 2} games, two rows each)")
     print(f"  nfl_fixtures.csv           {n2:>6} rows")
     print(f"  nfl_franchise_identity.csv {n3:>6} rows")
+    # ALWAYS WRITTEN, even empty, so "no quarantine file" and "nothing
+    # quarantined" are different states rather than the same silence.
+    n5 = write_csv(PROCESSED / "nfl_quarantine.csv", QUARANTINE_COLUMNS,
+                   quarantine_records)
     print(f"  nfl_quarter_scores.csv     {n4:>6} rows")
+    print(f"  nfl_quarantine.csv         {n5:>6} rows")
+    print()
+    print()
+    print(f"  QUARANTINED (open season only) : {len(quarantine_records)}")
+    for record in quarantine_records:
+        print(f"      {record['season']} {record['date']}  {record['reason']}")
+        print(f"        A: {record['copy_a']}")
+        print(f"        B: {record['copy_b']}")
+    if left_quarantine:
+        print(f"  LEFT QUARANTINE since the last build : "
+              f"{len(left_quarantine)}")
+        for gid, date in left_quarantine:
+            print(f"      {gid}  {date}  the two copies now agree")
+    if quarantine_records:
+        # A QUARANTINED GAME BLOCKS ITS TEAMS' NEXT FIXTURES, and that is
+        # correct rather than a side effect: the NFL's prediction rule needs
+        # both teams' previous games in history, and a quarantined game is
+        # not in history. Reported so the count in /health has an explanation.
+        blocked_fids = set()
+        for record in quarantine_records:
+            for copy in (record["copy_a"], record["copy_b"]):
+                for token in copy.split():
+                    if token.rstrip(",").isdigit() and len(token.rstrip(",")) == 10:
+                        blocked_fids.add(token.rstrip(","))
+        upcoming = [f for f in fixture_records
+                    if str(f["home_franchise_id"]) in blocked_fids
+                    or str(f["away_franchise_id"]) in blocked_fids]
+        print(f"  fixtures blocked by quarantine : {len(upcoming)}")
+        for f in sorted(upcoming, key=lambda r: (r["date"], r["game_id"]))[:8]:
+            print(f"      {f['game_id']:<22} {f['date']}  "
+                  f"{f['away']} @ {f['home']}")
     print()
     print(f"  neutral-site games flagged : {len(neutral_games)}")
     for signal, count in signal_counts.most_common():

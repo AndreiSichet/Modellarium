@@ -106,6 +106,13 @@ MIN_SCHEDULE_COUNT = 100
 # which is how models_loaded becoming an int took the browse view down.
 HEALTH_CONTEXT_FIELDS = {
     "availability", "served_data",
+    # THE REFRESH BLOCK, WHICH MOVES ON EVERY CLOCK TICK. `hours_since` is a
+    # float measured against now, so two captures minutes apart differ by
+    # construction - diffing it would make the gate red on literally every
+    # run, which is the loudest possible version of red-on-the-clock. It is
+    # context, so a change in it makes the league CANNOT COMPARE rather than
+    # being silently tolerated.
+    "refresh",
     "data_as_of", "dataAsOf", "stale",
     # THE NFL'S TWO MOVING COUNTS. `predictable_fixtures` falls and `fixtures`
     # falls as the season is played, both as a function of the data rather than
@@ -122,6 +129,19 @@ HEALTH_CONTEXT_FIELDS = {
     # - the fourth time the clock would have moved under this gate, after
     # daysBehind twice and schedule_count once.
     "missing_results", "missing_result_ids",
+    # AND THE QUARANTINE, which moves on the same clock as the two above and
+    # for a stronger reason: a game enters it when a Wikipedia editor saves
+    # half an update and leaves it when they save the other half, neither of
+    # which is a code change. CLASSIFIED, NOT TOLERANCED - the gate's own rule
+    # is that a field that moves on the clock is named as context, so a change
+    # makes the league CANNOT COMPARE rather than being absorbed by a
+    # threshold. That is the instrument's fifth clock-not-code field.
+    #
+    # NOTE the shape under this key is also compared as context, which costs
+    # the one thing a byte diff would have given: `state` flipping to
+    # "unknown" - a snapshot predating the table - is seen as context too. The
+    # boot assertion in CI is what covers that, not this.
+    "quarantine",
 }
 
 

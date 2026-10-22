@@ -74,6 +74,13 @@ GAMES_TABLE = Path("nfl") / "processed" / "nfl_games_final.csv"
 FIXTURES_TABLE = Path("nfl") / "processed" / "nfl_fixtures.csv"
 IDENTITY_TABLE = Path("nfl") / "processed" / "nfl_franchise_identity.csv"
 
+# OPTIONAL, and the only served table that is. Written by every refresh from
+# the one that introduced it; absent from every snapshot built before. See
+# served_data.OPTIONAL_FILES - requiring it would have made the snapshots
+# already on the volume unservable, so a rollback would have had nowhere to
+# land. Read through `load_quarantine`, which distinguishes absent from empty.
+QUARANTINE_TABLE = Path("nfl") / "processed" / "nfl_quarantine.csv"
+
 # A synthetic table set exists for CI, because the real one is CC BY-SA and is
 # never committed. Production must refuse it; see `refuse_synthetic`.
 SYNTHETIC_MARKER = "nfl_synthetic.json"
@@ -152,6 +159,49 @@ def load_manifest(path: Path = MANIFEST_PATH) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def load_quarantine(root: Path) -> dict:
+    """The games this snapshot set aside, or that the snapshot predates it.
+
+    AN ABSENT TABLE AND AN EMPTY ONE ARE DIFFERENT ANSWERS and this returns
+    them as such. An empty table means a build ran and found nothing to set
+    aside; an absent one means no build that could have written it ever ran
+    against this snapshot, so the quarantine state is UNKNOWN. Collapsing the
+    two into "0 games quarantined" would report a clean season for a snapshot
+    nobody checked, which is the zero-for-an-unknown this project has four
+    recorded bugs from.
+
+    `/health` renders the distinction: `state` is "none", "quarantined" or
+    "unknown", and only the first two carry a count.
+    """
+    path = root / QUARANTINE_TABLE
+    if not path.is_file():
+        return {"state": "unknown", "games": [],
+                "note": "this snapshot predates the quarantine table"}
+
+    frame = pd.read_csv(path)
+    games = [
+        {
+            "season": int(row["season"]),
+            "date": str(row["date"]),
+            "reason": str(row["reason"]),
+            "copy_a": str(row["copy_a"]),
+            "copy_b": str(row["copy_b"]),
+        }
+        for _index, row in frame.iterrows()
+    ]
+    return {
+        "state": "quarantined" if games else "none",
+        "games": games,
+        # NOT A STALENESS SIGNAL AND SAID SO. A quarantined game is a known,
+        # evidenced set-aside with a retry on every refresh, not the service
+        # being behind - `missing_results` is what answers that, and a
+        # quarantined game does not reach the fixtures table it reads, so the
+        # two counts cannot double-count the same game.
+        "note": ("set aside with evidence, retried on every refresh"
+                 if games else "no disagreements set aside"),
+    }
+
+
 def load_state(root: Path = None, manifest: dict = None) -> dict:
     """Everything serving needs, read once at boot."""
     root = root or data_root()
@@ -161,6 +211,7 @@ def load_state(root: Path = None, manifest: dict = None) -> dict:
     games = B.load_games(path=root / GAMES_TABLE)
     fixtures = pd.read_csv(root / FIXTURES_TABLE, parse_dates=["date"])
     identity = pd.read_csv(root / IDENTITY_TABLE)
+    quarantine = load_quarantine(root)
 
     configs = production_elo_configs(manifest)
     data_as_of = max(game["date"] for game in games).date()
@@ -175,6 +226,7 @@ def load_state(root: Path = None, manifest: dict = None) -> dict:
         "data_as_of": pd.Timestamp(data_as_of),
         "known_team_ids": set(int(g) for g in identity["franchise_id"].unique()),
         "synthetic": synthetic,
+        "quarantine": quarantine,
     }
 
 

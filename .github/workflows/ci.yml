@@ -215,7 +215,16 @@ jobs:
           # real NFL table in a checkout - which would mean a CC BY-SA table
           # had been committed, and that is a licence problem rather than a
           # test failure.
-          python -c "import json; h = json.load(open('health.json')); assert h['status'] == 'ok', h; m = h['models_loaded']; assert m == {'team': 7, 'quarter_half': 6, 'player_props': 10, 'wnba': 3, 'gleague': 3, 'nfl': 3}, m; assert h['nfl']['synthetic'] is True, 'CI must be serving the synthetic NFL set, not a real one'; print('health OK:', h)"
+          #
+          # AND THE QUARANTINE STATE IS ASSERTED AS "none", NOT MERELY
+          # PRESENT. The table is optional, so an absent one is legal and
+          # reports "unknown" - which means a boot that silently stopped
+          # writing it would still pass a looser check. The synthetic
+          # generator writes the header-only file precisely so this can
+          # assert the exercised path: a build ran and found nothing to set
+          # aside. These games are invented from a fixed seed with one copy
+          # each, so there is nothing here that could legitimately disagree.
+          python -c "import json; h = json.load(open('health.json')); assert h['status'] == 'ok', h; m = h['models_loaded']; assert m == {'team': 7, 'quarter_half': 6, 'player_props': 10, 'wnba': 3, 'gleague': 3, 'nfl': 3}, m; assert h['nfl']['synthetic'] is True, 'CI must be serving the synthetic NFL set, not a real one'; q = h['nfl']['quarantine']; assert q['state'] == 'none' and q['count'] == 0, q; print('health OK:', h)"
 
           kill "$UVICORN_PID"
 

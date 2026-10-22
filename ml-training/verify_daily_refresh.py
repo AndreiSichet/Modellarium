@@ -320,9 +320,23 @@ def check_failure_before_swap() -> None:
     section("4  A FAILURE DURING THE REBUILD SWAPS NOTHING")
     before = refresh.read_pointer(VOLUME)
 
-    # A league whose pipeline step does not exist stands in for a step that
-    # fails: the point is that the failure happens BEFORE any pointer write,
-    # and the report says which step.
+    # A step that TIMES OUT stands in for a step that fails: the point is
+    # that the failure happens BEFORE any pointer write, and the report says
+    # which step.
+    #
+    # WHAT THIS RUN LOOKS LIKE CHANGED WITH PER-LEAGUE ISOLATION, and this
+    # check went red on the wording rather than the behaviour. A step timeout
+    # is a LEAGUE-LOCAL failure now, so the NBA is carried and the run reports
+    # "NO LEAGUE ADVANCED AND AT LEAST ONE FAILED" instead of the old
+    # "FAILED BEFORE ANY SWAP". The behaviour under test is unchanged - red,
+    # and the pointer does not move - which is why the two assertions either
+    # side of it stayed green and only the message assertion failed.
+    #
+    # `FAILED BEFORE ANY SWAP` has not gone away: it is now reserved for a
+    # GLOBAL failure, one that no amount of carrying can contain - a missing
+    # step script, which means a broken checkout. That path is planted in
+    # verify_refresh_isolation.py, so both shapes are covered and neither is
+    # asserted here by guessing.
     done = subprocess.run(
         [sys.executable, "-W", "ignore", str(HERE / "daily_refresh.py"),
          "--volume", str(VOLUME), "--no-restart",
@@ -334,9 +348,21 @@ def check_failure_before_swap() -> None:
     record("the run is RED", done.returncode == refresh.EXIT_FAILED,
            f"exit {done.returncode}")
     record("it reports that nothing was swapped",
-           "FAILED BEFORE ANY SWAP" in out or "IS STILL SERVING" in out,
+           ("NO LEAGUE ADVANCED AND AT LEAST ONE FAILED" in out
+            and "continues to serve" in out)
+           or "FAILED BEFORE ANY SWAP" in out or "IS STILL SERVING" in out,
            [line.strip() for line in out.splitlines()
-            if "STILL SERVING" in line or "FAILED BEFORE" in line][:2])
+            if "STILL SERVING" in line or "FAILED BEFORE" in line
+            or "NO LEAGUE ADVANCED" in line or "continues to serve" in line
+            ][:2])
+    # AND THAT THE LEAGUE WAS CARRIED RATHER THAN SILENTLY DROPPED. The
+    # assertion above would pass on a run that failed for any reason at all;
+    # this one says the isolation did what it exists to do.
+    record("the failing league is named as carried",
+           "nba CARRIED" in out or "nba | carried" in out,
+           next((line.strip() for line in out.splitlines()
+                 if "carried" in line.lower() and "nba" in line.lower()),
+                "no carried line for the nba"))
     record("the pointer did not move", before == refresh.read_pointer(VOLUME),
            f"still {before}")
 

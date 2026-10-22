@@ -40,6 +40,7 @@ from live_player_features import (  # noqa: E402
     load_player_history,
 )
 from served_data import (  # noqa: E402
+    read_last_refresh,
     require_data_root,
     snapshot_metadata,
     table_hashes,
@@ -725,6 +726,12 @@ def health():
     wnba_days_behind, wnba_stale = wnba_freshness()
     gleague_days_behind, gleague_stale = gleague_freshness()
     nfl_days_behind, nfl_stale, nfl_missing = nfl_freshness()
+    # `.get` rather than `[...]`: a state loaded by an older module version
+    # would not have the key, and /health refusing to answer at all is worse
+    # than it reporting the quarantine state as unknown.
+    nfl_quarantine = state.nfl_state.get("quarantine") or {
+        "state": "unknown", "games": [],
+        "note": "this snapshot predates the quarantine table"}
     nfl_ready = len(nfl_predictable_fixtures(state.nfl_state))
     return {
         "status": "ok",
@@ -774,6 +781,29 @@ def health():
             "missing_result_ids": [row["game_id"] for row in nfl_missing[:10]],
             "predictable_fixtures": nfl_ready,
             "fixtures": len(state.nfl_state["fixtures"]),
+            # GAMES SET ASIDE, BECAUSE OTHERWISE THEY VANISH WITHOUT A TRACE.
+            # A quarantined game reaches NEITHER served table - not history,
+            # because its two copies disagree, and not the fixtures table,
+            # because it has been played - so nothing else in this block
+            # would show it. A silently shorter history is the failure this
+            # field exists to make visible.
+            #
+            # DELIBERATELY NOT FOLDED INTO `stale` OR `missing_results`. Those
+            # answer "is the service behind", and a quarantined game is not
+            # behind: it is a known disagreement, carrying its evidence, that
+            # every refresh retries. The two cannot double-count, either -
+            # `missing_results` walks the fixtures table, which a quarantined
+            # game is absent from.
+            #
+            # `state` is "none", "quarantined" or "unknown", and the third is
+            # not a zero: a snapshot predating the quarantine table has an
+            # unchecked quarantine state, not a clean one.
+            "quarantine": {
+                "state": nfl_quarantine["state"],
+                "count": len(nfl_quarantine["games"]),
+                "note": nfl_quarantine["note"],
+                "games": nfl_quarantine["games"][:10],
+            },
             "prediction_rule": "both teams' previous games in history",
             "source": NFL_SOURCE,
             "synthetic": bool(state.nfl_state.get("synthetic")),
@@ -782,6 +812,24 @@ def health():
         # features come from the live injury report, and every way of not
         # having one used to resolve to NaN silently.
         "availability": availability_block(),
+        # WHETHER THE REFRESH JOB IS STILL RUNNING AT ALL, which no other
+        # field answers. Every existing freshness field describes the DATA -
+        # `data_as_of`, `days_behind`, `stale` - and all of them look exactly
+        # the same whether the job ran this morning and found nothing or
+        # stopped being scheduled three weeks ago. Between seasons that is
+        # months of silence a monitor cannot distinguish from health.
+        #
+        # READ FRESH ON EVERY REQUEST rather than captured at boot. The
+        # service is restarted by the refresh itself, so a value fixed at boot
+        # would report the state at the last restart - which is to say it
+        # would be most wrong precisely when the job has stopped restarting
+        # it.
+        #
+        # `state` is ok / late / overdue / failed / not_a_volume / unknown,
+        # and the last two are DIFFERENT ANSWERS: CI serves a plain data root
+        # where no job was ever meant to write, which is not the same as a
+        # volume whose record is missing. See served_data.read_last_refresh.
+        "refresh": read_last_refresh(),
         # WHICH SNAPSHOT IS BEING SERVED. Without this, "the refresh ran" and
         # "the service picked it up" are two separate facts with one
         # observation between them - and the daily job's rollback path has

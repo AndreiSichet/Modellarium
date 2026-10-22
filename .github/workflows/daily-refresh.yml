@@ -166,7 +166,8 @@ jobs:
           .\.ct-venv\Scripts\python.exe -W ignore ml-training\daily_refresh.py `
             --volume "D:\modellarium-data" `
             --outcome-file "refresh-outcome.txt" `
-            --stats-file "refresh-stats.txt" @extra
+            --stats-file "refresh-stats.txt" `
+            --summary-file "refresh-summary.md" @extra
           $code = $LASTEXITCODE
 
           $outcome = "failed"
@@ -201,6 +202,20 @@ jobs:
           } else {
             "## Failed" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             "A pipeline step, validation or the swap failed. **The previous snapshot keeps serving.** The step log says which." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+
+          # THE PER-LEAGUE TABLE, WHICH THE `partial` TEXT ABOVE PROMISED AND
+          # NOTHING RENDERED. It was printed to the step log only, so the one
+          # sentence that tells a reader which league is stuck pointed at a
+          # table that did not exist. daily_refresh.py writes it as markdown,
+          # already carrying its own leading blank line - see write_summary,
+          # and the comment there about why the blank line is load-bearing.
+          if (Test-Path "refresh-summary.md") {
+            Get-Content "refresh-summary.md" -Encoding utf8 |
+              Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } else {
+            "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "_No per-league table was written - the run did not reach the point where outcomes are classified._" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           }
 
           # `partial` IS RED. The job reads this outcome file rather than the
@@ -243,6 +258,51 @@ jobs:
               "| $($lg.ToUpper()) data_as_of | $asOf |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             }
 
+            # AVAILABILITY ROWS BELONG IN THIS TABLE, AND THEY USED TO BE
+            # EMITTED AFTER THE FETCH-COUNTER HEADING BELOW - which put a
+            # `|...|` row straight after a bullet list, with no header row and
+            # no blank line above it. GitHub renders that as literal pipe
+            # characters, so the one row that says the NBA is serving on 34 of
+            # 38 features showed as raw text. Moved up into the table it
+            # belongs to, before anything else is appended.
+            foreach ($lg in $leagues) {
+              "| $($lg.ToUpper()) availability | $($health.availability.$lg.state) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
+
+            # WHETHER THE JOB ITSELF IS STILL RUNNING. Same table, because it
+            # is the same kind of fact - a state of the system someone reads
+            # on a green morning. `late` is normal on this runner and says so;
+            # `overdue` is not.
+            if ($health.refresh) {
+              "| refresh state | $($health.refresh.state) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "| last verdict | $($health.refresh.last_verdict_at) ($($health.refresh.outcome)) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              if ($health.refresh.state -eq "overdue") {
+                Write-Host "::warning::the refresh has reached no verdict for $($health.refresh.hours_since)h - $($health.refresh.note)"
+              }
+            }
+
+            # GAMES SET ASIDE, which no other row would show: a quarantined
+            # game reaches neither served table, so a silently shorter history
+            # is invisible unless it is printed. Its own table with its own
+            # blank line and header, for the reason the comment above gives.
+            $q = $health.nfl.quarantine
+            if ($q -and $q.count -gt 0) {
+              "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "### NFL games set aside ($($q.count))" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "| date | reason | copy A | copy B |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "|---|---|---|---|" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              foreach ($g in $q.games) {
+                "| $($g.date) | $($g.reason) | $($g.copy_a) | $($g.copy_b) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              }
+              "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "These games are excluded from the served tables and retried on every refresh. This is not a failure; the rest of the open season landed." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              Write-Host "::warning::$($q.count) NFL game(s) set aside for disagreeing copies"
+            } elseif ($q -and $q.state -eq "unknown") {
+              "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+              "_The served snapshot predates the NFL quarantine table, so whether any game was set aside is **unknown** rather than none._" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
+
             # THE FETCHERS' REQUEST COUNTERS, FOR THE SAME REASON. run_step
             # discards a successful step's output, so the 429 and maxlag
             # counts for the first NFL fetch were captured and thrown away
@@ -268,9 +328,6 @@ jobs:
             # run that is green BECAUSE game data is fine can still be serving
             # the NBA on 34 of 38 features.
             $avail = $health.availability.nba.state
-            foreach ($lg in $leagues) {
-              "| $($lg.ToUpper()) availability | $($health.availability.$lg.state) |" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            }
             if ($avail -eq "unreachable" -or $avail -eq "source_failed") {
               "" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
               "**Availability is $avail.** The four availability features resolve to NaN, so the NBA is served on 34 of 38 features. Game data is unaffected and this does not fail the refresh." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

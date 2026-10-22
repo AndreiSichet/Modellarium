@@ -45,8 +45,9 @@ sys.path.insert(0, str(HERE))
 import pandas as pd  # noqa: E402
 import drift_report  # noqa: E402
 from served_data import (  # noqa: E402
-    POINTER_FILE, REPO_DATA_ROOT, REQUIRED_FILES, SNAPSHOTS_DIR,
-    missing_files, resolve_root, write_snapshot_metadata)
+    OPTIONAL_FILES, POINTER_FILE, REPO_DATA_ROOT, REQUIRED_FILES,
+    SNAPSHOTS_DIR, missing_files, resolve_root, write_last_refresh,
+    write_snapshot_metadata)
 
 DEFAULT_VOLUME = Path("D:/modellarium-data")
 KEEP_SNAPSHOTS = 7
@@ -162,6 +163,16 @@ LEAGUES = {
         # guessed, because a missing column here would surface as a KeyError
         # inside the cutoff report rather than as "the NFL is out of date".
         "date_column": "date",
+        # WRITTEN EVERY RUN AND ABSENT FROM EVERY SNAPSHOT BUILT BEFORE IT.
+        # Declared as optional so that neither direction of the upgrade
+        # breaks: a snapshot without it still validates and can still be
+        # carried, and a snapshot with it still boots an image that has never
+        # heard of it. See served_data.OPTIONAL_FILES for why that matters on
+        # the day this ships - the snapshot a rollback would land on is one of
+        # the old ones.
+        "optional_tables": [
+            Path("nfl") / "processed" / "nfl_quarantine.csv",
+        ],
     },
 }
 
@@ -527,6 +538,13 @@ def main() -> int:
                              "Same shape as --outcome-file: the workflow "
                              "cannot grep a step's stdout, because run_step "
                              "captures and discards it.")
+    parser.add_argument(
+        "--summary-file",
+        help="append the per-league outcome table here as markdown, for the "
+             "workflow summary. The job already prints it to the step log, "
+             "but a 12-minute log is not where anyone looks on a green "
+             "morning - and the `partial` summary text promised a table that "
+             "was never rendered.")
     parser.add_argument("--outcome-file",
                         help="write 'advanced', 'nothing-new' or 'failed' "
                              "here. The exit code cannot carry the "
@@ -552,16 +570,37 @@ def main() -> int:
     if unknown:
         raise SystemExit(f"unknown league(s) {unknown}")
 
-    def record_outcome(name: str) -> None:
+    def record_outcome(name: str, snapshot: str = None,
+                       per_league: dict = None) -> None:
         """Which of the three outcomes this was.
 
         The exit code cannot carry it: `advanced` and `nothing-new` are both
         green, which is the whole point of distinguishing them. A workflow
         summary that greps stdout instead would break the first time the
         wording changed, so the job reads this file.
+
+        ALSO WRITES THE VOLUME'S OWN RECORD, and here rather than at the swap,
+        because this is the only point every terminal path passes through. A
+        record written at the swap would be absent on exactly the runs that
+        make the question worth asking - `nothing-new` swaps nothing, and a
+        job that silently stopped being scheduled looks identical to a quiet
+        season unless the quiet runs leave a mark. See
+        served_data.LAST_REFRESH_FILE.
+
+        THE RECORD IS NEVER ALLOWED TO FAIL THE RUN. It is an observation
+        about the job rather than part of the swap, so a read-only volume or a
+        permissions problem must not turn a successful refresh into a failed
+        one - that would be the instrument breaking the thing it measures. It
+        warns loudly instead, which is the one case in this file where a
+        warning is the right instrument rather than a misleading green.
         """
         if args.outcome_file:
             Path(args.outcome_file).write_text(name, encoding="utf-8")
+        try:
+            write_last_refresh(volume, name, snapshot, per_league)
+        except OSError as error:
+            print(f"  WARNING: the run could not be recorded at "
+                  f"{volume}: {type(error).__name__}: {error}")
         print(f"\n  outcome: {name}")
 
     print(__doc__)
@@ -709,8 +748,25 @@ OUTCOME_SKIPPED = "skipped"
 
 
 def league_tables(league: str) -> list:
-    """The tables this league contributes to a snapshot, from LEAGUES."""
+    """The tables this league contributes to a snapshot, from LEAGUES.
+
+    REQUIRED ONLY. Every existing caller means "the tables whose absence is a
+    failure", and widening this to include the optional ones would have
+    changed all of them silently - stage_league_from_repo would raise on a
+    league that simply had nothing to quarantine.
+    """
     return list(LEAGUES[league]["tables"])
+
+
+def league_optional_tables(league: str) -> list:
+    """Tables this league MAY contribute. Absence is a fact, not a failure.
+
+    Separate from league_tables for the reason that function's docstring
+    gives. The split is also what makes the two compatibility directions
+    testable on their own: an old snapshot has none of these, a new one has
+    them, and both must swap, carry and serve.
+    """
+    return list(LEAGUES[league].get("optional_tables") or [])
 
 
 def sha256_of(path: Path) -> str:
@@ -722,11 +778,23 @@ def sha256_of(path: Path) -> str:
 
 
 def league_hashes(root: Path, league: str) -> dict:
-    """{relative path as text: sha256} for one league's tables under root."""
+    """{relative path as text: sha256} for one league's tables under root.
+
+    Optional tables are included WHEN PRESENT, because the carried-unchanged
+    assertion has to cover them: a quarantine file that changed between being
+    copied and being swapped is as much of a mixture as a games table that
+    did. An absent one is omitted rather than recorded as None - None here
+    means "required and missing", which is a different thing and is what the
+    staging code raises on.
+    """
     out = {}
     for relative in league_tables(league):
         path = root / relative
         out[relative.as_posix()] = sha256_of(path) if path.is_file() else None
+    for relative in league_optional_tables(league):
+        path = root / relative
+        if path.is_file():
+            out[relative.as_posix()] = sha256_of(path)
     return out
 
 
@@ -737,6 +805,18 @@ def stage_league_from_repo(league: str, staging: Path) -> None:
         if not source.is_file():
             raise RuntimeError(
                 f"the {league} rebuild did not produce {relative}")
+        destination = staging / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    for relative in league_optional_tables(league):
+        source = REPO_DATA_ROOT / relative
+        if not source.is_file():
+            # NOT A FAILURE. build_nfl_tables.py writes an empty quarantine
+            # file every run, so in practice this is only reached by an older
+            # build script - and a snapshot without the table is servable by
+            # construction. Raising here would turn a tolerated absence into
+            # the league being carried for a reason that is not a problem.
+            continue
         destination = staging / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
@@ -758,6 +838,18 @@ def carry_league(league: str, staging: Path, previous_root: Path) -> dict:
             raise RuntimeError(
                 f"cannot carry {league}: the snapshot being served has no "
                 f"{relative}")
+        destination = staging / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    for relative in league_optional_tables(league):
+        source = previous_root / relative
+        if not source.is_file():
+            # CARRYING AN OLD SNAPSHOT FORWARD. The snapshot being served may
+            # predate this table entirely; the carried league then has no
+            # quarantine file and /health reports it absent rather than
+            # clean. Copying nothing is the honest outcome - inventing an
+            # empty file here would assert that nobody checked found nothing.
+            continue
         destination = staging / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
@@ -980,6 +1072,24 @@ def outcome_table(per_league, before) -> list:
     return lines
 
 
+def write_summary(args, lines) -> None:
+    """Append markdown to the workflow summary, if one was asked for.
+
+    A BLANK LINE FIRST, ALWAYS, and it is not cosmetic. GitHub renders a table
+    as a table only when a blank line separates it from the text above; put a
+    `|` row straight after a paragraph and it is rendered as literal pipe
+    characters. The existing summary had exactly that defect - the per-league
+    availability rows were emitted after the fetch-counter heading, orphaned
+    from their table header, and showed as raw text.
+    """
+    if not args.summary_file:
+        return
+    with open(args.summary_file, "a", encoding="utf-8") as handle:
+        handle.write(NEWLINE)
+        for line in lines:
+            handle.write(line + NEWLINE)
+
+
 def _run(args, volume, leagues, record_outcome) -> int:
     section("BEFORE")
     previous = read_pointer(volume)
@@ -1042,8 +1152,10 @@ def _run(args, volume, leagues, record_outcome) -> int:
                      if entry["outcome"] == OUTCOME_CARRIED)
 
     section("WHAT CHANGED, PER LEAGUE")
-    for line in outcome_table(per_league, before):
+    table = outcome_table(per_league, before)
+    for line in table:
         print("  " + line)
+    write_summary(args, ["### Per league", ""] + table)
 
     print()
     for line in availability_lines():
@@ -1060,7 +1172,9 @@ def _run(args, volume, leagues, record_outcome) -> int:
   retention window shorter for no gain.""")
         shutil.rmtree(staging, ignore_errors=True)
         print(f"{chr(10)}  {previous} continues to serve.")
-        record_outcome("nothing-new")
+        # THE PREVIOUS SNAPSHOT IS THE ONE BEING SERVED, so that is the id
+        # recorded - not the staged identifier, which was just discarded.
+        record_outcome("nothing-new", previous, per_league)
         return EXIT_OK
 
     if not advanced and carried and not args.force_swap:
@@ -1072,7 +1186,7 @@ def _run(args, volume, leagues, record_outcome) -> int:
         print(f"  Nothing newer exists to serve, so the pointer is NOT moved "
               f"and {previous} continues to serve.")
         shutil.rmtree(staging, ignore_errors=True)
-        record_outcome("failed")
+        record_outcome("failed", previous, per_league)
         return EXIT_FAILED
 
     final = volume / SNAPSHOTS_DIR / identifier
@@ -1096,12 +1210,15 @@ def _run(args, volume, leagues, record_outcome) -> int:
         prune(volume, KEEP_SNAPSHOTS)
 
     if swapped != EXIT_OK:
-        record_outcome("failed")
+        # THE POINTER HAS BEEN ROLLED BACK by swap_and_verify, so what is
+        # being served is the previous snapshot and not the one just written.
+        record_outcome("failed", previous, per_league)
         return swapped
     if carried:
-        record_outcome("partial")
+        record_outcome("partial", identifier, per_league)
         return EXIT_PARTIAL
-    record_outcome("advanced" if advanced else "forced")
+    record_outcome("advanced" if advanced else "forced", identifier,
+                   per_league)
     return EXIT_OK
 
 

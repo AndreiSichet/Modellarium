@@ -208,6 +208,17 @@ def write(root: Path = DEFAULT_ROOT, force: bool = False) -> dict:
     _write_csv(processed / "nfl_fixtures.csv", FIXTURES_COLUMNS, fixtures)
     _write_csv(processed / "nfl_franchise_identity.csv", IDENTITY_COLUMNS,
                identity)
+    # EMPTY, AND PRESENT ON PURPOSE. The table is optional - an absent one
+    # makes /health report the quarantine state as "unknown", which is the
+    # right answer for a snapshot that predates it. But CI is not such a
+    # snapshot: it is generated fresh every run, so writing the header-only
+    # file is what lets the boot assertion exercise the "none" path rather
+    # than permanently asserting an unknown. There is nothing to disagree
+    # about here, because these games are invented from a fixed seed and have
+    # exactly one copy each.
+    _write_csv(processed / "nfl_quarantine.csv",
+               ["season", "date", "copy_a", "copy_b", "reason",
+                "left_quarantine"], [])
 
     marker = {
         "synthetic": True,
