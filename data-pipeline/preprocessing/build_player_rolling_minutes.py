@@ -118,6 +118,25 @@ def parse_counting_stats(players: pd.DataFrame) -> pd.DataFrame:
 
     return players
 
+def trailing_appearance_mean(values: pd.Series, window: int) -> pd.Series:
+    """THE player-rolling lag convention, in one place.
+
+    `values` is one player-season's APPEARANCES in order - rows where the
+    player actually played - and the result is each appearance's trailing mean
+    over the `window` appearances BEFORE it. shift(1) first, so a game never
+    enters its own feature; min_periods defaults to the full window, so the
+    first `window` appearances are NaN rather than a short-window mean.
+
+    Extracted because serving needs the identical expression. The live
+    availability path used to take each player's LAST KNOWN value through
+    `groupby("PLAYER_ID").last()` with no season filter, which in October
+    served the previous April's minutes; it now calls this. A second
+    implementation is exactly how training and serving drifted apart, which is
+    the same reason `trailing_mean` in build_rolling_features is shared.
+    """
+    return values.shift(1).rolling(window).mean()
+
+
 def add_rolling(players: pd.DataFrame) -> pd.DataFrame:
     """Trailing averages over played games, carried across absences."""
     players = players.sort_values(SORT_KEYS).reset_index(drop=True)
@@ -129,12 +148,16 @@ def add_rolling(players: pd.DataFrame) -> pd.DataFrame:
             column = f"ROLL{window}_{suffix}"
 
             rolled = played_only.groupby(PLAYER_SEASON_KEYS)[source].transform(
-                lambda s, w=window: s.shift(1).rolling(w).mean()
+                lambda s, w=window: trailing_appearance_mean(s, w)
             )
 
             players[column] = float("nan")
             players.loc[played, column] = rolled
 
+            # FFILL IS PART OF THE RULE, not tidying. An ABSENT row has no
+            # trailing mean of its own, and the availability features need one
+            # for exactly those rows - so an absence inherits the value from
+            # the player's most recent appearance this season.
             players[column] = players.groupby(PLAYER_SEASON_KEYS)[column].ffill()
 
     return players

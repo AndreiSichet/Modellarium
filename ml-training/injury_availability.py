@@ -203,7 +203,83 @@ def availability_state(for_date=None,
     return chosen
 
 HISTORY_COLUMNS = ["GAME_ID", "GAME_DATE", "TEAM_ID", "PLAYER_ID",
-                   "PLAYER_NAME", ROLLING_COLUMN]
+                   "PLAYER_NAME", "SEASON", "MIN_NUMERIC", ROLLING_COLUMN]
+
+# ---------------------------------------------------------------------------
+# STOPGAP, 2026-10-22. READ THIS BEFORE CHANGING THE WEIGHTING.
+#
+# This aligns ONE HALF of a two-part mismatch, and the other half is still
+# open. See A3 in CLAUDE.md.
+#
+#   FIXED HERE - the WEIGHT. An absent player's weight is now his in-season
+#   trailing ROLL10_MIN computed by the training function
+#   (`build_player_rolling_minutes.trailing_appearance_mean`: appearances only,
+#   shift(1).rolling(10), NaN until the 11th appearance, then NaN -> 0 at the
+#   reduction). It used to be `groupby("PLAYER_ID").last()` over the whole
+#   history with no season filter, which on 2026-10-21 served the previous
+#   April's minutes: 16 of 21 teams carried a non-zero weight totalling 840.86
+#   absence-minutes where training's rule gives 0.
+#
+#   STILL MISMATCHED - the ABSENCE SET, and it cannot be fixed in serving.
+#   Training is `build_team_availability`, `IS_ABSENT = MIN_NUMERIC.isna()`:
+#   "recorded no minutes in this game's box score", which counts inactives and
+#   DNP-CDs and is knowable only at tip-off. Serving is the injury report's
+#   {Out, Doubtful}. Measured on the 3 games of 2026-10-20 all six team-sides
+#   disagree - training 6/7/7/8/3/4 against the report's 1/4/0/4/2/3. A
+#   pre-game caller cannot know who will not play, so closing this needs a
+#   retrain that decides which definition the feature carries, not a patch.
+#
+# So this change makes serving CONSISTENT WITH TRAINING ON THE WEIGHT GIVEN AN
+# ABSENCE SET. It does not make the feature mean the same thing on both sides,
+# and the 2026-10-22 ablation says the feature's value was post-game knowledge
+# anyway (`ml-training/probes/a3_retrain_proxy.py`). It is a stopgap until that
+# decision is taken.
+# ---------------------------------------------------------------------------
+
+
+def _trailing_appearance_mean():
+    """The training function, imported rather than restated."""
+    pipeline = PROJECT_ROOT / "data-pipeline" / "preprocessing"
+    if str(pipeline) not in sys.path:
+        sys.path.insert(0, str(pipeline))
+    from build_player_rolling_minutes import trailing_appearance_mean
+
+    return trailing_appearance_mean
+
+
+ROLLING_WINDOW = 10
+
+
+def in_season_trailing_minutes(history: pd.DataFrame, season: int,
+                               before: pd.Timestamp) -> pd.Series:
+    """PLAYER_ID -> in-season trailing ROLL10_MIN as of `before`.
+
+    Reproduces what the training table holds on an ABSENT row: the pipeline
+    assigns each appearance its own trailing mean and then forward-fills within
+    (PLAYER_ID, SEASON), so an absence carries the value computed at the
+    player's most recent appearance. Taking the last value of the same
+    expression over his appearances before `before` is that number.
+
+    NaN - not 0 - for a player with fewer than ROLLING_WINDOW + 1 appearances
+    this season. The zero is applied once, at the reduction, by the same
+    `.fillna(0.0)` training uses; an unknown must not become a zero any earlier
+    than training makes it one.
+    """
+    trailing = _trailing_appearance_mean()
+
+    appearances = history[
+        (history["SEASON"] == season)
+        & (history["GAME_DATE"] < pd.Timestamp(before))
+        & history["MIN_NUMERIC"].notna()
+    ].sort_values(["PLAYER_ID", "GAME_DATE", "GAME_ID"])
+
+    if appearances.empty:
+        return pd.Series(dtype="float64")
+
+    rolled = appearances.groupby("PLAYER_ID")["MIN_NUMERIC"].transform(
+        lambda s: trailing(s, ROLLING_WINDOW))
+    return (appearances.assign(**{ROLLING_COLUMN: rolled})
+            .groupby("PLAYER_ID")[ROLLING_COLUMN].last())
 
 def name_key(name: str) -> str:
     """Fold a player name to a comparison key."""
@@ -224,8 +300,20 @@ def load_team_lookup() -> dict:
 
     return {name_key(row.TEAM_NAME): int(row.TEAM_ID) for row in teams.itertuples()}
 
-def load_current_player_state() -> pd.DataFrame:
-    """Each player's most recent known team and trailing minutes."""
+def load_current_player_state(before=None) -> pd.DataFrame:
+    """Each player's most recent known team, plus his IN-SEASON trailing minutes.
+
+    `groupby("PLAYER_ID").last()` still supplies the IDENTITY columns - which
+    team the player was last seen on, and under what name - because that is
+    what the report has to be matched against and a traded player's newest row
+    is the right one for that. What it no longer supplies is the WEIGHT: see
+    the stopgap note above. Identity may reach back a season; a weight may not.
+
+    `before` is the date being predicted for. None means "the end of the
+    history", which is what serving wants: the NBA rule only offers
+    dataAsOf + 1, so every row in the table is already strictly earlier. The
+    parity verifier passes a historical date instead.
+    """
     history = pd.read_csv(
         player_history_path(),
         usecols=HISTORY_COLUMNS,
@@ -233,13 +321,29 @@ def load_current_player_state() -> pd.DataFrame:
         low_memory=False,
     )
     history["GAME_DATE"] = pd.to_datetime(history["GAME_DATE"])
-    history[ROLLING_COLUMN] = pd.to_numeric(history[ROLLING_COLUMN], errors="coerce")
+    for column in (ROLLING_COLUMN, "MIN_NUMERIC"):
+        history[column] = pd.to_numeric(history[column], errors="coerce")
+    history["SEASON"] = pd.to_numeric(history["SEASON"], errors="coerce")
 
-    history = history.sort_values(["PLAYER_ID", "GAME_DATE", "GAME_ID"])
-    # KNOWN RISK, measured and deliberately kept: .last() takes each
-    # column's last non-null value, so it can assemble a row that never
-    # existed. Only ROLL10_MIN is exposed. See PROJECT_INSIGHTS.md ch. 13.
-    current = history.groupby("PLAYER_ID", as_index=False).last()
+    if before is None:
+        before = history["GAME_DATE"].max() + pd.Timedelta(days=1)
+    before = pd.Timestamp(before)
+
+    pipeline = PROJECT_ROOT / "data-pipeline" / "preprocessing"
+    if str(pipeline) not in sys.path:
+        sys.path.insert(0, str(pipeline))
+    from build_rolling_features import derive_season
+
+    season = int(derive_season(pd.Series([before])).iloc[0])
+
+    identity = history[history["GAME_DATE"] < before].sort_values(
+        ["PLAYER_ID", "GAME_DATE", "GAME_ID"])
+    # IDENTITY ONLY. .last() takes each column's last non-null value, so it can
+    # assemble a row that never existed; nothing numeric is read off it now.
+    current = identity.groupby("PLAYER_ID", as_index=False).last()
+
+    weights = in_season_trailing_minutes(history, season, before)
+    current[ROLLING_COLUMN] = current["PLAYER_ID"].map(weights).astype("float64")
 
     current["NAME_KEY"] = current["PLAYER_NAME"].map(name_key)
     return current[["PLAYER_ID", "PLAYER_NAME", "NAME_KEY", "TEAM_ID",
