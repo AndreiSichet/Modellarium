@@ -24,11 +24,21 @@ PROJECT = HERE.parent
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
+    arguments = sys.argv[1:]
+    results_path = None
+    if "--json" in arguments:
+        index = arguments.index("--json")
+        if index + 1 >= len(arguments):
+            print("--json needs a path")
+            return 2
+        results_path = Path(arguments[index + 1])
+        arguments = arguments[:index] + arguments[index + 2:]
+
+    if len(arguments) != 1:
         print(__doc__)
         return 2
 
-    root = Path(sys.argv[1])
+    root = Path(arguments[0])
     # Set before importing anything that resolves a path, because the
     # league modules read the environment when their loaders run.
     os.environ["DATA_DIR"] = str(root)
@@ -52,7 +62,20 @@ def main() -> int:
     print(f"  root     {resolved}")
     print(f"  snapshot {meta.get('snapshot') or 'unstamped'}")
 
+    # PER-LEAGUE RESULTS, NOT ONE EXIT CODE. A league's smoke failure must
+    # carry THAT league and let the others advance, so the refresh needs to
+    # know which one failed - and parsing it back out of a message prefix is
+    # the fragile shape this replaces. Every failure is recorded against its
+    # league explicitly, at the point it happens.
+    SMOKE_LEAGUES = ("nba", "wnba", "gleague", "nfl")
+    results = {league: {"ok": True, "failure": None}
+               for league in SMOKE_LEAGUES}
     failures = []
+
+    def fail(league, message):
+        results[league]["ok"] = False
+        results[league]["failure"] = message
+        failures.append(f"{league}: {message}")
 
     # --- NBA: the three markets' shared feature row
     try:
@@ -91,9 +114,9 @@ def main() -> int:
             print(f"           availability state unknown: "
                   f"{type(error).__name__}: {error}")
         if features.isna().all(axis=None):
-            failures.append("nba: every feature is NaN")
+            fail("nba", "every feature is NaN")
     except Exception as error:  # noqa: BLE001
-        failures.append(f"nba: {type(error).__name__}: {error}")
+        fail("nba", f"{type(error).__name__}: {error}")
 
     # --- WNBA
     try:
@@ -114,7 +137,7 @@ def main() -> int:
         if type(error).__name__ == "NotScoreable":
             print(f"  wnba     refused as unscoreable, which is by design")
         else:
-            failures.append(f"wnba: {type(error).__name__}: {error}")
+            fail("wnba", f"{type(error).__name__}: {error}")
 
     # --- G League
     try:
@@ -133,7 +156,7 @@ def main() -> int:
         if type(error).__name__ == "NotScoreable":
             print(f"  gleague  refused as unscoreable, which is by design")
         else:
-            failures.append(f"gleague: {type(error).__name__}: {error}")
+            fail("gleague", f"{type(error).__name__}: {error}")
 
     # --- NFL
     try:
@@ -161,12 +184,25 @@ def main() -> int:
             print("           SYNTHETIC TABLES - this snapshot carries "
                   "invented scores and must never be served")
     except Exception as error:  # noqa: BLE001
-        failures.append(f"nfl: {type(error).__name__}: {error}")
+        fail("nfl", f"{type(error).__name__}: {error}")
+
+    if results_path is not None:
+        import json
+
+        results_path.write_text(
+            json.dumps({"root": str(resolved),
+                        "snapshot": meta.get("snapshot"),
+                        "leagues": results}, indent=1),
+            encoding="utf-8")
+        print(f"  per-league result written to {results_path}")
 
     if failures:
         print("\n  SNAPSHOT IS NOT SERVABLE:")
         for failure in failures:
             print(f"    {failure}")
+        # STILL ONE NON-ZERO EXIT, so every existing caller behaves exactly as
+        # before. A caller that wants to isolate one league reads the JSON; one
+        # that does not keeps the old all-or-nothing contract.
         return 1
 
     print("  all four leagues compute live features from this snapshot")
