@@ -400,6 +400,42 @@ without checking (17.25, and the query-count surprise in 17.8).
 **Stale** — computed from data that is no longer current. The app tracks and
 displays this rather than hiding it.
 
+**Fingerprint** (a *hash*, specifically sha256) — a short string computed from
+a file's contents, which changes completely if even one byte of the file
+changes. Two files with the same fingerprint are the same file. Used
+throughout to answer "is this *exactly* what it was before?" without
+comparing whole 80 MB tables.
+
+**Snapshot** — one complete, self-consistent set of results tables for all
+four leagues, stored in its own folder under its own name. Chapter 23.
+
+**Carried** — said of a league whose daily update failed, so its previous
+tables were copied forward byte for byte into the new snapshot. The league is
+no more stale than it was yesterday, and the snapshot is still complete.
+Chapter 23.
+
+**Quarantined** — said of a game whose two source copies contradict each
+other during a season still being played: set aside with both copies and a
+reason, so the rest of the day's data can still be used, and retried on every
+later update. Chapter 23.
+
+**Optional table** — a served file that newer snapshots have and older ones do
+not. The service starts either way, and reports "nobody checked" rather than
+"nothing was wrong" when it is absent. Chapter 23.
+
+**Plant** — deliberately breaking the thing a check exists to catch, to watch
+the check go red, and then undoing it. A check that has never failed has not
+been verified. Every check described in this document has been planted at
+least once, and several times the plant proved the *check* was broken rather
+than the code.
+
+**Misleading green** — a step that reports success while something is wrong:
+a warning nobody reads, a count that is zero because nothing was measured, a
+field excluded from a comparison that was supposed to be compared. The project
+treats these as worse than outright failures, because a red result gets
+investigated and a green one does not. Several are described in chapters 16.7,
+17 and 23.
+
 ---
 
 ## 3. How the whole app works
@@ -1379,6 +1415,79 @@ sidecar nobody has looked.
 still completes on the other 34 features, exactly as before. What changed is
 that the reason is now reported — in the health check, in the daily refresh's
 summary, and in the smoke test — instead of being invisible.
+
+### 8.8 Who answered matters as much as what they said
+
+The health report's availability block carries a field saying **where that
+answer came from**, and the two possible answers are not equally trustworthy.
+This was learned the hard way in October 2026.
+
+| `source` | what it means |
+|---|---|
+| `injury-service /state` | the sidecar resolved a report. Trust the timestamp. |
+| `inference (sidecar cache empty)` | the sidecar had nothing, so **the prediction service fell back to its own last-known value**. |
+
+That fallback exists for a good reason — losing the sidecar briefly should not
+throw away a report that was fetched minutes ago. But it means the health
+report can show a perfectly confident `state: used` alongside a report
+timestamp that stopped being current hours earlier.
+
+Measured: immediately after the sidecar was restarted, the health report said
+`used` with a 09:00 report **observed at 13:07** — seven hours stale — while
+the sidecar itself held nothing at all. Nothing was broken. The reading was
+true. It was simply no longer current, and only the `source` field said so.
+
+**So read `source` before trusting `report_timestamp`.** This is the same
+shape as the `unknown` state in 8.7: the field describes the observer, not the
+world, and conflating the two is how a stale fact passes for a fresh one.
+
+### 8.9 Restarting the sidecar, and the warm-up that sometimes does nothing
+
+A fresh sidecar holds no report — it fetches on demand, not at startup. So
+after a restart something has to ask it for one before the health report means
+anything. The obvious candidate is a prediction, since that is what actually
+needs injury data.
+
+**A prediction warms it only when the prediction service has no recent value
+of its own.** Measured twice in one day on the same stack: after the first
+sidecar restart, a prediction moved it from "nothing fetched" to "report
+available". After a second restart an hour later, the *identical* prediction
+left it with nothing fetched — because the prediction service already held a
+last-known value and used that instead, reporting
+`inference (sidecar cache empty)`.
+
+So the prediction-as-warm-up silently does nothing in precisely the situation
+where a stale reading is already in place — the situation where warming
+matters most.
+
+**The reliable way to warm it is to ask the sidecar directly**, with a plain
+request to its own report endpoint. That forces it to do its own live lookup,
+after which the health report reads from the sidecar again and the timestamp
+can be trusted. Anything that needs a known-fresh report — the regression gate
+in 16.7, most of all — should warm it that way rather than with a prediction.
+
+### 8.10 When the container is replaced, and when it is not
+
+One more measured correction, because the project's own notes had it wrong.
+
+It was recorded that rebuilding the prediction service also replaces the
+sidecar and wipes its stored report. **By itself, it does not.** The container
+tool replaces a service when *that service's* own definition, image or mounts
+have changed. Rebuilding the prediction service leaves a sidecar whose
+definition is untouched **running, with its report cache intact** — observed
+across a real rebuild, the sidecar keeping its earlier start time, a restart
+count of zero, and its fifteen-minute cache.
+
+It *is* replaced when something about it genuinely changed — which on the day
+this was measured meant adding a setting to pin the injury report for a gate
+capture.
+
+The practical consequence is the useful half: **a setting written into the
+compose file survives a rebuild, and one passed in through the shell does
+not.** For something like a pinned injury report, where two measurements
+taken either side of a rebuild must see the same report, that difference is
+the difference between a valid comparison and two halves taken under
+different conditions with nothing saying so.
 
 ---
 
@@ -2676,6 +2785,42 @@ The same body works for `/api/predictions/quarter-half` and
 | Data pipeline | Validation scripts, run manually over the full corpus |
 | Models | Verification harnesses, run manually |
 
+### 16.5a The harnesses that guard the daily refresh
+
+The daily update job (chapter 23) is checked by a set of standalone harnesses
+rather than by the automatic test suites, for one reason: they need a real
+volume, real containers and a real service answering, which the push-time jobs
+do not have. They are run by hand before a change to the job is pushed.
+
+| harness | what it proves | checks |
+|---|---|---|
+| `verify_nba_fetch_signalling.py` | a failed download or a failed validation makes the step *fail*, rather than printing a warning and returning success | 26 |
+| `verify_refresh_isolation.py` | one league failing leaves its own tables alone and lets the others advance; a broken installation still stops everything | 18 |
+| `verify_daily_refresh.py` | the failure paths — a snapshot that fails validation is never swapped in, and one that cannot be loaded is rolled back | 19 |
+| `verify_nfl_quarantine.py` | a disagreeing game in the current season is set aside and the day still lands; the identical defect in a finished season still fails | 17 |
+| `verify_quarantine_compatibility.py` | the new file can be added without breaking old snapshots, in both directions | 20 |
+| `verify_refresh_record.py` | the job leaves a record of every ending including the quiet one, and the summary renders as tables rather than punctuation | 27 |
+| `verify_gate_comparability.py` | the regression gate's own rules for deciding whether two measurements can be compared at all (16.7) | 18 |
+
+**Every one of those checks has been made to fail at least once**, on purpose,
+before being trusted — see *plant* in the glossary. That discipline keeps
+earning its place: in the course of writing these, the planted fault proved
+the **harness** was broken rather than the code on several occasions. One
+example worth remembering: a test asserted that the output said `"nba staged
+fresh"`, which was true whenever the **WNBA** staged fresh, because `nba` is
+the end of the word `wnba`. The test passed for the wrong reason until it was
+made to compare whole words.
+
+**One of them caused real damage before it was guarded.** A test case meant to
+simulate a missing pipeline step accidentally left the real pipeline switched
+on, so it ran the actual NBA download — four times, about 72 requests to the
+NBA's API, rewriting three stored tables. It was noticed only because an
+unrelated check's derived count moved. The harness now installs a
+stand-in that **refuses to start any real subprocess at all** for the whole
+suite, so a test that tries is reported as a test failure rather than quietly
+doing the work. Making *that* guard fail on purpose — and watching the three
+tables' fingerprints stay identical afterwards — is itself one of the checks.
+
 ### 16.6 The most valuable tests in the project
 
 They are not the ones with the highest counts.
@@ -2692,6 +2837,19 @@ which is the only reason the second hidden performance problem was found.
 
 **The simulated-cutoff harness.** Proves the retraining pipeline works using
 history in place of the future, with nothing mocked.
+
+**The matched-pair plants.** Several checks now prove a rule by planting the
+*identical* fault in two places and requiring opposite results — a score
+disagreement that is harmless in the season being played and fatal in the one
+before it, or a boot that succeeds against an old snapshot and is refused the
+moment the new file is made mandatory. A single plant proves a check can go
+red. A matched pair proves it goes red *for the right reason*, which is the
+part that is usually assumed.
+
+**The no-real-subprocess guard.** Described in 16.5a. It is valuable for an
+unusual reason: it protects against the test suite itself doing real work by
+accident, which is a failure mode most projects discover the same way this one
+did.
 
 ### 16.7 The regression gate — the instrument that checks nothing moved
 
@@ -2757,6 +2915,95 @@ edited table produces a regression. A season advancing produces "cannot
 compare" — which is the new season, rehearsed in advance. An old saved capture
 from before any of this says so plainly instead of reporting a wall of false
 differences.
+
+**Two ways it lied, both found by using it on a real deploy.** In October 2026
+the gate was run for its intended purpose — check a change that should not
+alter any prediction — and it was wrong twice. Both are worth reading, because
+each is a general trap rather than a quirk.
+
+**The false "regressed".** The change added one new file to the data folder,
+and the service now reports a fingerprint for it. The gate came back
+`REGRESSED — a snapshot mutated in place`, which is its most serious verdict:
+it means somebody edited a served file behind the system's back.
+
+Nothing had been edited. Every table present in both captures was identical,
+and both captures named the same snapshot. The only difference was that the
+"after" capture had **one extra fingerprint in the list** — for the new file,
+which the old snapshot legitimately does not contain.
+
+The cause was a single line comparing the two fingerprint *lists* for
+equality. That cannot tell "a file's contents changed" apart from "a file was
+added to the list being checked", and those mean opposite things. So the rule
+gained a fifth row:
+
+| snapshot name | fingerprints | verdict |
+|---|---|---|
+| same | same | **pass** |
+| same | a shared file's fingerprint changed | **regressed** — edited in place |
+| different | same | **pass**, and say the name moved |
+| different | different | **cannot compare** — the data advanced |
+| — | the **set** of files changed | **cannot compare** — the instrument changed |
+
+The detector keeps its teeth: a changed file under an unchanged name is still
+`regressed`. What changed is that "changed" is now judged only on files present
+in **both** captures, and a changed file *list* withholds judgement instead of
+accusing. A test specifically confirms the two cannot be confused in the
+dangerous direction — adding a file **cannot mask** a genuinely edited one in
+the same capture.
+
+The reason a false `regressed` matters more than a false `cannot compare` is
+worth saying out loud. `cannot compare` is annoying and honest. A false
+`regressed` looks like a real defect, and the obvious way to make it go away
+is to take a fresh "before" capture — which is the one thing the gate's own
+rules forbid, because it is how a real regression gets erased.
+
+**The false "pass", which is worse.** The same change added a block to the
+health report describing the refresh job itself (the one from chapter 23).
+That block contains a number that counts hours since the job last ran, so it
+differs between *any* two captures — the gate's two halves are minutes apart
+by design. Left in the comparison, it would make every run red forever.
+
+So it was excluded from the comparison, with a note claiming that a change in
+it would instead be reported as `cannot compare`. **That claim was false.**
+The mechanism it used only *removes* fields from the comparison; nothing
+compared the block at all. The result was that a **refresh running between the
+two captures** — a new verdict, possibly a whole new snapshot swapped in
+underneath — produced no warning of any kind and a clean `pass`.
+
+The fix is a split along the right seam, and the seam is the useful idea:
+
+- **The clock half is ignored by name** — the hours counter, and the two
+  fields derived from it. These differ on every pair the gate will ever
+  produce while describing the *same* run.
+- **The identity half is compared** — which verdict was reached, when, on what
+  snapshot, per league. These change only when a refresh actually ran.
+
+A changed identity now gives `cannot compare`, naming both verdicts so the
+common case ("a quiet run happened in between") is instantly recognisable.
+
+Both fixes come with a test that was **made to fail first**, which is how
+anything here earns trust. The clock test is the instructive one: it puts the
+hours counter back into the compared half and confirms that the pair *every
+real run produces* then goes red — proving that excluding it is what makes the
+normal case pass, rather than the field happening to be absent by luck.
+Reverting the plant makes it green again, which proves the red came from the
+plant and not from the test.
+
+**A footnote on how the deploy was checked at all**, because it needed a
+trick. Four of the NBA's inputs come from today's injury report, so if that
+report changes between the two captures the gate rightly refuses to compare.
+The sidecar was therefore **pinned** to one specific published report for the
+duration, by writing the setting into the compose file rather than passing it
+in the shell — the two halves of the capture straddle an image rebuild, and a
+rebuild started from a shell without that setting would have quietly unpinned
+one half. That turned out to be load-bearing in the most direct way possible:
+the live report moved from 16:00 to 16:30 **inside the window**, which
+unpinned would have voided the NBA's comparison entirely.
+
+The final verdict: three leagues `pass` with every prediction identical to the
+byte, and the NFL `cannot compare` on the named file-list change. The health
+report differed by exactly **three new fields and nothing lost**, the only
+other movement being two internal timing measurements.
 
 ---
 
@@ -3301,6 +3548,97 @@ prediction returned normally, and the daily smoke test's deliberately gentle
 "not everything is blank" passed on the other 34 inputs. Three signals, all
 green, all technically correct, and none of them asking the question that
 mattered.
+
+---
+
+### 17.27 One bad league froze the other three
+
+The daily update job handled all four leagues together, and any single
+failure anywhere in it swapped **nothing** — so a typo in the NFL's code, or
+one hand-typed score on a Wikipedia page, would have kept the NBA on old data
+too.
+
+Silent in the way that matters: the job went red and said so, correctly. What
+it did not say is that three perfectly healthy leagues had been held back by a
+fourth. The worst possible day for this is the night a season opens, which is
+the one day the job exists for.
+
+Fixed by making each league build, check and swap independently, with its own
+outcome, and a new run-level verdict for "some of it worked". Chapter 23
+describes it, including the trap that the scheduled job reads an outcome
+*file* rather than an exit code — so adding the new exit code alone would
+have reported a stuck league as a completely clean morning.
+
+### 17.28 A gate that called a deploy a regression, and a different one a pass
+
+The regression gate (16.7) is the main safety net for changes that should not
+alter any prediction. It was wrong twice on the same deploy, in opposite
+directions, and the pair is instructive.
+
+**The false accusation.** The change added one file to the data folder, so the
+service reported one more fingerprint than before. The gate compared the two
+fingerprint *lists* for equality, which cannot tell "a file's contents
+changed" from "a file was added to the list" — and announced that a served
+snapshot had been edited behind the system's back. Nothing had been edited;
+every file present in both measurements was identical.
+
+**The false reassurance, which was worse.** The same change added a block
+describing the update job itself, containing a counter that ticks with the
+clock. It was excluded from the comparison, with a note claiming a change in
+it would be reported as "cannot compare". **The note was wrong** — the
+mechanism used only *removes* fields from the comparison, and nothing compared
+that block at all. So an update job running between the gate's two
+measurements, possibly swapping in a whole new snapshot underneath, produced a
+clean pass and no warning of any kind.
+
+**Both were in code written the same day, by the same hand that wrote the
+comment claiming otherwise.** The lesson is not about the gate: a comment
+asserting that something is checked is not a check, and the only way to know
+is to make the check fail on purpose. The false pass was found by exactly
+that, when a test was requested for the case the comment described.
+
+Both are now classified rather than tolerated: a changed file *list* withholds
+judgement instead of accusing, and the update block is split so that its clock
+half is ignored by name while its identity half is genuinely compared.
+
+### 17.29 A test suite that quietly did a day's real work
+
+While building the checks for the above, one test case meant to simulate a
+missing pipeline step left the real pipeline switched on. It ran the genuine
+NBA download — **four times, roughly 72 requests to the NBA's API** — and
+rewrote three stored tables.
+
+Nothing reported it. It was noticed only because an unrelated check computes a
+count from the data, and that count moved from 414 to 278 for no reason anyone
+had asked for.
+
+The fix is a stand-in installed for the whole suite that **refuses to start
+any real subprocess at all**, so a test that tries is reported as a test
+failure. Getting it to work took one subtlety worth knowing: the refusal had
+to be a kind of error that the code's own "catch anything and carry on"
+handler does not catch, or it would have been swallowed and reported as a
+league having a bad day. The first version was swallowed exactly that way.
+
+The guard was then made to fail on purpose, and the three tables' fingerprints
+confirmed identical before and after.
+
+### 17.30 A row that said the NBA was degraded, printed as punctuation
+
+The daily summary gained per-league availability rows so that a green morning
+could still say "the NBA is being served on 34 of its 38 inputs". They were
+appended after a heading and a bullet list, with no blank line and no header
+row above them — and in this markup a table is only a table when a blank line
+separates it from the text above.
+
+So the row rendered as literal `|` characters. Green step, true fact,
+unreadable. In the same summary, the text for a partially-successful run
+promised "the per-league table below", and that table was printed only to the
+step log — a twelve-minute log nobody reads on a good morning.
+
+Both fixed, and the check for it reads the summary's *structure* rather than
+its wording: every table row must sit in a table that opened with a blank line
+and a header. Planting the original defect back makes it go red, naming the
+exact line the row was orphaned after.
 
 ---
 
@@ -4883,6 +5221,353 @@ situation nobody had designed for.** The real problem was that two runs could
 overlap at all, which is now prevented in two places: the scheduler queues a
 second run rather than starting it, and the folder itself carries a lock for
 runs started by hand, which is how it actually happened.
+
+### When one league breaks, the other three must still move
+
+Everything above describes the refresh as **one job with one verdict**. That
+was the original design, and it has a flaw that only matters on the day it
+matters most.
+
+The job handled all four leagues together. If any single step of any single
+league raised an error, one handler at the top caught it, printed `FAILED
+BEFORE ANY SWAP`, and swapped **nothing**. All four leagues kept yesterday's
+data, including the three that were perfectly fine.
+
+Think about what that means on the night the NBA season opens. A typo in the
+NFL's code, or one bad row on a Wikipedia page, and the NBA does not advance
+either — on the one morning the whole job exists for.
+
+So the job was rebuilt to work **per league**. Each league is now built,
+checked and placed into the new snapshot independently, and each gets its own
+outcome:
+
+| per-league outcome | meaning |
+|---|---|
+| **advanced** | new results arrived and are now being served |
+| **unchanged** | the league was rebuilt fine, but nothing newer existed |
+| **carried** | this league failed, so yesterday's tables were copied forward |
+| **skipped** | this league was not asked for in this run |
+
+"**Carried**" is the new idea and it deserves a sentence. When a league fails,
+the job does not leave a hole in the snapshot and it does not abandon the
+whole snapshot. It copies that league's previous tables into the new snapshot
+**byte for byte**, so the snapshot is still complete and still self-consistent
+— the three healthy leagues are fresh, the broken one is exactly as stale as
+it was yesterday, and nothing anywhere is missing.
+
+### Carrying has to be provably identical, so it is checked twice
+
+Copying a file and *believing* you copied it are different things. A carried
+table that quietly changed between being copied and being swapped in would be
+the worst kind of bug: a snapshot that looks complete and is a mixture of two
+days.
+
+So the job records a **fingerprint** (a sha256 hash — a short string that
+changes completely if even one byte of the file changes) of every table it
+carries at the moment it copies them, and then **checks those fingerprints
+again immediately before the swap**. If any has moved, the swap does not
+happen at all.
+
+A carried league also keeps a `carried_from` note saying which snapshot its
+data originally came from. That matters because a league can be carried for
+several days running — and without it, each morning would reset the label to
+"yesterday" and the data would look one day old forever instead of five days
+old.
+
+### A fourth word for the whole run, and why the exit code was not enough
+
+With leagues succeeding and failing independently, the run needs a verdict
+that says "some of it worked". So the three outcomes above became four:
+
+| run outcome | green? | meaning |
+|---|---|---|
+| **advanced** | yes | at least one league moved forward |
+| **nothing-new** | yes | every league was fine, nothing newer existed |
+| **partial** | **no** | the snapshot swapped, but a league is still on old data |
+| **failed** | no | nothing swapped; yesterday's snapshot keeps serving |
+
+`partial` is deliberately **red**. A new snapshot really is being served and
+the healthy leagues really did advance — but a league stuck on old data has to
+be *seen*, and a green tick is how things stop being seen.
+
+There was a trap here worth knowing, because it is the kind that produces a
+false green. The script signals its result in two ways: an **exit code** (a
+number a program returns, where zero conventionally means success) and an
+**outcome file** (a few bytes of text naming the result). A new exit code,
+`3`, was added for `partial`. But the scheduled job **reads the outcome file,
+not the exit code** — deliberately, because text in a file does not change
+meaning when someone rewords a log line. So adding the exit code alone would
+have left a carried league reported as a completely clean morning. The job's
+red condition had to learn the new word too.
+
+### One kind of failure is still allowed to stop everything
+
+Per-league isolation is about **data** problems. It is not about a broken
+installation.
+
+If one of the pipeline's step scripts is simply *missing* — a file that should
+exist and does not — that is not a league having a bad day, it is the checkout
+being broken. Carrying a league in that situation would hide a fundamentally
+broken deployment behind a tidy "the NFL is carried today" message. So a
+missing step script is raised as a **global** failure that deliberately
+bypasses the per-league handling, and the run fails outright.
+
+Getting that right took a specific trick. The per-league handler catches
+"anything that went wrong" in order to carry the league, which in Python means
+catching `Exception`. The global failure therefore had to be a kind of error
+that `Exception` does **not** cover, or the handler would have swallowed it
+and carried the league anyway — reporting a broken checkout as a bad day for
+the NFL. The first version of the guard did exactly that, silently, and a test
+caught it.
+
+### A disagreeing game in a season still being played
+
+The NFL's data comes from English Wikipedia, and every game appears **twice** —
+once on each team's season article. The pipeline reads both copies and checks
+they agree. If one says 13–10 and the other says 14–10, the build fails,
+because one of them is wrong and there is no way to know which.
+
+For a **finished** season that is exactly right. Those articles have settled;
+a disagreement is a genuine defect and should stop everything until someone
+looks.
+
+For a season **being played** it is the wrong instrument. Wikipedia is edited
+by hand, often within minutes of a game ending, and frequently one team's
+article is updated before the other's. Failing the whole build means one
+half-finished edit by one stranger costs the entire league a day of fresh
+data.
+
+So for the season currently being played, a disagreeing game is now
+**quarantined** rather than fatal: set aside, with both copies and a plain
+reason recorded in a file, while the rest of the day's data lands normally. It
+is retried on every refresh, so when Wikipedia settles the game rejoins the
+data on its own.
+
+```
+season,date,copy_a,copy_b,reason,left_quarantine
+2026,2026-09-09,"Seattle_Seahawks.wiki: home ...","New_England_Patriots.wiki: away ...","scores disagree: 13-10 against 14-10",0
+```
+
+### Three things the quarantine had to get right
+
+**First: only the season being played.** The first version asked the data
+fetcher which seasons it considers "open" — and that function answers "the
+current one *and the one before*", because late corrections happen. Using it
+would have quietly let a disagreement in the **finished** 2025 season be set
+aside instead of failing. A test that specifically asserted "2025 must *not*
+be eligible" caught it, and the fix went into the code rather than into the
+test. The guarantee is now demonstrated by a matched pair: the *identical*
+planted defect is harmless in the current season and fatal in the previous
+one.
+
+**Second: the checker runs before the builder.** The refresh validates the
+source data and *then* builds the tables. So the validator cannot look up
+"is this game already quarantined?" — on the first run of a new disagreement
+the file does not mention it yet. Reading the file would have made the first
+occurrence fatal and only the second one tolerable, which is the worst of both
+behaviours. The validator therefore applies the same rule independently, over
+deliberately the same narrow set of cases.
+
+**Third: narrow on purpose.** Quarantine covers only what it can describe:
+the two copies disagree about the **score** or the **date**, or one copy has
+the result while the other still shows an unplayed fixture. A game that
+appears only once, or three times, or whose two copies both claim to be the
+home team, is a *structural* problem — the builder cannot set aside a game it
+cannot even identify — so those stay fatal in every season.
+
+And one consequence worth stating plainly: a quarantined game appears in
+**neither** served table. Not in the history, because its copies disagree; not
+in the fixtures list, because it has already been played. Without something
+reporting it, a game would simply vanish and the history would be quietly one
+game shorter. So the health endpoint now reports the quarantine — count,
+games, and the evidence — and the morning summary prints it.
+
+### "Nobody checked" is not the same as "nothing was wrong"
+
+The quarantine file created a chicken-and-egg problem that is worth
+understanding, because it is a general one.
+
+The prediction service refuses to start if a required table is missing — that
+is deliberate, and chapter 7 explains why. But the quarantine file is **new**,
+which means none of the snapshots already sitting on the volume contain one.
+Adding it to the required list would have made every retained snapshot
+unservable, including the one being served at that moment. Rolling back would
+have had nowhere to roll back **to**.
+
+So it is the first **optional** served table: present in new snapshots, absent
+from old ones, and the service starts either way. Which forces a distinction
+that is easy to fumble:
+
+| what the service sees | what it reports |
+|---|---|
+| the file is there and empty | **none** — a build ran and found nothing to set aside |
+| the file is not there at all | **unknown** — this snapshot predates the file; nobody checked |
+
+Reporting "0 games quarantined" for an old snapshot would be inventing a fact
+about data nobody ever examined. This is the same rule the project applies
+everywhere: **an unknown is never a zero.** The fingerprint list follows it
+too — an absent optional table is reported as the word `absent`, not left out
+and not hashed as if it were empty.
+
+Both directions of the upgrade were then tested, because a one-way door here
+is a rollback that cannot happen:
+
+- **An old snapshot with the new service:** starts, serves normally, reports
+  `unknown`, and the fingerprint reads `absent`.
+- **A new snapshot with the old service:** starts and serves normally,
+  ignoring a file it has never heard of. This was tested against a **real
+  copy of the previous version of the code**, checked out fresh, rather than
+  against the new code with the feature switched off — because the thing being
+  tested is code that has genuinely never heard of the file, and a simulation
+  of that is not the same thing.
+- **And a check on the check:** the test temporarily makes the file
+  *required*, and confirms the old snapshot is then refused by name. Without
+  that, every result above would look identical if the file had never been
+  optional at all.
+
+### "Has the job run at all?" — a question nothing could answer
+
+Every freshness signal the system had describes the **data**: when the newest
+result is from, how many days behind that is, whether that counts as stale.
+
+None of them answers a different and equally important question: **is the job
+still running?** A refresh that ran this morning and correctly found nothing
+new looks *exactly* like a refresh that stopped being scheduled three weeks
+ago. Both leave the data untouched. Between seasons that silence lasts months,
+and nothing anywhere could tell the two apart.
+
+So the job now leaves a small record on the volume each time it finishes,
+noting when it reached a verdict, what the verdict was, which snapshot is
+being served and what each league did. The health endpoint reads it and
+reports a state.
+
+**Where that record is written is the whole design.** It is written at the one
+point *every* ending passes through — including `nothing-new`, which swaps
+nothing and discards its work. Writing it at the swap instead would have
+recorded the busy mornings and left nothing on the quiet ones, which inverts
+the question: the quiet runs are precisely the ones that need to leave a mark.
+
+**And it is never allowed to fail the run.** It is an observation *about* the
+job, not a part of the job, so a disk problem writing it warns loudly and lets
+the refresh succeed. An instrument that can break the thing it measures is
+worse than no instrument.
+
+### Two thresholds rather than one, because the runner sleeps
+
+The obvious design is one alarm: "no run for more than about a day".
+
+That would have cried wolf constantly here, and the reason is specific to this
+setup. The schedule fires at 07:00 — but it only **queues** the job. The
+machine that runs it is a laptop that sleeps, so the work actually begins
+shortly after the host next wakes. Measured over five days in October 2026,
+that same 07:00 slot executed at 13:38, 12:28, 16:22 and 19:10. Two
+consecutive runs can therefore sit legitimately far apart.
+
+A single 26-hour alarm would have gone off on an ordinary week — which is the
+same failure as a test that goes red because of the clock rather than the
+code, and the project has that mistake recorded four times already. So the two
+facts are separated instead of merged:
+
+| state | meaning |
+|---|---|
+| **ok** | a verdict within 26 hours |
+| **late** | past that — on this machine usually a sleeping laptop, not a fault |
+| **overdue** | past 40 hours — no amount of host sleep explains this |
+| **failed** | the last verdict was a failure, however recent |
+| **unknown** | this volume should have a record and does not |
+| **not_a_volume** | this is the repository's own copy, where no job was ever meant to write |
+
+Three of those rows exist to avoid a lie. **`failed`** is separate because a
+job that runs and fails every morning has a perfectly current timestamp, and
+one combined "is it fresh?" flag would report it as healthy. And
+**`unknown`** and **`not_a_volume`** are kept apart because the automated
+tests run against the repository's own data copy, where there is no refresh
+job — treating that permanent silence as "the production job has stopped"
+would make the tests cry wolf forever.
+
+### The summary nobody could read
+
+The morning summary had two defects, and both were the same species: the
+information was present, the step was green, and a person could not read it.
+
+The first was a formatting rule. A table in the summary's markup is only
+rendered as a table when a **blank line** separates it from the text above it;
+without one, the rows are shown as literal `|` characters. The per-league
+availability rows were being appended after a heading and a bullet list, with
+no blank line and no header row — so the single row that says *the NBA is
+being served on 34 of its 38 inputs* appeared as raw punctuation.
+
+The second was simpler: the `partial` summary text says "the per-league table
+below says which, since when, and why", and **there was no table**. It was
+printed to the step log only — a twelve-minute log nobody reads on a green
+morning. The job now writes that table as markup and the summary includes it.
+
+The test for this reads the summary's markup structure rather than its wording:
+every table row must sit in a table that opened with a blank line and a header.
+Planting the original defect back makes it go red, naming the exact line it
+was orphaned after.
+
+### Rehearsing a morning before it arrives
+
+Before any of this was pushed, the whole job was run against a **scratch copy
+of the volume** — never the live one — three times, with the real pipelines
+doing real work, under three different mornings:
+
+| rehearsal | result |
+|---|---|
+| nothing newer anywhere | `nothing-new`, all four `unchanged`, pointer untouched |
+| the NBA has new results | `advanced`, the other three `unchanged`, swap performed |
+| the NBA advances while the NFL's data is broken | **`partial`**, NFL `carried` with its reason, NBA still advanced |
+
+In both swapping cases, **every carried and unchanged table was verified
+byte-identical to the snapshot it came from.** Afterwards the live volume was
+confirmed untouched, and the tables the rebuild rewrote in the working copy
+were restored and the restoration checked.
+
+**Three of the rehearsal's own attempts were wrong before one was right, and
+each mistake taught something.**
+
+The first tried to simulate "the NBA has new results" by adding a made-up
+future game to the source data. A duplicated game with a future date is not a
+table any feature builder can walk, so the refresh **carried the NBA on a
+failed smoke test** — the isolation behaving exactly as designed, on a problem
+the rehearsal had created. The fix was to stop inventing data and instead
+*rewind the served snapshot* by one day, so both sides of the comparison stay
+genuine.
+
+The second and third were attempts to break the NFL on purpose, and both were
+silently undone. The NFL's downloader keeps a fingerprint of every article it
+has stored. Any locally edited article fails that check — in **any** season,
+finished or not — so the downloader notices and re-downloads exactly that one
+file, repairing it before the validator ever sees it. Measured twice: `2025
+updated 1 fetched, 31 reused`, and the file's fingerprint back to its
+original.
+
+That is a genuinely good property nobody had written down: **the stored copy
+of Wikipedia repairs itself.** It also means a tampered-with article cannot be
+used to simulate a failure. The honest way to do it was to move the stored
+fingerprint along with the content — which is what a *real* disagreement looks
+like, because content that actually came from Wikipedia arrives with a
+matching fingerprint. Only locally invented content does not.
+
+(A fourth mistake, smaller: the first article chosen for that plant was a
+**preseason** game, which the parser correctly ignores, so changing it did
+nothing at all. The replacement was checked against the validator on its own
+before being used.)
+
+### Two numbers worth knowing
+
+A real refresh takes **14 to 18 minutes**, measured across five runs from the
+runner's own logs. Almost all of that is downloading and rebuilding: the
+rehearsals, whose stored source data was already current, completed the same
+work in about two and a half minutes each. So the staging, checking, swapping,
+verifying and reporting described in this chapter is roughly **seven seconds**
+of those minutes, and everything else is the pipeline.
+
+And the schedule is a **queue**, not a start time. A twelve-hour gap between
+"07:00" and work actually beginning is normal here and nothing is wrong when
+it happens. To find out when the data really moved, read a snapshot's name or
+ask the service — never the schedule.
 
 ### What this does not do
 
