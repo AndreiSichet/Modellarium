@@ -28,6 +28,7 @@ the app down, so it is tested rather than argued.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -54,6 +55,15 @@ NEWLINE = chr(10)
 
 EXIT_OK = 0
 EXIT_FAILED = 1
+# SWAPPED, BUT AT LEAST ONE LEAGUE WAS CARRIED FORWARD. The healthy leagues
+# have advanced and are being served; the failed one is still serving
+# yesterday's tables. The run ends RED so the failure is seen - the workflow
+# reads the outcome FILE rather than this code, and `partial` is red there -
+# but the distinction matters when reading a log months later.
+#
+# 3 RATHER THAN 2. Every verifier in this project uses 2 for "crashed before
+# reaching a verdict", and a partial refresh very much reached one.
+EXIT_PARTIAL = 3
 
 # THE ONE LINE OF A SUCCESSFUL STEP THAT SURVIVES. run_step
 # captures stdout and throws it away, which is right for 19 steps
@@ -680,6 +690,296 @@ def availability_lines() -> list:
         return [f"  availability state could not be determined: "
                 f"{type(error).__name__}: {error}"]
 
+# --------------------------------------------------------------------------
+# PER-LEAGUE ISOLATION
+#
+# A league that fails keeps serving its previous tables while the others
+# advance. Before this, every league's steps ran inside one try block and one
+# handler printed FAILED BEFORE ANY SWAP, so a bad NFL edit - and the NFL is
+# read from Wikipedia pages anyone can edit - froze the NBA mid-season.
+#
+# The unit of success is the LEAGUE, never the table. The NBA's three tables
+# are built by ten steps that feed each other; a snapshot carrying a fresh
+# games_final.csv beside a carried quarter_half_raw.csv would be a mixture no
+# validator checks for and no model was trained on.
+OUTCOME_ADVANCED = "advanced"
+OUTCOME_UNCHANGED = "unchanged"
+OUTCOME_CARRIED = "carried"
+OUTCOME_SKIPPED = "skipped"
+
+
+def league_tables(league: str) -> list:
+    """The tables this league contributes to a snapshot, from LEAGUES."""
+    return list(LEAGUES[league]["tables"])
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def league_hashes(root: Path, league: str) -> dict:
+    """{relative path as text: sha256} for one league's tables under root."""
+    out = {}
+    for relative in league_tables(league):
+        path = root / relative
+        out[relative.as_posix()] = sha256_of(path) if path.is_file() else None
+    return out
+
+
+def stage_league_from_repo(league: str, staging: Path) -> None:
+    """Copy this league's freshly built tables out of the repo."""
+    for relative in league_tables(league):
+        source = REPO_DATA_ROOT / relative
+        if not source.is_file():
+            raise RuntimeError(
+                f"the {league} rebuild did not produce {relative}")
+        destination = staging / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+
+def carry_league(league: str, staging: Path, previous_root: Path) -> dict:
+    """Copy this league's tables from the snapshot being served, byte for byte.
+
+    Returns the hashes copied, so the caller can assert them again after
+    everything else has been staged - a carried table that changed between
+    being copied and being swapped is the one failure this cannot tolerate.
+    """
+    for relative in league_tables(league):
+        source = previous_root / relative
+        if not source.is_file():
+            # NOT RECOVERABLE BY CARRYING. If the snapshot being served does
+            # not have the table either, there is nothing to carry forward and
+            # the staged snapshot would be unservable.
+            raise RuntimeError(
+                f"cannot carry {league}: the snapshot being served has no "
+                f"{relative}")
+        destination = staging / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    return league_hashes(previous_root, league)
+
+
+def carried_from_for(league: str, previous_root: Path, previous_id: str) -> str:
+    """Which snapshot a carried league's tables ORIGINALLY came from.
+
+    A league carried for several days keeps its first `carried_from`, so the
+    age of the data it is serving stays visible instead of resetting to
+    yesterday every morning.
+    """
+    try:
+        meta = json.loads(
+            (previous_root / "SNAPSHOT.json").read_text(encoding="utf-8"))
+    except Exception:                                           # noqa: BLE001
+        return previous_id
+    entry = (meta.get("leagues") or {}).get(league) or {}
+    return entry.get("carried_from") or previous_id
+
+
+def rebuild_league(league: str, timeout: int, env: dict = None) -> list:
+    """Run one league's steps. Raises on the first failure."""
+    collected = []
+    print(f"  {league}")
+    for script in LEAGUES[league]["steps"]:
+        if not script.is_file():
+            # GLOBAL, not league-local, and deliberately raised as such by the
+            # caller: a missing step script means a broken checkout, and
+            # carrying one league would hide a bad deploy behind a partial
+            # green.
+            raise MissingStepScript(f"{script} does not exist")
+        collected.extend(
+            f"{script.name}: {line}" for line in run_step(script, timeout,
+                                                          env=env))
+    return collected
+
+
+class MissingStepScript(RuntimeError):
+    """A step script is absent - a broken checkout, so a GLOBAL failure."""
+
+
+def stage_per_league(args, volume, leagues, previous, previous_root,
+                     identifier) -> tuple:
+    """Build or carry every league into one staged snapshot.
+
+    Returns (staging, per_league, carried_hashes, fetch_stats) or raises
+    SystemExit-worthy RuntimeError for a GLOBAL failure. A league-local
+    failure never raises out of here: it is carried and recorded.
+    """
+    staging = volume / SNAPSHOTS_DIR / f"{identifier}.staging"
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True, exist_ok=True)
+
+    env = None
+    if getattr(args, "full_refetch", False):
+        env = dict(os.environ, MODELLARIUM_FULL_REFETCH="1")
+
+    per_league, carried_hashes, fetch_stats = {}, {}, []
+
+    section("REBUILDING AND STAGING, PER LEAGUE")
+    for league in leagues:
+        try:
+            if args.skip_rebuild:
+                print(f"  {league}: rebuild skipped, staging what this "
+                      f"checkout holds")
+            else:
+                fetch_stats.extend(
+                    rebuild_league(league, args.step_timeout, env=env))
+            stage_league_from_repo(league, staging)
+            per_league[league] = {"outcome": None, "reason": None,
+                                  "carried_from": None}
+            print(f"    {league} staged fresh")
+        except MissingStepScript:
+            raise
+        except Exception as error:                              # noqa: BLE001
+            reason = f"{type(error).__name__}: {error}"
+            print(f"    {league} FAILED: {reason.splitlines()[0][:160]}")
+            carried_hashes[league] = carry_league(league, staging,
+                                                  previous_root)
+            origin = carried_from_for(league, previous_root, previous)
+            per_league[league] = {"outcome": OUTCOME_CARRIED,
+                                  "reason": reason, "carried_from": origin}
+            print(f"    {league} CARRIED from {origin}")
+
+    # A LEAGUE NOT SELECTED FOR THIS RUN STILL HAS TO BE IN THE SNAPSHOT, or
+    # the service refuses to boot on a missing table. --leagues is a debugging
+    # convenience, not a way to produce a smaller snapshot.
+    for league in LEAGUES:
+        if league in per_league:
+            continue
+        carried_hashes[league] = carry_league(league, staging, previous_root)
+        per_league[league] = {
+            "outcome": OUTCOME_SKIPPED,
+            "reason": "not selected for this run",
+            "carried_from": carried_from_for(league, previous_root, previous)}
+        print(f"    {league} SKIPPED, carried from "
+              f"{per_league[league]['carried_from']}")
+
+    return staging, per_league, carried_hashes, fetch_stats
+
+
+def smoke_per_league(staging: Path) -> dict:
+    """Per-league servability of the staged snapshot."""
+    probe = HERE / "smoke_serve_snapshot.py"
+    results_path = staging.parent / f"{staging.name}.smoke.json"
+    done = subprocess.run(
+        [sys.executable, "-W", "ignore", str(probe), str(staging),
+         "--json", str(results_path)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=PROJECT, timeout=900)
+    print((done.stdout or "").rstrip())
+
+    if not results_path.is_file():
+        # NO STRUCTURED RESULT MEANS NO ATTRIBUTION, so this cannot be turned
+        # into a per-league decision and is global by definition.
+        raise RuntimeError(
+            "the smoke test wrote no per-league result"
+            + (f": {(done.stderr or '')[-800:]}" if done.returncode else ""))
+    payload = json.loads(results_path.read_text(encoding="utf-8"))
+    results_path.unlink(missing_ok=True)
+    return payload.get("leagues") or {}
+
+
+def carry_unservable_leagues(staging, per_league, carried_hashes, previous,
+                             previous_root) -> list:
+    """Smoke-test the staged snapshot; carry whichever leagues cannot serve.
+
+    At most two smoke runs. The carried tables were servable yesterday, so if
+    the second run still fails, no servable snapshot can be assembled from
+    this material and the run is a global failure.
+    """
+    section("SERVING SMOKE TEST AGAINST THE STAGED SNAPSHOT, PER LEAGUE")
+    results = smoke_per_league(staging)
+    failing = sorted(name for name, entry in results.items()
+                     if not entry.get("ok", True))
+    if not failing:
+        return []
+
+    newly_carried = []
+    for league in failing:
+        if league not in LEAGUES:
+            raise RuntimeError(
+                f"the smoke test reported league {league!r}, which is not in "
+                f"LEAGUES - refusing to guess what to carry")
+        if per_league.get(league, {}).get("outcome") in (OUTCOME_CARRIED,
+                                                         OUTCOME_SKIPPED):
+            raise RuntimeError(
+                f"{league} was already carried from {previous} and STILL "
+                f"cannot serve: {results[league].get('failure')}")
+        reason = f"smoke test: {results[league].get('failure')}"
+        print(f"  {league} cannot serve from the staged snapshot - carrying it")
+        carried_hashes[league] = carry_league(league, staging, previous_root)
+        per_league[league] = {
+            "outcome": OUTCOME_CARRIED, "reason": reason,
+            "carried_from": carried_from_for(league, previous_root, previous)}
+        newly_carried.append(league)
+
+    print("  re-running the smoke test with those leagues carried")
+    results = smoke_per_league(staging)
+    still = sorted(name for name, entry in results.items()
+                   if not entry.get("ok", True))
+    if still:
+        raise RuntimeError(
+            f"even with {newly_carried} carried, these leagues cannot serve: "
+            f"{still}")
+    return newly_carried
+
+
+def assert_carried_unchanged(staging, carried_hashes, previous_root) -> int:
+    """Every carried table must still be byte-identical to its source.
+
+    Checked immediately before the swap rather than at copy time: the point is
+    that nothing modified a carried table while the rest of the snapshot was
+    being assembled.
+    """
+    checked = 0
+    for league, expected in sorted(carried_hashes.items()):
+        actual = league_hashes(staging, league)
+        source = league_hashes(previous_root, league)
+        for relative, digest in expected.items():
+            checked += 1
+            if actual.get(relative) != digest or source.get(relative) != digest:
+                raise RuntimeError(
+                    f"carried table {relative} for {league} is not identical "
+                    f"to the snapshot it came from (staged "
+                    f"{str(actual.get(relative))[:12]}, source "
+                    f"{str(source.get(relative))[:12]}, copied "
+                    f"{str(digest)[:12]})")
+    return checked
+
+
+def classify_outcomes(per_league, before, after) -> None:
+    """Fill in advanced / unchanged for the leagues that built."""
+    for league, entry in per_league.items():
+        if entry["outcome"] is not None:
+            continue
+        was, now = before.get(league), after.get(league)
+        entry["data_as_of"] = now
+        entry["outcome"] = (OUTCOME_ADVANCED if was != now
+                            else OUTCOME_UNCHANGED)
+    for league, entry in per_league.items():
+        entry.setdefault("data_as_of", after.get(league))
+
+
+def outcome_table(per_league, before) -> list:
+    """The per-league summary, as markdown rows."""
+    lines = ["| league | outcome | data_as_of | carried_from | reason |",
+             "|---|---|---|---|---|"]
+    for league in sorted(per_league):
+        entry = per_league[league]
+        reason = (entry.get("reason") or "").splitlines()
+        reason = (reason[0][:120] if reason else "")
+        lines.append(
+            f"| {league} | {entry['outcome']} | "
+            f"{entry.get('data_as_of') or '-'} | "
+            f"{entry.get('carried_from') or '-'} | {reason or '-'} |")
+    return lines
+
+
 def _run(args, volume, leagues, record_outcome) -> int:
     section("BEFORE")
     previous = read_pointer(volume)
@@ -701,73 +1001,83 @@ def _run(args, volume, leagues, record_outcome) -> int:
                              identifier, record_outcome)
 
     try:
-        fetch_stats = []
-        if args.skip_rebuild:
-            section("REBUILD SKIPPED")
-            print("  staging whatever this checkout already holds")
-        else:
-            fetch_stats = rebuild(leagues, args.step_timeout)
+        staging, per_league, carried_hashes, fetch_stats = stage_per_league(
+            args, volume, leagues, previous, previous_root, identifier)
 
-        # WRITTEN HERE, NOT AT THE END. A run that fails during validation or
-        # the swap still made the requests, so its counters are exactly the
-        # ones worth reading - writing them only on success would lose them
-        # on the morning they matter most.
         if args.stats_file:
             Path(args.stats_file).write_text(
                 chr(10).join(fetch_stats), encoding="utf-8")
 
-        staging = stage(volume, identifier)
-        after = validate(staging)
-    except Exception as error:
+        section("VALIDATING THE STAGED SNAPSHOT")
+        missing = missing_files(staging)
+        if missing:
+            raise RuntimeError(f"staged snapshot is missing {missing}")
+        print(f"  all {len(REQUIRED_FILES)} required tables present")
+
+        after = cutoffs(staging)
+        for league, date in after.items():
+            print(f"  {league:<9}data_as_of {date}")
+
+        carry_unservable_leagues(staging, per_league, carried_hashes,
+                                 previous, previous_root)
+        after = cutoffs(staging)
+
+        checked = assert_carried_unchanged(staging, carried_hashes,
+                                           previous_root)
+        if carried_hashes:
+            print(f"  {checked} carried table(s) verified byte-identical to "
+                  f"{previous}")
+    except Exception as error:                                  # noqa: BLE001
         section("FAILED BEFORE ANY SWAP")
         print(f"  {type(error).__name__}: {error}")
-        print(f"\n  {previous} IS STILL SERVING. Nothing was swapped.")
+        print(f"{chr(10)}  {previous} IS STILL SERVING. Nothing was swapped.")
         record_outcome("failed")
         return EXIT_FAILED
 
-    advanced = {league: (before[league], after[league])
-                for league in after if after[league] != before[league]}
+    classify_outcomes(per_league, before, after)
+    advanced = {league: (before.get(league), after.get(league))
+                for league, entry in per_league.items()
+                if entry["outcome"] == OUTCOME_ADVANCED}
+    carried = sorted(league for league, entry in per_league.items()
+                     if entry["outcome"] == OUTCOME_CARRIED)
 
-    section("WHAT CHANGED")
-    for league in after:
-        if before.get(league) is None:
-            # A league the previous snapshot did not carry at all. ADDED
-            # rather than ADVANCED, because no date moved - a table appeared.
-            print(f"  {league:<9}absent -> {after[league]}   ADDED "
-                  f"(not in the previous snapshot)")
-            continue
-        mark = "ADVANCED" if league in advanced else "unchanged"
-        print(f"  {league:<9}{before[league]} -> {after[league]}   {mark}")
+    section("WHAT CHANGED, PER LEAGUE")
+    for line in outcome_table(per_league, before):
+        print("  " + line)
 
     print()
     for line in availability_lines():
         print(line)
 
-    if not advanced and args.force_swap:
-        section("FORCED SWAP")
-        print("""  No league's cutoff moved, so an ordinary run would discard this snapshot
-  and keep serving the previous one. --force-swap was passed, which says the
-  CONTENT changed without any date changing - a correction rather than new
-  games. It has been validated and smoke-tested exactly as any other snapshot;
-  only the decision to swap differs.""")
-
-    if not advanced and not args.force_swap:
+    if not advanced and not carried and not args.force_swap:
         section("NOTHING NEW")
-        print(f"""  No league has a game later than the snapshot already being served, so
-  there is nothing to swap in. An off-day, an All-Star break, or simply
-  every league between seasons - which is the state today.
+        print("""  No league has a game later than the snapshot already being serving, and
+  none failed, so there is nothing to swap in. An off-day, a break, or every
+  league between seasons.
 
   This is GREEN and not a failure. The staged snapshot is discarded rather
   than kept, because an identical snapshot under a new name would make the
   retention window shorter for no gain.""")
         shutil.rmtree(staging, ignore_errors=True)
-        print(f"\n  {previous} continues to serve.")
+        print(f"{chr(10)}  {previous} continues to serve.")
         record_outcome("nothing-new")
         return EXIT_OK
 
+    if not advanced and carried and not args.force_swap:
+        # NOTHING GAINED AND SOMETHING LOST. Swapping would replace the served
+        # snapshot with one that is identical except for a new name, while
+        # recording a failure - so the pointer stays and the run goes red.
+        section("NO LEAGUE ADVANCED AND AT LEAST ONE FAILED")
+        print(f"  carried: {', '.join(carried)}")
+        print(f"  Nothing newer exists to serve, so the pointer is NOT moved "
+              f"and {previous} continues to serve.")
+        shutil.rmtree(staging, ignore_errors=True)
+        record_outcome("failed")
+        return EXIT_FAILED
+
     final = volume / SNAPSHOTS_DIR / identifier
-    write_snapshot_metadata(staging, identifier,
-                            source="daily_refresh", per_league=after)
+    write_snapshot_metadata(staging, identifier, source="daily_refresh",
+                            per_league=after, leagues=per_league)
     staging.rename(final)
 
     swapped = swap_and_verify(volume, previous, identifier,
@@ -777,16 +1087,22 @@ def _run(args, volume, leagues, record_outcome) -> int:
             section("ADVANCED")
             for league, (was, now) in advanced.items():
                 print(f"  {league:<9}{was} -> {now}")
-        else:
-            section("FORCED")
-            print("  content changed, no cutoff moved. Every league's "
-                  "data_as_of is unchanged by design.")
+        if carried:
+            section("CARRIED")
+            for league in carried:
+                entry = per_league[league]
+                print(f"  {league:<9}serving {entry['carried_from']}: "
+                      f"{(entry.get('reason') or '').splitlines()[0][:120]}")
         prune(volume, KEEP_SNAPSHOTS)
+
     if swapped != EXIT_OK:
         record_outcome("failed")
-    else:
-        record_outcome("advanced" if advanced else "forced")
-    return swapped
+        return swapped
+    if carried:
+        record_outcome("partial")
+        return EXIT_PARTIAL
+    record_outcome("advanced" if advanced else "forced")
+    return EXIT_OK
 
 
 if __name__ == "__main__":

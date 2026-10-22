@@ -269,13 +269,23 @@ def snapshot_metadata(root: Path = None) -> dict:
 
 
 def write_snapshot_metadata(root: Path, snapshot_id: str,
-                            source: str, per_league: dict = None) -> Path:
-    """Stamp a staged snapshot. Written by the refresh job, read by /health."""
+                            source: str, per_league: dict = None,
+                            leagues: dict = None) -> Path:
+    """Stamp a staged snapshot. Written by the refresh job, read by /health.
+
+    `leagues` carries each league's refresh OUTCOME - advanced, unchanged,
+    carried or skipped - plus, for a carried league, the snapshot its tables
+    came from and why it was carried. ADDITIVE AND OPTIONAL, which is what
+    makes the two shipping orders both work: an older reader ignores the key,
+    and a newer reader given an older snapshot finds it absent and reports
+    the outcome as unknown rather than inventing one.
+    """
     path = root / SNAPSHOT_FILE
     path.write_text(json.dumps({
         "snapshot": snapshot_id,
         "created": datetime.now(timezone.utc).isoformat(),
         "source": source,
         "data_as_of": per_league or {},
+        "leagues": leagues or {},
     }, indent=2), encoding="utf-8")
     return path

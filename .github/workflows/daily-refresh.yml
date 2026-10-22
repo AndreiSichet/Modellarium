@@ -191,12 +191,22 @@ jobs:
           } elseif ($outcome -eq "nothing-new") {
             "## Nothing new" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             "No league had a game later than the snapshot already being served - an off-day, a break, or a league between seasons. The previous snapshot continues to serve. This is not a failure." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          } elseif ($outcome -eq "partial") {
+            # A FOURTH OUTCOME, AND IT IS RED. The healthy leagues advanced and
+            # are being served; at least one kept yesterday's tables. Red
+            # because a league being stuck must be seen - but the swap already
+            # happened, so this is not "nothing moved".
+            "## Partial - swapped, but a league was carried" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "A new snapshot is being served and the healthy leagues advanced. **At least one league failed and is still serving its previous tables**, carried forward byte for byte. The per-league table below says which, since when, and why." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           } else {
             "## Failed" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             "A pipeline step, validation or the swap failed. **The previous snapshot keeps serving.** The step log says which." | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           }
 
-          if ($outcome -eq "failed" -or $outcome -eq "drift-report-failed") { exit 1 }
+          # `partial` IS RED. The job reads this outcome file rather than the
+          # script-s exit code, so adding EXIT_PARTIAL to daily_refresh.py alone
+          # would have left a carried league reported as a clean success.
+          if ($outcome -eq "failed" -or $outcome -eq "drift-report-failed" -or $outcome -eq "partial") { exit 1 }
           exit 0
 
       - name: Report what is being served
