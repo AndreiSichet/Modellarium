@@ -39,6 +39,56 @@ class PlantDidNothing(RuntimeError):
     """A plant that changes no behaviour is a harness bug, not a pass."""
 
 
+class RealSubprocessRefused(BaseException):
+    """A verifier tried to run a real pipeline step. Named, and refused.
+
+    DERIVES FROM BaseException, NOT Exception, AND THAT IS THE WHOLE POINT.
+    The first version inherited from RuntimeError and the guard looked like it
+    worked - no subprocess started - but `stage_per_league` catches
+    `Exception` to carry a failing league, so the refusal was absorbed and
+    reported as "nba CARRIED". The step was prevented and nothing said so,
+    which is the misleading green this project keeps removing.
+
+    The alternative was to teach `stage_per_league` to re-raise it, next to
+    MissingStepScript. Rejected: production code should not have to know the
+    name of a test harness's exception to behave correctly. BaseException is
+    how KeyboardInterrupt passes through the same handler, for the same
+    reason.
+    """
+
+
+def refusing_run_step(script, timeout, env=None):
+    """Stand-in for `daily_refresh.run_step` that never starts a subprocess.
+
+    WHY THIS EXISTS, FROM A REAL INCIDENT. On 2026-10-22 at 17:19 this
+    verifier's missing-step-script case set `skip_rebuild = False` so the step
+    list would be read - and because the leagues run in order, that executed
+    the REAL NBA pipeline before reaching the planted league. It ran FOUR times before being
+    noticed - once per run of this suite while the bug was present - making
+    about 72 requests to the NBA's API and rewriting three tracked tables in
+    the working tree each time. It was caught only because an unrelated verifier's derived pair
+    count moved from 414 to 278 and that owed an explanation.
+    A verifier that mutates the repository to test a code path is worse than
+    the bug it is checking for.
+
+    Installed for the WHOLE of this suite, so no future case can reintroduce
+    it by accident: every path that reaches a league's pipeline step raises
+    here instead, naming the script it tried to run.
+
+    DELIBERATELY NOT THE SMOKE TEST. `smoke_per_league` starts its own
+    subprocess, that subprocess only READS a staged snapshot and writes one
+    JSON file beside it, and the isolation cases need it to run for real -
+    carrying an unservable league is one of the behaviours under test. The
+    dangerous subprocesses are the fetch-and-build steps, and those all go
+    through `run_step`.
+    """
+    raise RealSubprocessRefused(
+        f"this verifier tried to run {getattr(script, 'name', script)} as a "
+        f"real subprocess. Pipeline steps fetch from live sources and write "
+        f"into data-pipeline/data/, so a verifier must never start one: drive "
+        f"the behaviour you need directly, or use skip_rebuild.")
+
+
 def record(name, passed, detail):
     RESULTS.append((name, passed, detail))
     print("  %-4s %-58s %s" % ("PASS" if passed else "FAIL", name, detail))
@@ -252,6 +302,32 @@ def case_partial(volume, scratch_repo, pointer, snapshot):
     return out
 
 
+def case_real_step_refused(volume, scratch_repo):
+    """A case that tries to run a real step must fail loudly, not run it."""
+    first = D.LEAGUES["nba"]["steps"][0]
+    raised = None
+    try:
+        with redirect_stdout(io.StringIO()):
+            D.rebuild_league("nba", timeout=5)
+    except RealSubprocessRefused as error:
+        raised = str(error)
+    except Exception as error:                                  # noqa: BLE001
+        raised = f"WRONG TYPE: {type(error).__name__}: {error}"
+    record("plant: trying to run a real step is refused, naming the script",
+           raised is not None and not raised.startswith("WRONG TYPE")
+           and first.name in raised,
+           f"-> {first.name} named: "
+           f"{bool(raised and first.name in str(raised))}")
+
+    # And the whole-suite install must be the thing doing it, not a local
+    # patch: reverting it has to restore the real binding.
+    if D.run_step is not refusing_run_step:
+        raise PlantDidNothing(
+            "the refusing step runner was not installed for the suite")
+    record("the refusing runner is installed suite-wide", True,
+           "daily_refresh.run_step is the refusing stand-in")
+
+
 def case_missing_step_script(volume, scratch_repo, pointer):
     """A missing step script is GLOBAL, not a carried league.
 
@@ -341,6 +417,11 @@ def main(argv=None) -> int:
 
     print("PER-LEAGUE ISOLATION")
     print(f"  scratch volume: {volume}")
+    # INSTALLED BEFORE ANY CASE RUNS. See refusing_run_step for the incident
+    # this prevents.
+    real_run_step = D.run_step
+    D.run_step = refusing_run_step
+    print("  pipeline steps: REFUSED (no real subprocess can start)")
     pointer, snapshot, scratch_repo = prepare(volume)
     print(f"  serving       : {pointer}")
     print(f"  scratch repo  : {scratch_repo}")
@@ -352,8 +433,13 @@ def main(argv=None) -> int:
     case_nba_unit(volume, scratch_repo, pointer)
     case_partial(volume, scratch_repo, pointer, snapshot)
     case_every_league_fails(volume, scratch_repo, pointer)
+    case_real_step_refused(volume, scratch_repo)
     case_missing_step_script(volume, scratch_repo, pointer)
     case_carried_table_altered(volume, scratch_repo, pointer, snapshot)
+
+    D.run_step = real_run_step
+    if D.run_step is refusing_run_step:
+        raise PlantDidNothing("the real step runner was not restored")
 
     shutil.rmtree(scratch_repo, ignore_errors=True)
     passed = sum(1 for _n, ok, _d in RESULTS if ok)
