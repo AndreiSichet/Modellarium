@@ -109,9 +109,14 @@ HEALTH_CONTEXT_FIELDS = {
     # THE REFRESH BLOCK, WHICH MOVES ON EVERY CLOCK TICK. `hours_since` is a
     # float measured against now, so two captures minutes apart differ by
     # construction - diffing it would make the gate red on literally every
-    # run, which is the loudest possible version of red-on-the-clock. It is
-    # context, so a change in it makes the league CANNOT COMPARE rather than
-    # being silently tolerated.
+    # run, which is the loudest possible version of red-on-the-clock.
+    #
+    # STRIPPING IT HERE IS ONLY HALF THE JOB, and an earlier version of this
+    # comment got that wrong: it said a change in this block would make the
+    # league CANNOT COMPARE, but membership here removes a field from the BODY
+    # diff and compares nothing. The block's IDENTITY is carried into the
+    # per-league context by `refresh_identity`, which is what actually
+    # produces that verdict; the clock half stays ignored.
     "refresh",
     "data_as_of", "dataAsOf", "stale",
     # THE NFL'S TWO MOVING COUNTS. `predictable_fixtures` falls and `fixtures`
@@ -162,6 +167,29 @@ def curl(method, url, body=None):
         return json.loads(raw)
     except json.JSONDecodeError:
         return {"__raw__": raw[:400]}
+
+
+def refresh_identity(health: dict) -> dict:
+    """The refresh block reduced to what identifies the RUN, not the clock.
+
+    Returns {} when the field is absent, which is the pre-upgrade shape - an
+    old image does not send it - so two captures across that boundary compare
+    {} against a real dict and the league withholds judgement rather than
+    silently passing.
+
+    THE CLOCK FIELDS ARE LEFT OUT BY NAME. `hours_since` ticks, and `state`
+    (ok/late/overdue) and `note` are both derived from it, so any two captures
+    minutes apart differ in all three while describing the same run.
+    """
+    block = (health or {}).get("refresh")
+    if not isinstance(block, dict):
+        return {}
+    return {
+        "last_verdict_at": block.get("last_verdict_at"),
+        "outcome": block.get("outcome"),
+        "snapshot": block.get("snapshot"),
+        "leagues": block.get("leagues"),
+    }
 
 
 def strip_volatile(value):
@@ -286,6 +314,23 @@ def capture() -> dict:
             # attributable to code.
             "availability_state": avail.get("state"),
             "availability_report": avail.get("report_timestamp"),
+            # WHICH REFRESH RUN THE CAPTURE SAW, identity only.
+            #
+            # `refresh` was first added to HEALTH_CONTEXT_FIELDS alone, with a
+            # comment claiming a change in it would make the league CANNOT
+            # COMPARE. THAT CLAIM WAS WRONG: membership there only STRIPS a
+            # field from the body diff, and nothing compared this one as
+            # context - so a refresh running between the two captures was
+            # invisible, which is a misleading green rather than a
+            # classification.
+            #
+            # IDENTITY, NOT THE CLOCK. `hours_since` is a float against now,
+            # and `state` and `note` both derive from it, so all three move
+            # between any two captures and none may enter the comparison.
+            # What goes in is which verdict was reached, when, on what
+            # snapshot, and per league - things that change only when a
+            # refresh actually ran.
+            "refresh_verdict": refresh_identity(inference_health),
             "requested": [{"home": h, "away": a, "date": d}
                           for (h, a), d in zip(pairs, dates)],
         }
@@ -328,20 +373,60 @@ def league_comparability(before: dict, after: dict) -> tuple:
         same id,  diff hash   -> REGRESSED, a snapshot mutated in place
         diff id,  same hash   -> comparable, and say the id moved
         diff id,  diff hash   -> CANNOT COMPARE, the data advanced
+        table SET changed     -> CANNOT COMPARE, the instrument changed
+
+    THE FIFTH ROW WAS ADDED AFTER THIS GATE CALLED A DEPLOY A REGRESSION.
+    Comparing the two hash DICTS for equality cannot tell "a table's contents
+    changed" from "a table was added to the set being hashed" - and the second
+    is what happens the first time an image hashes a new optional table. On
+    2026-10-22 the NFL came back REGRESSED with "a snapshot mutated in place"
+    when nothing had been mutated at all: all three tables present in both
+    captures were byte-identical and the only difference was a new key,
+    nfl_quarantine.csv -> "absent", because the new image hashes an optional
+    table that the served snapshot predates.
+    Baseline and current snapshot ids were both 2026-10-22T0711.
+
+    So mutation is judged on the tables present in BOTH captures, which keeps
+    the detector's whole point intact - a changed table under an unchanged id
+    is still REGRESSED - while a changed table SET withholds judgement instead
+    of asserting a defect. CANNOT COMPARE is a verdict and not a failure; a
+    false REGRESSED is worse than either, because the only way to clear it
+    looks like recapturing the baseline.
     """
     reasons, notes = [], []
     mutated = False
 
     same_snapshot = before.get("snapshot") == after.get("snapshot")
-    same_tables = before.get("table_sha256") == after.get("table_sha256")
 
-    if same_snapshot and not same_tables:
+    before_tables = before.get("table_sha256") or {}
+    after_tables = after.get("table_sha256") or {}
+    shared = set(before_tables) & set(after_tables)
+    added = sorted(set(after_tables) - set(before_tables))
+    removed = sorted(set(before_tables) - set(after_tables))
+    shared_differ = sorted(key for key in shared
+                           if before_tables[key] != after_tables[key])
+    same_tables = not shared_differ and not added and not removed
+
+    if same_snapshot and shared_differ:
         mutated = True
-    elif not same_snapshot and not same_tables:
+    elif not same_snapshot and shared_differ:
         reasons.append("tables changed (data advanced)")
     elif not same_snapshot and same_tables:
         notes.append(f"snapshot id moved {before.get('snapshot')} -> "
                      f"{after.get('snapshot')} with identical table contents")
+
+    # A REASON, SO THE LEAGUE GOES CANNOT COMPARE RATHER THAN REGRESSED, and
+    # named both ways round: a table appearing is an image that hashes more
+    # than it used to, a table DISAPPEARING is the more alarming direction and
+    # must never be quietly reported as a pass.
+    if added or removed:
+        parts = []
+        if added:
+            parts.append(f"now hashed: {', '.join(added)}")
+        if removed:
+            parts.append(f"no longer hashed: {', '.join(removed)}")
+        reasons.append("the set of served tables changed (" +
+                       "; ".join(parts) + ")")
 
     if before.get("data_as_of") != after.get("data_as_of"):
         reasons.append(f"data_as_of {before.get('data_as_of')} -> "
@@ -355,6 +440,20 @@ def league_comparability(before: dict, after: dict) -> tuple:
         reasons.append(f"a different injury report "
                        f"({before.get('availability_report')} -> "
                        f"{after.get('availability_report')})")
+    # A REFRESH RAN BETWEEN THE TWO CAPTURES. Deliberately conservative: even
+    # when the snapshot id and every table hash prove nothing moved - which is
+    # what a `nothing-new` run looks like - the gate withholds rather than
+    # attributing a body difference to the code. The reason names both
+    # verdicts, so a `nothing-new` between captures is cheap to recognise and
+    # re-run past.
+    if before.get("refresh_verdict") != after.get("refresh_verdict"):
+        was = before.get("refresh_verdict") or {}
+        now = after.get("refresh_verdict") or {}
+        reasons.append(
+            f"a refresh ran between the captures "
+            f"({was.get('outcome')} at {was.get('last_verdict_at')} -> "
+            f"{now.get('outcome')} at {now.get('last_verdict_at')})")
+
     if before.get("requested") != after.get("requested"):
         reasons.append("the requested matchups or dates differ")
 
