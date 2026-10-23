@@ -13,7 +13,7 @@ from sklearn.metrics import (
 )
 from sklearn.preprocessing import StandardScaler
 
-from common import FEATURE_COLUMNS, ROLLING_FEATURE_COLUMNS
+from common import FEATURE_COLUMNS, ROLLING_FEATURE_COLUMNS, TEST_SEASONS
 
 DATASET_PATH = (
     Path(__file__).resolve().parents[1]
@@ -23,7 +23,8 @@ DATASET_PATH = (
     / "model_dataset.csv"
 )
 
-TEST_SEASON_COUNT = 2
+# TEST_SEASON_COUNT is gone: the test seasons come from common.TEST_SEASONS,
+# which is what production's split reads. See split_by_season.
 
 BOOLEAN_FEATURE_COLUMNS = ["HOME_IS_BACK_TO_BACK", "AWAY_IS_BACK_TO_BACK"]
 
@@ -142,18 +143,46 @@ def drop_incomplete_windows(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def split_by_season(df: pd.DataFrame) -> tuple:
+    """Train / test by season, from common.TEST_SEASONS. ONE definition.
+
+    THIS USED TO DERIVE ITS OWN TEST SET as "the last two seasons present",
+    while production's `common.split_three_way` reads the literal
+    `common.TEST_SEASONS`. The two agreed only for as long as the newest
+    season in the table happened to be the newest test season - so the first
+    rebuild of model_dataset.csv carrying the 2026 season would have moved
+    THIS script's test set to (2025, 2026) and left production's at
+    (2024, 2025). Every frozen baseline figure would have changed, and the
+    cause would have looked like the data rather than the split.
+    That is not hypothetical: the NBA season opened on 2026-10-20.
+
+    TRAIN IS EVERYTHING STRICTLY BEFORE THE TEST SEASONS, not "everything
+    that is not a test season". The second form would pull a season LATER
+    than the test set into training the moment one exists - training on
+    2026 to predict 2024 - which is leakage of the plainest kind. The
+    comparison with production stays honest because production's own split
+    is chronological too: train < validation < test.
+
+    `VALIDATION_SEASON` is deliberately inside train here. These are baselines
+    with nothing to early-stop, so there is no held-out set to reserve, and
+    folding it in is what makes the baseline and production numbers comparable
+    on the same test games.
+    """
     seasons = sorted(df["SEASON"].unique())
-    if len(seasons) <= TEST_SEASON_COUNT:
+    test_seasons = [s for s in seasons if s in TEST_SEASONS]
+    train_seasons = [s for s in seasons if s < min(TEST_SEASONS)]
+
+    if not test_seasons or not train_seasons:
         raise ValueError(
-            f"Need more than {TEST_SEASON_COUNT} seasons to hold out "
-            f"{TEST_SEASON_COUNT}; found {len(seasons)}."
+            f"Empty split - seasons present: {seasons}, test seasons "
+            f"{list(TEST_SEASONS)}. Expected data in the test seasons and "
+            f"at least one season before them."
         )
 
-    test_seasons = seasons[-TEST_SEASON_COUNT:]
-    train = df[~df["SEASON"].isin(test_seasons)].reset_index(drop=True)
-    test = df[df["SEASON"].isin(test_seasons)].reset_index(drop=True)
+    train = df[df["SEASON"] < min(TEST_SEASONS)].reset_index(drop=True)
+    test = df[df["SEASON"].isin(TEST_SEASONS)].reset_index(drop=True)
 
-    train_seasons = seasons[:-TEST_SEASON_COUNT]
+    ignored = [s for s in seasons if s not in test_seasons
+               and s not in train_seasons]
     print(
         f"Train: seasons {train_seasons[0]}-{train_seasons[-1]} "
         f"({len(train_seasons)} seasons, {len(train)} games)"
@@ -162,6 +191,15 @@ def split_by_season(df: pd.DataFrame) -> tuple:
         f"Test:  seasons {test_seasons[0]}-{test_seasons[-1]} "
         f"({len(test_seasons)} seasons, {len(test)} games)"
     )
+    if ignored:
+        # NAMED, not silently dropped. A season after the test set belongs to
+        # neither side, and saying so is what stops someone reading an
+        # unchanged figure as "the new season had no effect on the model".
+        print(
+            f"Ignored: seasons {ignored} - later than the test set, so in "
+            f"neither train nor test. These baselines are frozen against "
+            f"seasons {TEST_SEASONS[0]}-{TEST_SEASONS[-1]}."
+        )
 
     return train, test, test_seasons
 

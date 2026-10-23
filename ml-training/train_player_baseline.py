@@ -18,7 +18,7 @@ from build_player_dataset import (  # noqa: E402
     TEAM_CONTEXT_COLUMNS,
 )
 
-from train_baseline import TEST_SEASON_COUNT  # noqa: E402
+from common import TEST_SEASONS  # noqa: E402
 
 TARGETS = ["PTS", "REB", "AST", "FG3M", "PRA"]
 
@@ -80,14 +80,27 @@ def drop_incomplete(df: pd.DataFrame) -> pd.DataFrame:
     return kept
 
 def split_by_season(df: pd.DataFrame) -> tuple:
-    """Chronological hold-out, identical boundary to the team models."""
+    """Chronological hold-out, identical boundary to the team models.
+
+    THAT CLAIM USED TO BE A COINCIDENCE. This read "the last two seasons
+    present" while the team models read `common.TEST_SEASONS`, and the two
+    agreed only while the newest season in the table was also the newest test
+    season. The NBA season opened on 2026-10-20, so the next rebuild would
+    have moved this boundary and not the team models'. Both now read the one
+    definition, and train is everything strictly BEFORE it - "not a test
+    season" would pull a later season into training.
+    """
     seasons = sorted(df["SEASON"].unique())
-    test_seasons = seasons[-TEST_SEASON_COUNT:]
+    test_seasons = [s for s in seasons if s in TEST_SEASONS]
+    train_seasons = [s for s in seasons if s < min(TEST_SEASONS)]
+    if not test_seasons or not train_seasons:
+        raise ValueError(
+            f"Empty split - seasons present: {seasons}, test seasons "
+            f"{list(TEST_SEASONS)}.")
 
-    train = df[~df["SEASON"].isin(test_seasons)].reset_index(drop=True)
-    test = df[df["SEASON"].isin(test_seasons)].reset_index(drop=True)
+    train = df[df["SEASON"] < min(TEST_SEASONS)].reset_index(drop=True)
+    test = df[df["SEASON"].isin(TEST_SEASONS)].reset_index(drop=True)
 
-    train_seasons = seasons[:-TEST_SEASON_COUNT]
     print(f"\nTrain: seasons {train_seasons[0]}-{train_seasons[-1]} "
           f"({len(train_seasons)} seasons, {len(train):,} player-games)")
     print(f"Test:  seasons {test_seasons[0]}-{test_seasons[-1]} "
