@@ -154,6 +154,55 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
+def git_verifiable_hash(path: Path) -> dict:
+    """A hash of this table that the REPOSITORY alone can reproduce.
+
+    `sha256_of` hashes the working file byte for byte, which is the right
+    thing for "did this build read the same bytes" and the WRONG thing for
+    "can a reviewer check this from the repo". Two reasons, both measured on
+    2026-10-24:
+
+    GIT STORES LF, THIS WORKING TREE HOLDS CRLF. `git ls-files --eol` reports
+    `i/lf w/crlf` for every one of these tables, so `git show HEAD:<path>`
+    emits content that differs from the file on disk by every line ending.
+    Hashing the two gives different answers for a reason that has nothing to
+    do with the data, which is a trap this project has already been caught by
+    twice.
+
+    AND ONE OF THE TABLES IS IN GIT LFS. `player_boxscores_with_rolling.csv`
+    is 80 MB, so `git show HEAD:<path>` returns a 133-byte POINTER, not the
+    table. Hashing that compares a hash of a URL against a hash of 80 MB of
+    basketball. The pointer does carry the answer, though: LFS stores bytes
+    verbatim with no text normalisation, so its `oid sha256:` IS the
+    working-file hash.
+
+    So the verification recipe differs per table, and this records which one
+    applies rather than leaving a reviewer to guess:
+
+        lfs   -> `git show HEAD:<path>` and read `oid sha256:`; it equals this
+        text  -> `git show HEAD:<path> | sha256sum`; it equals this
+    """
+    raw = path.read_bytes()
+    is_lfs = False
+    try:
+        out = subprocess.run(
+            ["git", "check-attr", "filter", "--", str(path)],
+            cwd=str(path.parent), capture_output=True, text=True, timeout=60)
+        is_lfs = out.stdout.strip().endswith("filter: lfs")
+    except Exception:                                           # noqa: BLE001
+        pass
+
+    if is_lfs:
+        # LFS keeps the bytes as they are, so the oid is the plain hash.
+        return {"sha256_git": hashlib.sha256(raw).hexdigest(),
+                "verify_with": "git show HEAD:<path>, read `oid sha256:`",
+                "storage": "lfs"}
+    return {"sha256_git": hashlib.sha256(
+                raw.replace(b"\r\n", b"\n")).hexdigest(),
+            "verify_with": "git show HEAD:<path> | sha256sum",
+            "storage": "text (git normalises to LF)"}
+
+
 def code_commit() -> dict:
     """The commit these weights were produced from, and whether it was clean.
 
@@ -333,7 +382,12 @@ def write_provenance(dataset, summary) -> Path:
     tables = {}
     for name in INPUT_TABLES:
         path = PROCESSED_DIR / name
-        tables[name] = sha256_of(path) if path.is_file() else "ABSENT"
+        if not path.is_file():
+            tables[name] = {"sha256": "ABSENT"}
+            continue
+        entry = {"sha256": sha256_of(path)}
+        entry.update(git_verifiable_hash(path))
+        tables[name] = entry
 
     dataset_path = PROCESSED_DIR / "model_dataset.csv"
     selection = selection_metrics()

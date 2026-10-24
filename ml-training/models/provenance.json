@@ -1,25 +1,13 @@
 {
   "note": "model_dataset.csv is NOT COMMITTED. It is rebuilt from the raw corpus by the build chain (build_games_table -> build_rolling_features -> build_rest_days -> build_elo_ratings -> build_player_rolling_minutes -> build_team_availability -> build_team_advanced_rolling -> build_quarter_half_raw -> build_quarter_half_rolling -> build_final_dataset). Its sha256 is recorded here BECAUSE it is not committed: that is the only way to tell later whether the table these weights were fitted on is the table a rebuild produces. Of the ten tables that chain writes, only the four under input_tables are committed.",
-  "written_at": "2026-10-24T10:30:13.569257+00:00",
+  "written_at": "2026-10-24T10:58:14.727964+00:00",
   "data_cutoff": "2026-04-12",
   "code": {
-    "commit": "1286615446bf76e2f40a389ddb3a6abea561768d",
+    "commit": "bfb871e4d382841eab9b6eab0d525d52a325c049",
     "working_tree_clean": false,
-    "tracked_dirty_total": 12,
-    "written_by_this_run": [
-      "ml-training/models/ast_margin.json",
-      "ml-training/models/ast_total.json",
-      "ml-training/models/moneyline.json",
-      "ml-training/models/reb_margin.json",
-      "ml-training/models/reb_total.json",
-      "ml-training/models/spread.json",
-      "ml-training/models/totals.json"
-    ],
+    "tracked_dirty_total": 1,
+    "written_by_this_run": [],
     "other_tracked_dirty": [
-      "data-pipeline/data/processed/games_final.csv",
-      "data-pipeline/data/processed/player_boxscores_with_rolling.csv",
-      "data-pipeline/data/processed/team_advanced_rolling.csv",
-      "ml-training/continuous_retrain.py",
       "ml-training/finalize_models.py"
     ],
     "note": "working_tree_clean counts TRACKED files only. written_by_this_run is this script's own output and is expected to be dirty until it is committed; other_tracked_dirty is what a reader should actually look at."
@@ -31,10 +19,30 @@
     "committed": false
   },
   "input_tables": {
-    "games_final.csv": "6334a085b3f3a2b69ca40e1953d7618ec9114fdf0d7336e32d8d572b16a39130",
-    "player_boxscores_with_rolling.csv": "1412277a12fc1baf5a494b1b1b393f0eb7da19ddec38305327def7482f1700cc",
-    "team_advanced_rolling.csv": "194bcf0be83e8d836de3648851bf3675d0aad6464b76b0c047a1741a3eae4d2a",
-    "quarter_half_raw.csv": "998931abddd7e221df91a664646deb2daca99008f4edd52cebc11591525f2ee6"
+    "games_final.csv": {
+      "sha256": "6334a085b3f3a2b69ca40e1953d7618ec9114fdf0d7336e32d8d572b16a39130",
+      "sha256_git": "1d8c07b21846dc392091c190c1b2022ad0060aa8f2ae3a3ba5f0241f67d1cf97",
+      "verify_with": "git show HEAD:<path> | sha256sum",
+      "storage": "text (git normalises to LF)"
+    },
+    "player_boxscores_with_rolling.csv": {
+      "sha256": "1412277a12fc1baf5a494b1b1b393f0eb7da19ddec38305327def7482f1700cc",
+      "sha256_git": "1412277a12fc1baf5a494b1b1b393f0eb7da19ddec38305327def7482f1700cc",
+      "verify_with": "git show HEAD:<path>, read `oid sha256:`",
+      "storage": "lfs"
+    },
+    "team_advanced_rolling.csv": {
+      "sha256": "194bcf0be83e8d836de3648851bf3675d0aad6464b76b0c047a1741a3eae4d2a",
+      "sha256_git": "fcbfbd07bf1c45c859fae0692f72756dccb653881e07ce2e0934168675fac3e8",
+      "verify_with": "git show HEAD:<path> | sha256sum",
+      "storage": "text (git normalises to LF)"
+    },
+    "quarter_half_raw.csv": {
+      "sha256": "998931abddd7e221df91a664646deb2daca99008f4edd52cebc11591525f2ee6",
+      "sha256_git": "303b99e2e9fc4ead48890e3e8d2d1c85b8327419bebdfa9403d35896ab68e66e",
+      "verify_with": "git show HEAD:<path> | sha256sum",
+      "storage": "text (git normalises to LF)"
+    }
   },
   "raw_corpus": {
     "scope": "raw files for the 13,199 games in the dataset; season CSVs hashed over rows <= 2026-04-12",
