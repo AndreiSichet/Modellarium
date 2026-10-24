@@ -187,9 +187,23 @@ def refresh_identity(health: dict) -> dict:
     return {
         "last_verdict_at": block.get("last_verdict_at"),
         "outcome": block.get("outcome"),
-        "snapshot": block.get("snapshot"),
         "leagues": block.get("leagues"),
     }
+    # `snapshot` IS DELIBERATELY NOT IN HERE, and it was until 2026-10-24.
+    #
+    # Including it made the refresh identity fire whenever the POINTER moved,
+    # whether or not a refresh had run - and moving the pointer by hand is
+    # exactly what a deploy does. A constructed pair with the snapshot id
+    # changed and every league table identical came out CANNOT COMPARE for
+    # the WNBA, the G League and the NFL, with the reason "a refresh ran
+    # between the captures (advanced at t -> advanced at t)": the same
+    # outcome at the same timestamp, which is the tell that nothing had run.
+    #
+    # The snapshot id is ALREADY judged, and judged better, by the table
+    # rule: different id with identical hashes is comparable and says the id
+    # moved. Carrying it here as well double-counted it and let the weaker
+    # reading win. `last_verdict_at` still catches a real refresh, because a
+    # refresh that ran cannot leave that timestamp unchanged.
 
 
 def strip_volatile(value):

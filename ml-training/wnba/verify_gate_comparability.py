@@ -214,6 +214,61 @@ def refresh_block_rule() -> None:
            ok is True and not reasons,
            "green, so the red above was the plant and not the harness")
 
+    # ---- THE DEPLOY'S OWN PAIR, which the gate got wrong until 2026-10-24.
+    # A deploy moves the pointer BY HAND: the snapshot id differs between the
+    # two captures while the WNBA, G League and NFL tables are byte-identical
+    # and no refresh has run. Those three leagues MUST pass - the switch
+    # runbook treats anything else as fatal - and they came out CANNOT
+    # COMPARE, because the refresh identity carried the snapshot id and fired
+    # on the pointer move alone. The reason string was its own tell: "a
+    # refresh ran between the captures (advanced at t -> advanced at t)".
+    run = {"last_verdict_at": "2026-10-25T06:14:00+00:00",
+           "outcome": "advanced", "leagues": {}}
+    ok, reasons, notes, mut = verdict(
+        context("2026-10-24T0803", THREE, refresh_verdict=dict(run)),
+        context("2026-10-25T0901", THREE, refresh_verdict=dict(run)))
+    record("the DEPLOY pair: id moves, tables identical -> PASS",
+           ok is True and not reasons and not mut,
+           f"comparable={ok}, reasons={reasons}")
+    record("the deploy pair still says the id moved",
+           any("snapshot id moved" in n for n in notes),
+           notes[0][:66] if notes else "no note")
+
+    ok, reasons, _n, _m = verdict(
+        context("2026-10-24T0803", THREE,
+                refresh_verdict=dict(run, last_verdict_at="t1")),
+        context("2026-10-25T0901", THREE,
+                refresh_verdict=dict(run, last_verdict_at="t2")))
+    record("control: a real refresh between captures is still caught",
+           ok is False and any("a refresh ran" in r for r in reasons),
+           reasons[0][:66] if reasons else "NOT CAUGHT")
+
+    # PLANT: put the snapshot id back and the deploy pair must go red again,
+    # which is what proves the exclusion is load-bearing rather than tidy.
+    original = G.refresh_identity
+
+    def with_snapshot(h):
+        block = (h or {}).get("refresh")
+        if not isinstance(block, dict):
+            return {}
+        out = dict(original(h))
+        out["snapshot"] = block.get("snapshot")
+        return out
+
+    G.refresh_identity = with_snapshot
+    try:
+        a = G.refresh_identity({"refresh": dict(run, snapshot="S1")})
+        b = G.refresh_identity({"refresh": dict(run, snapshot="S2")})
+        ok, reasons, _n, _m = verdict(
+            context("2026-10-24T0803", THREE, refresh_verdict=a),
+            context("2026-10-25T0901", THREE, refresh_verdict=b))
+        record("PLANT: with the snapshot id back in, the deploy pair goes red",
+               ok is False,
+               "red, so excluding it is what makes the deploy comparable"
+               if ok is False else "STILL PASSES - exclusion does nothing")
+    finally:
+        G.refresh_identity = original
+
 
 def main() -> int:
     print("THE GATE'S TABLE RULE")
