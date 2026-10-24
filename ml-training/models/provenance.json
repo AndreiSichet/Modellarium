@@ -1,0 +1,346 @@
+{
+  "note": "model_dataset.csv is NOT COMMITTED. It is rebuilt from the raw corpus by the build chain (build_games_table -> build_rolling_features -> build_rest_days -> build_elo_ratings -> build_player_rolling_minutes -> build_team_availability -> build_team_advanced_rolling -> build_quarter_half_raw -> build_quarter_half_rolling -> build_final_dataset). Its sha256 is recorded here BECAUSE it is not committed: that is the only way to tell later whether the table these weights were fitted on is the table a rebuild produces. Of the ten tables that chain writes, only the four under input_tables are committed.",
+  "written_at": "2026-10-24T10:30:13.569257+00:00",
+  "data_cutoff": "2026-04-12",
+  "code": {
+    "commit": "1286615446bf76e2f40a389ddb3a6abea561768d",
+    "working_tree_clean": false,
+    "tracked_dirty_total": 12,
+    "written_by_this_run": [
+      "ml-training/models/ast_margin.json",
+      "ml-training/models/ast_total.json",
+      "ml-training/models/moneyline.json",
+      "ml-training/models/reb_margin.json",
+      "ml-training/models/reb_total.json",
+      "ml-training/models/spread.json",
+      "ml-training/models/totals.json"
+    ],
+    "other_tracked_dirty": [
+      "data-pipeline/data/processed/games_final.csv",
+      "data-pipeline/data/processed/player_boxscores_with_rolling.csv",
+      "data-pipeline/data/processed/team_advanced_rolling.csv",
+      "ml-training/continuous_retrain.py",
+      "ml-training/finalize_models.py"
+    ],
+    "note": "working_tree_clean counts TRACKED files only. written_by_this_run is this script's own output and is expected to be dirty until it is committed; other_tracked_dirty is what a reader should actually look at."
+  },
+  "model_dataset": {
+    "path": "data-pipeline/data/processed/model_dataset.csv",
+    "sha256": "5e42081afcc164d02d665d578478c679b956b663da9af09053ee6e89ccbd9240",
+    "rows": 13199,
+    "committed": false
+  },
+  "input_tables": {
+    "games_final.csv": "6334a085b3f3a2b69ca40e1953d7618ec9114fdf0d7336e32d8d572b16a39130",
+    "player_boxscores_with_rolling.csv": "1412277a12fc1baf5a494b1b1b393f0eb7da19ddec38305327def7482f1700cc",
+    "team_advanced_rolling.csv": "194bcf0be83e8d836de3648851bf3675d0aad6464b76b0c047a1741a3eae4d2a",
+    "quarter_half_raw.csv": "998931abddd7e221df91a664646deb2daca99008f4edd52cebc11591525f2ee6"
+  },
+  "raw_corpus": {
+    "scope": "raw files for the 13,199 games in the dataset; season CSVs hashed over rows <= 2026-04-12",
+    "file_counts": {
+      "player_boxscores": 13199,
+      "quarter_scores": 13196,
+      "team_advanced_stats": 13199,
+      "games_*.csv": 11
+    },
+    "files_after_cutoff_excluded": {
+      "player_boxscores": 14,
+      "quarter_scores": 14,
+      "team_advanced_stats": 0,
+      "games_*.csv": 1
+    },
+    "files_hashed": 39605,
+    "combined_sha256": "368fee50937566d28b28693c4226594fd8dbe4fe128408b1535b5a67062a5c66"
+  },
+  "feature_columns": [
+    "HOME_ROLL5_WIN_PCT",
+    "HOME_ROLL5_PTS",
+    "HOME_ROLL5_PLUS_MINUS",
+    "HOME_ROLL5_FG_PCT",
+    "HOME_ROLL5_REB",
+    "HOME_ROLL5_AST",
+    "HOME_ROLL5_TOV",
+    "HOME_ROLL10_WIN_PCT",
+    "HOME_ROLL10_PTS",
+    "HOME_ROLL10_PLUS_MINUS",
+    "HOME_ROLL10_FG_PCT",
+    "HOME_ROLL10_REB",
+    "HOME_ROLL10_AST",
+    "HOME_ROLL10_TOV",
+    "HOME_REST_DAYS",
+    "HOME_IS_BACK_TO_BACK",
+    "HOME_TEAM_ELO",
+    "AWAY_ROLL5_WIN_PCT",
+    "AWAY_ROLL5_PTS",
+    "AWAY_ROLL5_PLUS_MINUS",
+    "AWAY_ROLL5_FG_PCT",
+    "AWAY_ROLL5_REB",
+    "AWAY_ROLL5_AST",
+    "AWAY_ROLL5_TOV",
+    "AWAY_ROLL10_WIN_PCT",
+    "AWAY_ROLL10_PTS",
+    "AWAY_ROLL10_PLUS_MINUS",
+    "AWAY_ROLL10_FG_PCT",
+    "AWAY_ROLL10_REB",
+    "AWAY_ROLL10_AST",
+    "AWAY_ROLL10_TOV",
+    "AWAY_REST_DAYS",
+    "AWAY_IS_BACK_TO_BACK",
+    "AWAY_TEAM_ELO"
+  ],
+  "models": {
+    "moneyline": {
+      "file": "moneyline.json",
+      "sha256": "5923c7bf2cab79b6404ec0de324579698fb834b7843fa4c85c1185ed800c52f0",
+      "trees": 67,
+      "parameters": {
+        "objective": "binary:logistic",
+        "eval_metric": "logloss",
+        "n_estimators": 67,
+        "learning_rate": 0.05,
+        "max_depth": 4,
+        "min_child_weight": 5,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 1.0,
+        "random_state": 42
+      },
+      "n_features": 34,
+      "split": {
+        "trained_on": "every game in model_dataset.csv, no holdout",
+        "selection_split": {
+          "train": "SEASON < 2023",
+          "validation": 2023,
+          "test": [
+            2024,
+            2025
+          ]
+        }
+      },
+      "selection": {
+        "mlflow_run_id": "d1085d6a8ba744b69f4c0ddcfb044599",
+        "best_iteration": 67.0,
+        "test_mae": null,
+        "test_accuracy": 0.6735266604303087,
+        "test_log_loss": 0.6091419700252704
+      }
+    },
+    "spread": {
+      "file": "spread.json",
+      "sha256": "4aa1a7ec41e95eb52b13ce0d5f7e0aab2e862b7d4c40be4c8c0d39c3373b7e5b",
+      "trees": 78,
+      "parameters": {
+        "objective": "reg:squarederror",
+        "eval_metric": "rmse",
+        "n_estimators": 78,
+        "learning_rate": 0.05,
+        "max_depth": 4,
+        "min_child_weight": 5,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 1.0,
+        "random_state": 42
+      },
+      "n_features": 34,
+      "split": {
+        "trained_on": "every game in model_dataset.csv, no holdout",
+        "selection_split": {
+          "train": "SEASON < 2023",
+          "validation": 2023,
+          "test": [
+            2024,
+            2025
+          ]
+        }
+      },
+      "selection": {
+        "mlflow_run_id": "b7746cb8404649cd9ecb92a176bda923",
+        "best_iteration": 78.0,
+        "test_mae": 11.427618026733398,
+        "test_accuracy": null,
+        "test_log_loss": null
+      }
+    },
+    "totals": {
+      "file": "totals.json",
+      "sha256": "3f29f1b499ae1873f1fee0c55282633a1ddc315378fc2614bac4026e38f7547f",
+      "trees": 108,
+      "parameters": {
+        "objective": "reg:squarederror",
+        "eval_metric": "rmse",
+        "n_estimators": 108,
+        "learning_rate": 0.05,
+        "max_depth": 4,
+        "min_child_weight": 5,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 1.0,
+        "random_state": 42
+      },
+      "n_features": 34,
+      "split": {
+        "trained_on": "every game in model_dataset.csv, no holdout",
+        "selection_split": {
+          "train": "SEASON < 2023",
+          "validation": 2023,
+          "test": [
+            2024,
+            2025
+          ]
+        }
+      },
+      "selection": {
+        "mlflow_run_id": "41848f0c63564d9082817c8a6ffdd924",
+        "best_iteration": 108.0,
+        "test_mae": 15.247343063354492,
+        "test_accuracy": null,
+        "test_log_loss": null
+      }
+    },
+    "reb_margin": {
+      "file": "reb_margin.json",
+      "sha256": "6c8dda941b822951e1724cfde959e782e55f85e22cadba3b65de611eee790949",
+      "trees": 88,
+      "parameters": {
+        "objective": "reg:squarederror",
+        "eval_metric": "rmse",
+        "n_estimators": 88,
+        "learning_rate": 0.05,
+        "max_depth": 4,
+        "min_child_weight": 5,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 1.0,
+        "random_state": 42
+      },
+      "n_features": 34,
+      "split": {
+        "trained_on": "every game in model_dataset.csv, no holdout",
+        "selection_split": {
+          "train": "SEASON < 2023",
+          "validation": 2023,
+          "test": [
+            2024,
+            2025
+          ]
+        }
+      },
+      "selection": {
+        "mlflow_run_id": "b8e4153c63354a16893266938a7bbc7c",
+        "best_iteration": 88.0,
+        "test_mae": 7.558129787445068,
+        "test_accuracy": null,
+        "test_log_loss": null
+      }
+    },
+    "reb_total": {
+      "file": "reb_total.json",
+      "sha256": "d61883094f4d2b16d673825e6f166965976ab2c3362d31ad4a9aa42642ecc1d7",
+      "trees": 31,
+      "parameters": {
+        "objective": "reg:squarederror",
+        "eval_metric": "rmse",
+        "n_estimators": 31,
+        "learning_rate": 0.05,
+        "max_depth": 4,
+        "min_child_weight": 5,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 1.0,
+        "random_state": 42
+      },
+      "n_features": 34,
+      "split": {
+        "trained_on": "every game in model_dataset.csv, no holdout",
+        "selection_split": {
+          "train": "SEASON < 2023",
+          "validation": 2023,
+          "test": [
+            2024,
+            2025
+          ]
+        }
+      },
+      "selection": {
+        "mlflow_run_id": "81f5fbed1e0248f19257d3ad5ca45948",
+        "best_iteration": 31.0,
+        "test_mae": 7.3632049560546875,
+        "test_accuracy": null,
+        "test_log_loss": null
+      }
+    },
+    "ast_margin": {
+      "file": "ast_margin.json",
+      "sha256": "8ae252e49ccf59daee0e43034d72ccf3e724d5c1f9bd974c094165687457e950",
+      "trees": 68,
+      "parameters": {
+        "objective": "reg:squarederror",
+        "eval_metric": "rmse",
+        "n_estimators": 68,
+        "learning_rate": 0.05,
+        "max_depth": 4,
+        "min_child_weight": 5,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 1.0,
+        "random_state": 42
+      },
+      "n_features": 34,
+      "split": {
+        "trained_on": "every game in model_dataset.csv, no holdout",
+        "selection_split": {
+          "train": "SEASON < 2023",
+          "validation": 2023,
+          "test": [
+            2024,
+            2025
+          ]
+        }
+      },
+      "selection": {
+        "mlflow_run_id": "2b1a3be0f95b41b3a9b119cbb114896b",
+        "best_iteration": 68.0,
+        "test_mae": 5.478698253631592,
+        "test_accuracy": null,
+        "test_log_loss": null
+      }
+    },
+    "ast_total": {
+      "file": "ast_total.json",
+      "sha256": "29a0d54efbb173e64f84f93225ab53ee57d28810a6747ed91d39492ac8a2c32c",
+      "trees": 131,
+      "parameters": {
+        "objective": "reg:squarederror",
+        "eval_metric": "rmse",
+        "n_estimators": 131,
+        "learning_rate": 0.05,
+        "max_depth": 4,
+        "min_child_weight": 5,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 1.0,
+        "random_state": 42
+      },
+      "n_features": 34,
+      "split": {
+        "trained_on": "every game in model_dataset.csv, no holdout",
+        "selection_split": {
+          "train": "SEASON < 2023",
+          "validation": 2023,
+          "test": [
+            2024,
+            2025
+          ]
+        }
+      },
+      "selection": {
+        "mlflow_run_id": "4706cb91b3254a8492b46cd20dcc8a13",
+        "best_iteration": 131.0,
+        "test_mae": 5.848499298095703,
+        "test_accuracy": null,
+        "test_log_loss": null
+      }
+    }
+  }
+}
