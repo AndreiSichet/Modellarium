@@ -389,12 +389,51 @@ jobs:
           # top of data that was never committed would not be reproducible -
           # nobody could rebuild these models from the merged state.
           #
-          # Named explicitly, never `git add -A`: CLAUDE.md lives in this
-          # working tree untracked and must not be swept in.
-          git add ml-training/models/*.json
+          # THE PROVENANCE MUST DESCRIBE THE WEIGHTS BEING PROMOTED, and
+          # until 2026-10-24 nothing checked. finalize_models.py writes
+          # models/provenance.json and the weekly job never runs it, so the
+          # Copy-Item above would have put new weights on top of a record of
+          # the previous ones. continuous_retrain.py now writes a provenance
+          # file beside its candidates, Copy-Item carries it over, and this
+          # refuses the promotion if the two have come apart - BEFORE any
+          # git add, so a mismatch is never committed.
+          # THE INTERPRETER IS NAMED HERE, not inherited. Each `run:` block
+          # is its own shell, so the $py defined in the install step does not
+          # exist in this one - a reference to it would have expanded to
+          # nothing and run the script with no interpreter at all. Same named
+          # venv the rest of the job uses, so nothing depends on PATH.
+          $py = '.\.ct-venv\Scripts\python.exe'
+          & $py ml-training/verify_promotion_provenance.py
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::the promoted weights and their provenance do not match - nothing staged"
+            exit 1
+          }
+
+          # NAMED FILES ONLY, NO WILDCARDS. `git add ml-training/models/*.json`
+          # was a glob, which is how provenance.json started being swept in
+          # before anything verified it; a glob also quietly picks up whatever
+          # else lands in that directory. CLAUDE.md, NOTES_HISTORY.md and
+          # every probes/ folder live in this working tree untracked and must
+          # never be staged, which is the same reason `git add -A` is banned.
+          #
+          # ALL FOUR TRACKED TABLES, not two. The retrain's refresh rewrites
+          # every table the chain produces; staging only games_final and
+          # player_boxscores_with_rolling left the other two committed tables
+          # behind, so a merged PR could carry weights fitted on tables that
+          # main did not have.
+          git add ml-training/models/moneyline.json
+          git add ml-training/models/spread.json
+          git add ml-training/models/totals.json
+          git add ml-training/models/reb_margin.json
+          git add ml-training/models/reb_total.json
+          git add ml-training/models/ast_margin.json
+          git add ml-training/models/ast_total.json
           git add ml-training/models/trained_through.json
+          git add ml-training/models/provenance.json
           git add data-pipeline/data/processed/games_final.csv
           git add data-pipeline/data/processed/player_boxscores_with_rolling.csv
+          git add data-pipeline/data/processed/team_advanced_rolling.csv
+          git add data-pipeline/data/processed/quarter_half_raw.csv
 
           git commit -m "Retrain team-level models on data through $today"
           git push origin $branch

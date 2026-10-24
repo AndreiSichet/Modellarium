@@ -1,18 +1,23 @@
 """Retrain the seven team-level models on current data, and refuse to promote"""
 
 import argparse
+import hashlib
 import io
 import json
 import subprocess
 import sys
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 from xgboost import XGBClassifier, XGBRegressor
 
 from common import FEATURE_COLUMNS
-from finalize_models import final_params
+from finalize_models import (
+    INPUT_TABLES, PROCESSED_DIR, code_commit, final_params,
+    raw_corpus_fingerprint, sha256_of,
+)
 from model_evaluation import TASKS, evaluate, load_model, primary
 from train_baseline import load_dataset, section
 from train_moneyline_xgb import PARAMS as MONEYLINE_PARAMS
@@ -351,6 +356,100 @@ def print_table(results, tolerance_pct: float) -> None:
     print("the window it is honest, and the gap to PRODUCTION is simply the")
     print("value of the extra training data.")
 
+def write_candidate_provenance(output_dir: Path, dataset, results,
+                               args) -> Path:
+    """What produced these candidates, written beside them.
+
+    THE PROMOTED WEIGHTS MUST CARRY THEIR OWN RECORD. Before this, only
+    `finalize_models.py` wrote a provenance file, and the weekly job never
+    runs it - so a promotion would have copied new weights into
+    `ml-training/models/` on top of a provenance.json describing the PREVIOUS
+    ones, and committed the pair. New weights with an old record is a
+    misleading green of the most expensive kind: every number in it looks
+    right and none of it is about the files beside it.
+    `verify_promotion_provenance.py` is the guard that makes that impossible;
+    this function is what lets the guard pass honestly.
+
+    THERE IS NO MLFLOW RUN ID, and that is recorded rather than faked. This
+    script logs nothing to MLflow - `run_gate` trains candidates in-process -
+    so there is no run to point at. A `gate_run_id` is generated here from the
+    clock and the inputs so two retrains can be told apart, and the absence of
+    an MLflow run is stated so nobody goes looking for one.
+    """
+    started = datetime.now(timezone.utc)
+    dataset_path = PROCESSED_DIR / "model_dataset.csv"
+    dataset_hash = (sha256_of(dataset_path) if dataset_path.is_file()
+                    else "ABSENT")
+    gate_run_id = hashlib.sha256(
+        (started.isoformat() + dataset_hash).encode("utf-8")).hexdigest()[:16]
+
+    tables = {}
+    for name in INPUT_TABLES:
+        path = PROCESSED_DIR / name
+        tables[name] = sha256_of(path) if path.is_file() else "ABSENT"
+
+    models = {}
+    for row in results:
+        path = output_dir / f"{row['key']}.json"
+        models[row["key"]] = {
+            "file": path.name,
+            "sha256": sha256_of(path) if path.is_file() else "ABSENT",
+            "trees": row["candidate_trees"],
+            "production_trees": row["production_trees"],
+            "metric": "log_loss" if row["classification"] else "mae",
+            "candidate": row["candidate"],
+            "production_refit": row["production"],
+            "shipped_as_is": row["shipped_as_is"],
+            "change_pct": row["change_pct"],
+            "verdict": "pass" if row["passed"] else "FAIL - regressed",
+            "candidate_metrics": {k: v for k, v in
+                                  row["candidate_metrics"].items()},
+            "production_metrics": {k: v for k, v in
+                                   row["production_metrics"].items()},
+        }
+
+    body = {
+        "note": (
+            "Written by continuous_retrain.py for the CANDIDATES in this "
+            "directory. model_dataset.csv is not committed; it is rebuilt "
+            "from the raw corpus by the build chain, which is why its sha256 "
+            "is recorded here. There is no MLflow run id because this script "
+            "does not log to MLflow - see gate_run_id."
+        ),
+        "written_at": started.isoformat(),
+        "gate_run_id": gate_run_id,
+        "mlflow_run_id": None,
+        "source": "continuous_retrain.py",
+        "gate": {
+            "tolerance_pct": args.tolerance_pct,
+            "test_games": args.test_games,
+            "min_new_games": args.min_new_games,
+            "production_dir": str(args.production_dir),
+            "verdict": ("all passed"
+                        if all(r["passed"] for r in results)
+                        else "REJECTED"),
+            "passed": sum(1 for r in results if r["passed"]),
+            "of": len(results),
+        },
+        "data_cutoff": str(dataset["GAME_DATE"].max().date()),
+        "code": code_commit(),
+        "model_dataset": {
+            "path": "data-pipeline/data/processed/model_dataset.csv",
+            "sha256": dataset_hash,
+            "rows": int(len(dataset)),
+            "committed": False,
+        },
+        "input_tables": tables,
+        "raw_corpus": raw_corpus_fingerprint(dataset),
+        "feature_columns": list(FEATURE_COLUMNS),
+        "models": models,
+    }
+    path = output_dir / "provenance.json"
+    path.write_text(json.dumps(body, indent=2, default=str) + chr(10),
+                    encoding="utf-8")
+    return path
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skip-refresh", action="store_true",
@@ -387,12 +486,35 @@ def main():
         print(f"\n  No {TRAINED_THROUGH} beside the production models, so how "
               f"much data\n  they have already seen is unknown. Not guessing.")
         if not args.force:
-            print("  Skipping. Pass --force to retrain anyway; the marker is "
-                  "written\n  alongside any candidates produced, so this "
-                  "resolves itself after one run.")
+            # RED, NOT GREEN, AND THIS USED TO RETURN EXIT_OK.
+            #
+            # A missing marker means the job cannot tell how much data the
+            # shipped weights have already seen, so it refuses - which is
+            # right. What was wrong is that it refused QUIETLY: EXIT_OK with
+            # no candidates is classified by the workflow as `nothing`, the
+            # same word a genuinely quiet week gets, and the run went green.
+            # The weekly job had therefore been a no-op from the day the
+            # models were finalised until 2026-10-24, because
+            # finalize_models.py did not write the marker and only a
+            # candidate-producing run did.
+            #
+            # The old message claimed this "resolves itself after one run".
+            # It could not: the skip happens BEFORE candidates are written, so
+            # no marker produced no candidate produced no marker - a loop that
+            # reported success every Monday.
+            #
+            # EXIT_ERROR rather than EXIT_REFUSED, because the gate did not
+            # refuse a candidate: no comparison was ever reached, which is
+            # exactly what exit 2 means in this project's contract.
+            print("  REFUSING, and this run is RED. Nothing was compared, so "
+                  "there is no\n  verdict to report. The marker is written by "
+                  "finalize_models.py beside\n  the models it produces - if "
+                  "it is missing, the shipped artifacts were\n  not produced "
+                  "by a run that recorded itself.")
+            print("  Pass --force to retrain anyway.")
             report_refresh_disposition(after, not args.skip_refresh)
             report_season_coverage(after)
-            return EXIT_OK
+            return EXIT_ERROR
         print("  --force given: continuing.")
     else:
         cutoff = pd.Timestamp(marker["trained_through"])
@@ -442,11 +564,17 @@ def main():
     for r in results:
         r["model"].save_model(str(args.output_dir / f"{r['key']}.json"))
     write_trained_through(args.output_dir, dataset)
+    provenance = write_candidate_provenance(args.output_dir, dataset,
+                                            results, args)
 
     print(f"\nAll passed. {len(results)} candidate models written to "
           f"{args.output_dir}")
     print(f"A {TRAINED_THROUGH} marker was written alongside them, so the next")
     print("run can tell how much data these have already seen.")
+    print(f"{provenance.name} records what produced them - the gate verdict, "
+          f"the table")
+    print("hashes and the commit. verify_promotion_provenance.py refuses a")
+    print("promotion whose provenance does not describe the weights beside it.")
     print("ml-training/models/ is UNTOUCHED. Promoting these is a separate,")
     print("human decision - a pull request once the scheduled job exists.")
     return EXIT_OK
