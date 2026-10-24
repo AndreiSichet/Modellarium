@@ -182,7 +182,18 @@ def check_nba_team(per_day: int, plant: bool) -> None:
     sample = sample_dates(dataset, seasons)
 
     columns = list(FEATURE_COLUMNS)
-    expected = AVAILABILITY_COLUMNS
+    # THE EXPECTED-FAILURE SET IS NOW EMPTY, AND A NON-EMPTY ONE IS FATAL.
+    # Before A3 the four availability columns were this suite's positive
+    # control: they HAD to fail, because they were built from the game's own
+    # box score. They have been dropped from the feature contract, so nothing
+    # in it may fail any more - and if one of them is still present, the drop
+    # did not take, which is a worse problem than a failing check.
+    expected = tuple(c for c in AVAILABILITY_COLUMNS if c in columns)
+    if expected:
+        raise HarnessFailure(
+            f"these were dropped by A3 and are still in FEATURE_COLUMNS: "
+            f"{sorted(expected)}. The feature contract and this suite "
+            f"disagree about what shipped.")
     if plant:
         # THE PLANT: a column that is pure post-game information - the home
         # team's actual points - added to the feature list. Serving cannot
@@ -332,6 +343,11 @@ def main() -> int:
     print(f"  tolerance {TOLERANCE:g}, NaN == NaN")
     if args.plant:
         print("  PLANT ACTIVE: HOME_PTS added to the NBA team feature list")
+    else:
+        print("  the positive control is now the PLANT alone - the four "
+              "availability")
+        print("  features are gone, so --plant is what proves this suite can "
+              "go red")
 
     check_nba_team(args.per_day, args.plant)
     check_nba_quarter_half(args.per_day)

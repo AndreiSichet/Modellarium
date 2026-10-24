@@ -27,8 +27,22 @@ PER_SIDE_FEATURES = [
     "REST_DAYS",
     "IS_BACK_TO_BACK",
     "TEAM_ELO",
-    "ABSENT_COUNT",
-    "WEIGHTED_ABSENT_MIN",
+    # ABSENT_COUNT and WEIGHTED_ABSENT_MIN WERE HERE AND ARE GONE (A3,
+    # 2026-10-23). They were built from the game's own box score: a player
+    # counted as absent when he recorded no minutes in THAT game, which is
+    # knowable only after tip-off. Serving cannot know it and substituted the
+    # injury report, which counts a different population - inactives, DNP-CDs
+    # and two-ways left at home are absent in the box score and absent from
+    # no report.
+    #
+    # MEASURED BEFORE REMOVING, four regimes on the frozen test set: trained
+    # and scored on the true post-game values gave spread MAE 10.76; trained
+    # on the true values and scored on a pre-game proxy, which is the skew
+    # production was actually in, gave 12.05 - WORSE than dropping them
+    # (11.43). A consistent proxy retrain gave 11.40, beating the drop by
+    # 0.26% on spread and losing on moneyline. So the whole value of these
+    # features was post-game knowledge, and there is no servable version of
+    # them worth having.
 ]
 
 # The contract between training and serving. Changing this list means

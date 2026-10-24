@@ -13,7 +13,9 @@ from fetch_player_boxscores import (  # noqa: E402
     has_played,
 )
 
-from build_rolling_features import WINDOWS, derive_season  # noqa: E402
+from build_rolling_features import (  # noqa: E402
+    WINDOWS, derive_season_for_frame,
+)
 
 PROCESSED_DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "processed"
 GAMES_FINAL_PATH = PROCESSED_DATA_DIR / "games_final.csv"
@@ -222,7 +224,7 @@ def check_minutes_regression(players: pd.DataFrame) -> None:
 def main():
     players = load_all_boxscores()
     players = attach_game_date(players)
-    players["SEASON"] = derive_season(players["GAME_DATE"])
+    players["SEASON"] = derive_season_for_frame(players)
     players = parse_minutes(players)
     players = parse_counting_stats(players)
     players = add_rolling(players)

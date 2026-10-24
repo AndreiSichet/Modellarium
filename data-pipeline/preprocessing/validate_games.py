@@ -26,6 +26,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from build_rolling_features import season_from_game_id
+
 RAW_DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "raw"
 INGESTION_DIR = Path(__file__).resolve().parents[1] / "ingestion"
 if str(INGESTION_DIR) not in sys.path:
@@ -49,11 +51,41 @@ def find_season_files():
     return seasons
 
 def season_date_bounds(season: str):
+    """The calendar window a season's games may fall in.
+
+    SEPTEMBER TO AUGUST, which is deliberately wider than a normal season and
+    is why the 2019-20 bubble's August 2020 games pass here: they are in
+    `games_2019-20.csv`, and that file's window runs to 2020-08-31.
+
+    This is a SANITY check on the dates, not the season rule. The rule is the
+    GAME_ID - see `season_matches_game_id` below, and
+    `build_rolling_features.season_from_game_id`, which is the one definition
+    both this validator and the feature builders now read.
+    """
     start_year = int(season[:4])
     end_year = start_year + 1
     lower = pd.Timestamp(f"{start_year}-09-01")
     upper = pd.Timestamp(f"{end_year}-08-31")
     return lower, upper
+
+
+def season_matches_game_id(season: str, df: pd.DataFrame) -> int:
+    """How many rows the GAME_ID says belong to a DIFFERENT season.
+
+    THE RAW FILES BECOME SELF-CHECKING. `games_2019-20.csv` should contain
+    only games whose id starts the 2019 season, and the id is the authority
+    for that - the dates cannot settle it, which is the whole lesson of the
+    bubble. A non-zero count here means a game is filed under the wrong
+    season, which no date window can detect.
+
+    Imported rather than restated: one definition, two callers.
+    """
+    if "GAME_ID" not in df.columns or "GAME_DATE" not in df.columns:
+        return 0
+    dates = pd.to_datetime(df["GAME_DATE"], errors="coerce")
+    by_id = season_from_game_id(df["GAME_ID"], dates)
+    expected = int(season[:4])
+    return int((by_id.notna() & (by_id != expected)).sum())
 
 def validate_file(season: str, path: Path, reference_columns):
     issues = []
@@ -93,6 +125,14 @@ def validate_file(season: str, path: Path, reference_columns):
             issues.append(f"{date_parse_failures} GAME_DATE values failed to parse")
         if date_out_of_range > 0:
             issues.append(f"{date_out_of_range} GAME_DATE values outside expected season range")
+
+        # THE GAME_ID IS THE AUTHORITY on which season a game belongs to, and
+        # this is the check the date window cannot make.
+        filed_wrong = season_matches_game_id(season, df)
+        if filed_wrong > 0:
+            issues.append(
+                f"{filed_wrong} row(s) whose GAME_ID belongs to a different "
+                f"season than {season}")
 
     invalid_wl_count = 0
     if "WL" in df.columns:

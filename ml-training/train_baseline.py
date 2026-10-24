@@ -1,5 +1,6 @@
 """Baseline models for moneyline, spread, totals, rebounds and assists."""
 
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +15,14 @@ from sklearn.metrics import (
 from sklearn.preprocessing import StandardScaler
 
 from common import FEATURE_COLUMNS, ROLLING_FEATURE_COLUMNS, TEST_SEASONS
+
+PIPELINE_DIR = Path(__file__).resolve().parents[1] / "data-pipeline" / "preprocessing"
+if str(PIPELINE_DIR) not in sys.path:
+    sys.path.insert(0, str(PIPELINE_DIR))
+
+from build_rolling_features import (  # noqa: E402
+    derive_season, derive_season_for_frame,
+)
 
 DATASET_PATH = (
     Path(__file__).resolve().parents[1]
@@ -33,6 +42,22 @@ UNUSED_FEATURE_COLUMNS = [
     for side in ("HOME", "AWAY")
     for window in ("ROLL5", "ROLL10")
     for metric in ("OFF_RATING", "DEF_RATING", "NET_RATING", "PACE", "TS_PCT")
+] + [
+    # THE FOUR AVAILABILITY COLUMNS, DROPPED FROM THE FEATURE SET BY A3 AND
+    # STILL PRESENT IN THE TABLE. The pipeline keeps building them because
+    # they are a TRUE record of who did not play, which is a fact worth
+    # keeping; what they are not is a feature, because that fact is only
+    # knowable after tip-off.
+    #
+    # LISTED HERE RATHER THAN DELETED FROM THE TABLE SO THE GUARD STAYS. The
+    # `unaccounted` check below is what caught the drop being incomplete -
+    # removing the columns from FEATURE_COLUMNS made them unclassified and
+    # load_dataset refused the table by name. Anyone who later wants to use
+    # them has to move them out of this list deliberately, in a diff, with
+    # this comment in front of them.
+    f"{side}_{name}"
+    for side in ("HOME", "AWAY")
+    for name in ("ABSENT_COUNT", "WEIGHTED_ABSENT_MIN")
 ]
 
 UNUSED_FEATURE_COLUMNS += [
@@ -88,9 +113,11 @@ REGRESSION_TARGETS = [
     ("TOTAL_AST", "AST total", "AST", "sum"),
 ]
 
-def derive_season(game_date: pd.Series) -> pd.Series:
-    """Season = year it tipped off in, August boundary."""
-    return game_date.dt.year.where(game_date.dt.month >= 8, game_date.dt.year - 1)
+# derive_season WAS DEFINED HERE, a second copy of the pipeline's. Both are
+# now imported from build_rolling_features, which is the one definition - a
+# duplicated season rule is how the training and pipeline sides would drift
+# apart on exactly the change this spec makes. Re-exported because other
+# modules import `derive_season` from here.
 
 def elo_expected_score(rating: pd.Series, opponent_rating: pd.Series) -> pd.Series:
     """Elo win probability. Same formula as build_elo_ratings.py, no training."""
@@ -102,7 +129,8 @@ def section(title: str) -> None:
 def load_dataset() -> pd.DataFrame:
     df = pd.read_csv(DATASET_PATH)
     df["GAME_DATE"] = pd.to_datetime(df["GAME_DATE"])
-    df["SEASON"] = derive_season(df["GAME_DATE"])
+    # model_dataset.csv carries GAME_ID, so the season comes from the id.
+    df["SEASON"] = derive_season_for_frame(df)
 
     for col in BOOLEAN_FEATURE_COLUMNS:
         df[col] = df[col].astype(int)

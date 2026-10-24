@@ -166,10 +166,17 @@ def verify_against_training_data(sample_size: int = 200, seed: int = 42) -> bool
     """Rebuild features for past games and diff against the pipeline's rows."""
     from train_baseline import load_dataset
 
-    replayable_columns = [c for c in FEATURE_COLUMNS
-                          if not any(c.endswith(f"_{name}")
-                                     for name in AVAILABILITY_FEATURES)]
-    skipped = [c for c in FEATURE_COLUMNS if c not in replayable_columns]
+    # EVERY FEATURE, NO EXCLUSION LIST. This used to skip the four
+    # availability columns, printing "Not replayable (live-only, no historical
+    # equivalent)" - and that description was backwards. They DID have a
+    # historical equivalent; it was built from the game's own box score, which
+    # is why they could not be replayed from truncated history. The exclusion
+    # is the reason 34 of 38 features were audited for a year and the four
+    # that leaked were not. The features are gone as of A3, so there is
+    # nothing left to exclude and nothing may be added to this list without
+    # the argument that failed last time.
+    replayable_columns = list(FEATURE_COLUMNS)
+    skipped = []
 
     games_final_df = load_games_final()
     dataset = load_dataset()

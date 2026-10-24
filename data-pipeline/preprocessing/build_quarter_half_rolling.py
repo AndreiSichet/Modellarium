@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from build_rolling_features import WINDOWS, derive_season
+from build_rolling_features import WINDOWS, derive_season_for_frame
 
 PROCESSED_DIR = Path(__file__).resolve().parents[1] / "data" / "processed"
 RAW_PATH = PROCESSED_DIR / "quarter_half_raw.csv"
@@ -154,7 +154,7 @@ def reindex_to_universe(universe: pd.DataFrame,
 
 def add_rolling(df: pd.DataFrame) -> pd.DataFrame:
     """shift(1) then roll, per team-season. Same as build_rolling_features."""
-    df["SEASON"] = derive_season(df["GAME_DATE"])
+    df["SEASON"] = derive_season_for_frame(df)
     df = df.sort_values([TEAM_KEY, "SEASON", "GAME_DATE"]).reset_index(drop=True)
 
     grouped = df.groupby([TEAM_KEY, "SEASON"])

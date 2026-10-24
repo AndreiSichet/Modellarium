@@ -20,7 +20,9 @@ PIPELINE_DIR = Path(__file__).resolve().parents[1] / "data-pipeline" / "preproce
 if str(PIPELINE_DIR) not in sys.path:
     sys.path.insert(0, str(PIPELINE_DIR))
 
-from build_rolling_features import WINDOWS, derive_season  # noqa: E402
+from build_rolling_features import (  # noqa: E402
+    WINDOWS, derive_season_for_frame,
+)
 from build_quarter_half_rolling import (  # noqa: E402
     ROLLING_METRICS,
     attach_opponent,
@@ -62,7 +64,7 @@ def load_quarter_half_history(quiet: bool = True) -> pd.DataFrame:
         universe = load_universe(processed)
         history = reindex_to_universe(universe, metrics)
 
-    history["SEASON"] = derive_season(history["GAME_DATE"])
+    history["SEASON"] = derive_season_for_frame(history)
     return history.sort_values(["TEAM_ID", "GAME_DATE", "GAME_ID"]).reset_index(
         drop=True
     )

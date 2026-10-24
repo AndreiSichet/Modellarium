@@ -702,8 +702,23 @@ def availability_block() -> dict:
         from live_features import availability_is_required
 
         if not availability_is_required():
-            nba = {"state": "not_applicable",
-                   "detail": "FEATURE_COLUMNS carries no availability features"}
+            # `not_applicable` IS TRUE OF THE TEAM MARKETS AND WOULD BE
+            # MISLEADING ON ITS OWN. A3 dropped the four availability
+            # features, so no team prediction reads the injury report any
+            # more - but the PLAYER-PROP board still does, to leave listed-Out
+            # players off it, and that use is legitimately pre-game: it reads
+            # the report and nothing from the box score. A bare
+            # `not_applicable` would tell a reader the sidecar is unused and
+            # that a sidecar failure costs nothing, which is not so.
+            nba = {
+                "state": "not_applicable",
+                "detail": "no availability features in the team feature set "
+                          "since A3 (2026-10-23); the player-prop board "
+                          "still reads the injury report to exclude "
+                          "listed-Out players, so the sidecar is live but no "
+                          "team prediction depends on it",
+                "still_used_by": ["player_props_roster_filter"],
+            }
         else:
             nba = availability.availability_state(
                 for_date=(state.data_as_of + pd.DateOffset(days=MAX_DAYS_AHEAD))

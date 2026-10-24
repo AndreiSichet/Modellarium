@@ -6,7 +6,9 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from build_rolling_features import WINDOWS, derive_season  # noqa: E402
+from build_rolling_features import (  # noqa: E402
+    WINDOWS, derive_season_for_frame,
+)
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 INPUT_DIR = DATA_DIR / "raw" / "team_advanced_stats"
@@ -90,7 +92,7 @@ def expected_nan_counts(teams: pd.DataFrame) -> dict:
 def main():
     teams = load_all_advanced()
     teams = attach_game_date(teams)
-    teams["SEASON"] = derive_season(teams["GAME_DATE"])
+    teams["SEASON"] = derive_season_for_frame(teams)
     teams = add_rolling(teams)
 
     rolling_columns = [
