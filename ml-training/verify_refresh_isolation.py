@@ -20,6 +20,7 @@ import json
 import shutil
 import sys
 from contextlib import redirect_stdout
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -304,16 +305,109 @@ def case_partial(volume, scratch_repo, pointer, snapshot):
     meta = json.loads((new_snapshot / "SNAPSHOT.json").read_text(
         encoding="utf-8"))
     entry = (meta.get("leagues") or {}).get("nfl") or {}
-    record("plant: the manifest records the outcome and carried_from",
+    # `carried_from` IS LINEAGE, NOT "YESTERDAY". This asserted
+    # `== pointer` until 2026-10-24, which only held while the scratch
+    # volume's own snapshot carried no earlier lineage of its own - it went
+    # red the first time it was run on a volume whose served snapshot had
+    # itself carried the NFL. The implementation was right and the check was
+    # wrong. What the field promises is checkable without mirroring the
+    # rule: the name must be a snapshot that is really there and really
+    # holds these bytes.
+    origin = entry.get("carried_from")
+    origin_root = volume / SNAPSHOTS_DIR / str(origin)
+    record("plant: the manifest records outcome, reason and a REAL origin",
            entry.get("outcome") == D.OUTCOME_CARRIED
-           and entry.get("carried_from") == pointer
-           and bool(entry.get("reason")),
-           f"outcome={entry.get('outcome')} from={entry.get('carried_from')}")
+           and bool(entry.get("reason"))
+           and origin_root.is_dir()
+           and D.league_hashes(origin_root, "nfl") == after_hashes,
+           f"outcome={entry.get('outcome')} from={origin} "
+           f"reason={(entry.get('reason') or '')[:52]!r}")
 
     # Put the scratch volume back so later cases see the original pointer.
     (volume / POINTER_FILE).write_text(pointer, encoding="utf-8")
     shutil.rmtree(new_snapshot, ignore_errors=True)
     return out
+
+
+class SteppingClock(D.datetime):
+    """A `now()` that advances a minute each call.
+
+    The snapshot identifier is `%Y-%m-%dT%H%M`, and `staging.rename(final)`
+    raises on Windows if that directory already exists - so two refresh runs
+    inside one minute collide. Real runs take 14-18 minutes and cannot; a
+    verifier that needs three runs in a row has to move the clock rather than
+    wait three minutes for every self-test.
+    """
+
+    _offset = 0
+
+    @classmethod
+    def now(cls, tz=None):                                      # noqa: D102
+        cls._offset += 1
+        # `super()`, NOT `D.datetime` - by the time this runs, `D.datetime`
+        # IS this class, and naming it recursed until the stack ran out.
+        return super().now(tz) + timedelta(minutes=cls._offset)
+
+
+def case_carry_keeps_first_origin(volume, scratch_repo, pointer):
+    """Carried on two runs running -> the origin stays the FIRST one.
+
+    `carried_from_for`'s docstring is the claim under test: "A league carried
+    for several days keeps its first `carried_from`, so the age of the data it
+    is serving stays visible instead of resetting to yesterday every
+    morning." If it reset, a league frozen for a week would report an origin
+    of yesterday every morning and nothing would show the staleness.
+    """
+    nfl_tables = D.league_tables("nfl")
+    backups = {r: (scratch_repo / r).read_bytes() for r in nfl_tables}
+    wnba_table = scratch_repo / D.league_tables("wnba")[0]
+    wnba_original = wnba_table.read_bytes()
+    made = []
+
+    def one_run():
+        for relative in nfl_tables:
+            (scratch_repo / relative).unlink()
+        advance_wnba(scratch_repo)
+        run_refresh(volume, scratch_repo)
+        moved = (volume / POINTER_FILE).read_text(encoding="utf-8").strip()
+        made.append(moved)
+        meta = json.loads((volume / SNAPSHOTS_DIR / moved /
+                           "SNAPSHOT.json").read_text(encoding="utf-8"))
+        entry = (meta.get("leagues") or {}).get("nfl") or {}
+        for relative, blob in backups.items():
+            (scratch_repo / relative).write_bytes(blob)
+        return moved, entry.get("carried_from")
+
+    real_datetime, real_origin_fn = D.datetime, D.carried_from_for
+    D.datetime = SteppingClock
+    try:
+        first_snapshot, first_origin = one_run()
+        _second_snapshot, second_origin = one_run()
+        record("a league carried twice keeps its FIRST carried_from",
+               first_origin is not None and second_origin == first_origin
+               and second_origin != first_snapshot,
+               f"run 1 -> {first_origin}, run 2 -> {second_origin}, "
+               f"not the intermediate {first_snapshot}")
+
+        # THE PLANT: make the origin reset to the previous pointer, which is
+        # the defect the rule exists to prevent, and watch run 3 name the
+        # snapshot run 2 wrote instead of the lineage origin.
+        D.carried_from_for = (
+            lambda league, previous_root, previous_id: previous_id)
+        previous = made[-1]
+        _third_snapshot, planted_origin = one_run()
+        record("PLANT: an origin that resets to yesterday is caught",
+               planted_origin == previous and planted_origin != first_origin,
+               f"planted origin {planted_origin} is the previous snapshot "
+               f"{previous}, not the lineage origin {first_origin}")
+    finally:
+        D.datetime, D.carried_from_for = real_datetime, real_origin_fn
+        wnba_table.write_bytes(wnba_original)
+        for relative, blob in backups.items():
+            (scratch_repo / relative).write_bytes(blob)
+        (volume / POINTER_FILE).write_text(pointer, encoding="utf-8")
+        for name in made:
+            shutil.rmtree(volume / SNAPSHOTS_DIR / name, ignore_errors=True)
 
 
 def case_real_step_refused(volume, scratch_repo):
@@ -447,6 +541,7 @@ def main(argv=None) -> int:
     case_nba_unit(volume, scratch_repo, pointer)
     case_partial(volume, scratch_repo, pointer, snapshot)
     case_every_league_fails(volume, scratch_repo, pointer)
+    case_carry_keeps_first_origin(volume, scratch_repo, pointer)
     case_real_step_refused(volume, scratch_repo)
     case_missing_step_script(volume, scratch_repo, pointer)
     case_carried_table_altered(volume, scratch_repo, pointer, snapshot)

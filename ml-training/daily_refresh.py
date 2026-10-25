@@ -893,6 +893,42 @@ class MissingStepScript(RuntimeError):
     """A step script is absent - a broken checkout, so a GLOBAL failure."""
 
 
+def describe_failure(error: BaseException) -> str:
+    r"""A carried league's reason, written so an operator can act on it.
+
+    THIS USED TO BE `f"{type(error).__name__}: {error}"` TRUNCATED TO 160
+    CHARACTERS, and for the one failure that actually happens it told you
+    nothing. `subprocess.TimeoutExpired`'s str() begins with the whole command
+    list - interpreter path, flags, script path - so 160 characters ran out
+    halfway through the absolute path and the message read:
+
+        TimeoutExpired: Command '['C:\Users\...\python.exe', '-W',
+        'ignore', 'C:\Users\User\Desktop\basketball-pr
+
+    Neither WHICH script timed out nor AFTER HOW LONG survived the cut, and
+    those are the only two things worth knowing. Observed in the A3 switch
+    rehearsal on 2026-10-24, where the G League was carried and the run
+    reported `partial` without saying what had hung.
+
+    So the two cases that carry structured information are named, and
+    everything else keeps the old generic form - still one line, but no longer
+    cut mid-word.
+    """
+    if isinstance(error, subprocess.TimeoutExpired):
+        command = error.cmd if isinstance(error.cmd, (list, tuple)) else [error.cmd]
+        script = next((Path(str(part)).name for part in reversed(command)
+                       if str(part).endswith(".py")), "the step")
+        return (f"TimeoutExpired: {script} did not finish within "
+                f"{error.timeout:g}s")
+    if isinstance(error, subprocess.CalledProcessError):
+        command = error.cmd if isinstance(error.cmd, (list, tuple)) else [error.cmd]
+        script = next((Path(str(part)).name for part in reversed(command)
+                       if str(part).endswith(".py")), "the step")
+        return f"CalledProcessError: {script} exited {error.returncode}"
+    text = f"{type(error).__name__}: {error}".splitlines()[0]
+    return text if len(text) <= 200 else text[:197] + "..."
+
+
 def stage_per_league(args, volume, leagues, previous, previous_root,
                      identifier) -> tuple:
     """Build or carry every league into one staged snapshot.
@@ -928,8 +964,18 @@ def stage_per_league(args, volume, leagues, previous, previous_root,
         except MissingStepScript:
             raise
         except Exception as error:                              # noqa: BLE001
-            reason = f"{type(error).__name__}: {error}"
-            print(f"    {league} FAILED: {reason.splitlines()[0][:160]}")
+            reason = describe_failure(error)
+            print(f"    {league} FAILED: {reason}")
+            # THE SHORT REASON TRAVELS; THE FULL TEXT STILL GETS PRINTED.
+            # `reason` has to fit a markdown cell, so it is one line - but
+            # `run_step` puts the failing step's stdout and stderr tail into
+            # the exception, and that is the only diagnostic there is. The
+            # first version of this printed `reason` alone and threw the tail
+            # away, which was noticed the first time a real fetch failed.
+            detail = str(error).strip()
+            if detail and detail != reason:
+                for line in detail.splitlines():
+                    print(f"      | {line}")
             carried_hashes[league] = carry_league(league, staging,
                                                   previous_root)
             origin = carried_from_for(league, previous_root, previous)

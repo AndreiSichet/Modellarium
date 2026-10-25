@@ -1,14 +1,15 @@
 {
   "note": "model_dataset.csv is NOT COMMITTED. It is rebuilt from the raw corpus by the build chain (build_games_table -> build_rolling_features -> build_rest_days -> build_elo_ratings -> build_player_rolling_minutes -> build_team_availability -> build_team_advanced_rolling -> build_quarter_half_raw -> build_quarter_half_rolling -> build_final_dataset). Its sha256 is recorded here BECAUSE it is not committed: that is the only way to tell later whether the table these weights were fitted on is the table a rebuild produces. Of the ten tables that chain writes, only the four under input_tables are committed.",
-  "written_at": "2026-10-24T10:58:14.727964+00:00",
+  "written_at": "2026-10-24T14:58:57.930286+00:00",
   "data_cutoff": "2026-04-12",
   "code": {
-    "commit": "bfb871e4d382841eab9b6eab0d525d52a325c049",
+    "commit": "cedf25438bf03f14f06f7afe1456f420eadb2ac8",
     "working_tree_clean": false,
-    "tracked_dirty_total": 1,
+    "tracked_dirty_total": 2,
     "written_by_this_run": [],
     "other_tracked_dirty": [
-      "ml-training/finalize_models.py"
+      "ml-training/wnba/nba_regression_gate.py",
+      "ml-training/wnba/verify_gate_comparability.py"
     ],
     "note": "working_tree_clean counts TRACKED files only. written_by_this_run is this script's own output and is expected to be dirty until it is committed; other_tracked_dirty is what a reader should actually look at."
   },
