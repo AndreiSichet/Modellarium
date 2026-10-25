@@ -104,6 +104,16 @@ MODEL_REGISTRY = [
     ("ast_total", "total_assists", False),
 ]
 
+# WRITTEN INTO models/ AND NOT MODELS. `finalize_models.py` puts its
+# provenance record beside the artifacts it just produced, and
+# `continuous_retrain.py` reads `trained_through.json` to learn how much data
+# the shipped weights have already seen. Both are data ABOUT the models, so
+# the registry must not expect them - but the comparison below stays EXACT
+# equality on everything else, because that is the guard that caught
+# `models/*.json` never having been committed at all, and relaxing it to a
+# subset test would un-catch that.
+NON_MODEL_FILES = {"provenance", "trained_through"}
+
 QH_MODEL_REGISTRY = [
     ("q1_spread", "q1_home_margin", False),
     ("q1_total", "q1_total_points", False),
@@ -363,7 +373,8 @@ _schedule_cache: dict = {}
 
 def load_models() -> dict:
     """Load all seven models as sklearn-API estimators."""
-    on_disk = {path.stem for path in MODELS_DIR.glob("*.json")}
+    on_disk = ({path.stem for path in MODELS_DIR.glob("*.json")}
+               - NON_MODEL_FILES)
     expected = {key for key, _field, _clf in MODEL_REGISTRY}
 
     if on_disk != expected:
