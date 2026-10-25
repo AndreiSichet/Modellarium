@@ -185,7 +185,7 @@ Working end to end, locally and under Docker Compose.
 
 ### Next
 
-Serving roster availability is the highest-value remaining work — it is the only change so far that measurably beat the accuracy ceiling — but it cannot be verified until the 2026-27 season opens and real injury reports exist. Cloud deployment and CD are the last two items on the original milestone list.
+Cloud deployment and CD are the last two items on the original milestone list. Roster availability used to be named here as the highest-value remaining work; it was measured in October 2026 and dropped instead — see the note on accuracy below.
 
 All three leagues' data now refreshes daily, so a season opening is enough for predictions to appear — there is no longer a pipeline run to remember. The interface says so; it used to say the opposite about the WNBA, correctly at the time, and that sentence was corrected rather than left to rot.
 
@@ -197,6 +197,18 @@ Longer term: market odds as a measuring stick, drift monitoring across a season,
 
 Three independent model families — a closed-form Elo formula, linear/logistic regression, and tuned XGBoost — converge on the same accuracy band on every full-game target. That is an information ceiling in the feature set, not a modelling problem, and it is treated as one: further tuning is not pursued.
 
-The one thing that has broken through it is player availability, worth roughly 5.8% on spread error. It is trained in and waiting on the serving work above.
+**Nothing has broken through it, and one thing that appeared to was measured and removed.** Until October 2026 the models used four features describing who was absent from each game. They were worth about 5.8% on margin error, and they were derived from the game's own box score — who recorded no minutes — so they describe who actually played. A prediction made the day before cannot know that.
+
+The gap was always written down. What changed is that it was finally measured, and the mismatch turned out to cost more than the feature was ever worth: trained on real participation but served a pre-game guess, the margin error was about **12.05** — worse than never having built the feature. The four columns were dropped, all seven models retrained, and the figures below are what the shipped models score on games they have never seen.
+
+| Target | Held-out result |
+|---|---|
+| Moneyline | **0.6735** accuracy / **0.6091** log loss |
+| Margin (spread) | **11.43** average error |
+| Total points | **15.25** average error |
+| Rebound margin / total | 7.56 / 7.36 average error |
+| Assist margin / total | 5.48 / 5.85 average error |
+
+The previous published figures were better — 0.5978 log loss and 10.76 on margin — and they were not achievable live. Replacing them with worse numbers that are true is the point.
 
 Predictions are honest about their own weakness where they have one. A market that scores barely better than a base rate ships labelled as such rather than being quietly dropped or presented as equal to the rest.

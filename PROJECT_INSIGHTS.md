@@ -868,6 +868,31 @@ the ceiling.
 | Total points | 15.2685 | 15.2322 | −0.24% |
 | Moneyline (log loss) | 0.6067 | **0.5979** | −1.45% |
 
+> **This gain was withdrawn on 25 October 2026, and the reason is worth more
+> than the number was.** The "After" column is real arithmetic on real data,
+> and it was never something a live prediction could do. The four availability
+> features are derived from **the game's own box score** — who recorded no
+> minutes — so they describe who actually played, which is knowable only after
+> the game has finished. Asked the day before, nobody can supply them.
+>
+> That was always written down as a gap. What was not understood until it was
+> measured is that the mismatch did not merely cancel the gain — **it cost more
+> than the feature was ever worth.** Four configurations, same parameters, same
+> frozen test set:
+>
+> | | what it is | margin error |
+> |---|---|---|
+> | the figure above | trained *and* scored on true post-game data | 10.76 |
+> | drop the features | retrain without them | 11.43 |
+> | **what production was doing** | trained on true data, served a pre-game guess | **12.05** |
+> | be consistent about it | train and serve the same guess | 11.40 |
+>
+> **The arrangement that was actually running was the worst of the four.** It
+> was about 12.05, not 10.76 — worse than never having built the feature. The
+> models now ship without those four columns, and the honest margin error is
+> **11.43**. Nothing was hidden and nothing broke; a measurement that had not
+> been taken was taken, and it changed the answer.
+
 > **Every figure in this chapter and the ones that follow was measured before
 > 6 October 2026**, on the uncorrected margin column that A7 later replaced
 > (chapter 4). They are left exactly as measured, because that is what each
@@ -1032,7 +1057,7 @@ The production models are trained on the *entire* dataset with no holdout —
 correctly so, because model selection was already finished by then. Which
 means any recent window is part of their training data. Scored that way,
 production looked like it achieved an error of **9.58** on margins against the
-**10.74** it genuinely achieves on unseen games. It was being graded on its own
+**11.43** it genuinely achieves on unseen games. It was being graded on its own
 homework, and every candidate honestly holding data back looked 5-12% worse by
 comparison.
 
@@ -3532,10 +3557,18 @@ features would have stayed blank, silently, and the only symptom would have been
 an improvement that never showed up — months later, with nothing pointing at the
 cause.
 
+> **The 5.8% figure in this chapter is what was measured at the time.** It was
+> later found to describe **post-game** information — who actually played — and
+> the four features were removed on 25 October 2026; see chapter 15. **The bug
+> story below is unaffected and still worth reading**: the paths really were
+> broken, the fix really did make all seven predictions move where before they
+> did not, and a silent feature is still the failure mode it describes. Only
+> the stakes were smaller than they looked.
+
 **Measured both ways rather than argued.** With a real report in hand and the
 old paths, all seven predictions were unchanged. After the fix, all seven moved
 — the margin by 2.3 points, which is the size you would expect from a feature
-worth 5.8%.
+worth 5.8% (as it was then understood — see the note above).
 
 Both inputs now resolve through the same shared-folder lookup every other table
 already used. The team names come from a table that is already there and already
@@ -3831,7 +3864,7 @@ could not, because the games at those extremes are too few to learn from.
 
 **One trap worth recording**, because it recurs throughout this chapter: the
 first attempt scored the *shipped* model and got 0.7217 accuracy — far better
-than its honest 0.6698. The shipped models are deliberately trained on every
+than its honest 0.6735. The shipped models are deliberately trained on every
 game with nothing held back, so the test games are inside their training data.
 They were being graded on their own homework. Every experiment below therefore
 trains a fresh model on the historical portion only.
@@ -5752,13 +5785,25 @@ These are understood and accepted, not oversights.
 
 ### The roadmap, in priority order
 
-1. **Serve the availability features.** The 5.8% margin improvement is proven,
-   built and packaged. It needs the season, and then a decision about one
-   inconsistency between how a player's minutes are looked up at training time
-   versus serving time. A second blocker — the lookup paths left behind by the
-   move to a shared data folder — was found and fixed on 7 October; with a real
-   report in hand, all seven predictions now move where before they did not
-   (17.26). What remains is genuinely only the calendar and that one decision.
+1. ~~**Serve the availability features.**~~ **WITHDRAWN on 25 October 2026 —
+   the features were removed instead of served.** This was item 1 for two
+   months, on the strength of a measured 5.8% improvement in margin error. When
+   the season arrived and the inconsistency named below was finally measured
+   rather than reasoned about, the answer was that there was nothing to serve:
+   the features describe **who actually played**, taken from each game's own box
+   score, so a prediction made the day before cannot supply them. A pre-game
+   stand-in is not the same quantity, and using one cost more than the feature
+   was ever worth — margin error of about **12.05**, against **11.43** for
+   simply not having the features at all. All four columns were dropped
+   (38 features → 34), the seven models retrained, and the result switched into
+   production. The shipped margin error is 11.43. Chapter 15 has the four
+   measurements.
+
+   **What this item is now:** nothing. It is kept in the list rather than
+   deleted because a roadmap that quietly loses its top entry teaches nobody
+   anything, and the lesson here is worth more than the feature was — a gain
+   can be real, reproducible, and confirmed by feature importance, and still
+   not be something the system can do.
 2. **Market odds** — both to measure genuine edge against the market and to use
    the market's own line as an input. Historical coverage from most providers
    only goes back to about 2019, so full eleven-season coverage will not exist.
@@ -5877,10 +5922,16 @@ Get-NetTCPConnection -LocalPort 8080 -State Listen |
 > direction, which is the expected result for a correctness fix: every target's
 > confidence interval spanned zero.
 
+> **Updated 25 October 2026.** The two figures that moved are the ones the
+> availability features used to flatter. Those features were removed after
+> measurement showed they could not be served (chapter 15) — so nothing
+> "beats" the ceiling on margin any more, and the numbers below are what the
+> shipped models score on games they have never seen.
+
 | Target | Best result | Beaten by |
 |---|---|---|
-| Moneyline | 0.5978 log loss | availability features |
-| Margin | 10.76 average error | availability features (−5.8%) |
+| Moneyline | 0.6091 log loss | nothing — availability was withdrawn |
+| Margin | 11.43 average error | nothing — availability was withdrawn |
 | Total points | 15.25 average error | nothing tried |
 | First-quarter winner | 0.5796 accuracy | nothing — ships labelled *low confidence* |
 | Player points | 4.73 average error | nothing — a player's own average is nearly all of it |
