@@ -165,21 +165,62 @@ def add_rolling(df: pd.DataFrame) -> pd.DataFrame:
             )
     return df
 
+def expected_warmup_nan(group_sizes: pd.Series, window: int) -> int:
+    """How many rows `shift(1).rolling(window)` must leave NaN.
+
+    Per team-season it is `min(window, games that team-season has)`, NOT
+    `window`: a team-season with fewer games than the window is NaN all the
+    way through, so it contributes its own length and no more. `clip(upper=)`
+    is the same idiom `build_team_advanced_rolling.expected_nan_counts` uses,
+    deliberately, so the two builders state the rule once between them.
+
+    THE OLD RULE WAS `team_seasons * window`, WHICH IS ONLY RIGHT MID-SEASON.
+    It broke the first time this ran in-season: on 2026-10-29 the 30 teams of
+    the 2026-27 season had 4-7 games each, so the ROLL10 expectation was
+    3,600 where the data can only produce 3,496 - the shortfall being
+    sum(10 - games) over the 30 short team-seasons - and the step raised
+    `shift(1) may not be applied` on a pipeline that was working correctly.
+    """
+    return int(group_sizes.clip(upper=window).sum())
+
+
 def check_warmup(df: pd.DataFrame) -> None:
     """The NaN count each window must produce if shift-then-roll is right."""
-    team_seasons = df.groupby([TEAM_KEY, "SEASON"]).ngroups
-    print(f"\nRolling warm-up check ({team_seasons:,} team-seasons):")
+    group_sizes = df.groupby([TEAM_KEY, "SEASON"]).size()
+    longest = max(WINDOWS)
+    short = group_sizes[group_sizes < longest]
+    # Rows carrying no raw quarter data at all. These are what can push the
+    # actual count ABOVE the warm-up expectation: such a row is NaN itself and
+    # poisons the next `window` rolling windows for that team.
+    missing_raw = int(df[ROLLING_METRICS[0]].isna().sum())
+
+    print(f"\nRolling warm-up check ({len(group_sizes):,} team-seasons; "
+          f"{len(short)} shorter than the longest window of {longest}, "
+          f"{missing_raw} team-rows with no raw quarter data):")
 
     for window in WINDOWS:
-        floor = team_seasons * window
+        expected = expected_warmup_nan(group_sizes, window)
         column = f"ROLL{window}_Q1_MARGIN"
         actual = int(df[column].isna().sum())
-        print(f"  ROLL{window:<3} expected floor {floor:>6,}   actual {actual:>6,}   "
-              f"extra {actual - floor:>4,} (from the 3 missing games)")
-        if actual < floor:
+        extra = actual - expected
+        # The extra is attributable to `missing_raw`, not to the warm-up, and
+        # the old message had this backwards: it labelled the difference "from
+        # the 3 missing games" even when it was NEGATIVE, which the missing
+        # games cannot cause. A shortfall can only come from the expectation
+        # being too high.
+        attribution = ("none - every NaN is warm-up" if extra == 0 else
+                       f"from the {missing_raw} rows with no raw data"
+                       if extra > 0 else
+                       "A SHORTFALL, which the warm-up cannot produce")
+        print(f"  ROLL{window:<3} expected {expected:>6,}   actual {actual:>6,}"
+              f"   extra {extra:>5,}  ({attribution})")
+        if actual < expected:
             raise RuntimeError(
-                f"{column} has fewer NaN than the warm-up alone requires - "
-                f"shift(1) may not be applied."
+                f"{column} has {actual:,} NaN where the warm-up alone "
+                f"requires {expected:,} - shift(1) may not be applied. "
+                f"The expectation is sum over team-seasons of "
+                f"min({window}, games), so a short in-progress season cannot "
+                f"explain this."
             )
 
 def main():

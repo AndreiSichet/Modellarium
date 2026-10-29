@@ -341,7 +341,16 @@ def refresh_data() -> None:
     """Rerun ingestion and preprocessing, in order, stopping on failure."""
     section("REFRESHING DATA")
     for step in REFRESH_STEPS:
-        print(f"\n--- {step.name}")
+        # flush=True, OR THE LOG READS IN THE WRONG ORDER. Each step is a
+        # subprocess that inherits this process's stdout and writes to it
+        # directly, while this print sits in Python's buffer until the buffer
+        # fills. Redirected to a file - which is how both the workflow and any
+        # local capture run it - the headers therefore land long after the
+        # output they label, and a 2026-10-29 chain run put all thirteen of
+        # them AFTER every step's output. The header is the only thing that
+        # says which step produced what, so it has to be on the stream before
+        # the child starts writing.
+        print(f"\n--- {step.name}", flush=True)
         result = subprocess.run(
             [sys.executable, str(step)], cwd=str(PROJECT_ROOT), check=False
         )
