@@ -28,6 +28,8 @@ dicts, so there is nothing to mock and nothing to warm.
 
     python ml-training/wnba/verify_gate_comparability.py
 """
+import contextlib
+import io
 import sys
 from pathlib import Path
 
@@ -270,6 +272,369 @@ def refresh_block_rule() -> None:
         G.refresh_identity = original
 
 
+# ==========================================================================
+# the difference list is COMPLETE, and the heading counts fields
+# ==========================================================================
+
+def nine_field_bodies():
+    """A capture pair whose one body differs in exactly nine fields.
+
+    NINE, BECAUSE THE TWO OLD CAPS WERE SIX AND EIGHT. A body with nine
+    changed fields is the smallest one that both branches would have
+    truncated, and the REGRESSED branch's cut at eight is the dangerous
+    one - seven markets cannot reach it today, so the defect was invisible
+    and would have surfaced only once a model family grew.
+    """
+    fields = {f"metric_{i}": float(i) for i in range(9)}
+    moved = {name: value + 1.0 for name, value in fields.items()}
+    tables = {"games_final.csv": "aaa"}
+    before = {
+        "context": {"leagues": {"nba": context("2026-10-29T1027", tables)},
+                    "schedule_count": 1311, "teams_count": 30},
+        "bodies": {"nba.inference.0": dict(fields),
+                   "inference_health": health(), "backend_health": {}},
+    }
+    after = {
+        "context": {"leagues": {"nba": context("2026-10-29T1027", tables)},
+                    "schedule_count": 1311, "teams_count": 30},
+        "bodies": {"nba.inference.0": dict(moved),
+                   "inference_health": health(), "backend_health": {}},
+    }
+    return before, after
+
+
+def every_differing_field_is_printed() -> None:
+    before, after = nine_field_bodies()
+
+    printed, code = run_compare(before, after)
+
+    record("nine changed fields -> REGRESSED, not a silent pass",
+           code == G.EXIT_REGRESSED, f"exit {code}")
+    shown = [line for line in printed.splitlines()
+             if "nba.inference.0  metric_" in line]
+    record("all NINE fields are printed, not six and not eight",
+           len(shown) == 9, f"{len(shown)} field line(s) printed")
+    record("the heading counts FIELDS as well as bodies",
+           "9 field(s) differ" in printed,
+           [line.strip() for line in printed.splitlines()
+            if "field(s) differ" in line][:1])
+    record("and no field is dropped without saying so",
+           "more field(s) not shown" not in printed,
+           "there is no cap to announce")
+
+
+def every_field_is_printed_on_cannot_compare() -> None:
+    """THE OTHER BRANCH, which is where the A3 switch lost total_rebounds.
+
+    A changed snapshot id with changed tables makes the league CANNOT
+    COMPARE, and the bodies are then shown as information - which is exactly
+    the branch that was capped at six.
+    """
+    before, after = nine_field_bodies()
+    after["context"]["leagues"]["nba"] = context(
+        "2026-10-29T2113", {"games_final.csv": "bbb"})
+
+    printed, code = run_compare(before, after)
+
+    record("a CANNOT COMPARE pair still lists every field",
+           len([line for line in printed.splitlines()
+                if "nba.inference.0  metric_" in line]) == 9,
+           f"exit {code}, branch = "
+           + ("CANNOT COMPARE" if code == G.EXIT_CANNOT else f"exit {code}"))
+    record("its heading counts fields too",
+           "9 field(s) differ" in printed,
+           [line.strip() for line in printed.splitlines()
+            if "field(s) differ" in line][:1])
+
+
+def plant_field_cap() -> None:
+    """Put the caps back, and both completeness checks must go red."""
+    real = G.print_fields
+
+    def capped(key, fields, limit=None):
+        """The defect as it shipped: six per body, silently."""
+        for field in fields[:6]:
+            print(f"             {key}  {field}")
+
+    before, after = nine_field_bodies()
+    G.print_fields = capped
+    try:
+        printed, _code = run_compare(before, after)
+    finally:
+        G.print_fields = real
+
+    shown = len([line for line in printed.splitlines()
+                 if "nba.inference.0  metric_" in line])
+    if shown == 9:
+        raise AssertionError(
+            "the plant printed nine fields anyway, so the check is not "
+            "reading print_fields")
+    record("PLANT the six-field cap is back -> only 6 of 9 printed (red)",
+           shown == 6, f"{shown} field line(s) with the cap reinstated")
+
+    # AND A CAP THAT DOES ANNOUNCE ITSELF IS ACCEPTABLE, which is what the
+    # helper's `limit` exists for. This is the shape a future readability cap
+    # must have: the count it dropped, printed.
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        real("k", [f"f{i}" for i in range(9)], limit=4)
+    text = buffer.getvalue()
+    record("an announced cap prints what it dropped",
+           "+5 more field(s) not shown" in text,
+           text.strip().splitlines()[-1].strip())
+
+
+# ==========================================================================
+# the recorded NBA reference is the post-A3 one
+# ==========================================================================
+
+WITHDRAWN_REFERENCES = (0.4191701412200928, 0.42541608214378357)
+
+
+def recorded_reference() -> None:
+    """A dated record, asserted so a silent revert is impossible.
+
+    NOT A COMPARISON AGAINST A LIVE PREDICTION, and it cannot be: checked
+    2026-10-29, `HISTORICAL_NBA_REFERENCE` is read nowhere in the repository,
+    and this gate has no live reference to derive one from - it compares two
+    captures by design. So what is testable is that the recorded number is
+    the current one and not a withdrawn one, which is the failure that
+    actually happened: the A3 switch rebaselined the reference on 2026-10-25
+    and this constant still held the pre-A3 value four days later.
+    """
+    record("the recorded reference is the post-A3 value",
+           G.HISTORICAL_NBA_REFERENCE == 0.48472610116004944,
+           repr(G.HISTORICAL_NBA_REFERENCE))
+    record("and is not either withdrawn value",
+           G.HISTORICAL_NBA_REFERENCE not in WITHDRAWN_REFERENCES,
+           f"withdrawn: {WITHDRAWN_REFERENCES}")
+
+    # THE FIXTURE IT BELONGS TO, which a bare float cannot carry. ATL vs BOS
+    # is MATCHUPS["nba"][0], and that is the point of the pairing: the
+    # reference is the gate's own first body, not whatever the schedule
+    # happened to order first.
+    record("the fixture is the gate's own first NBA matchup",
+           G.HISTORICAL_NBA_REFERENCE_FIXTURE == G.MATCHUPS["nba"][0],
+           f"{G.HISTORICAL_NBA_REFERENCE_FIXTURE} vs "
+           f"{G.MATCHUPS['nba'][0]}")
+    record("the date and snapshot are recorded beside it",
+           G.HISTORICAL_NBA_REFERENCE_DATE == "2026-10-25"
+           and G.HISTORICAL_NBA_REFERENCE_SNAPSHOT == "2026-10-25T0945",
+           f"{G.HISTORICAL_NBA_REFERENCE_DATE} / "
+           f"{G.HISTORICAL_NBA_REFERENCE_SNAPSHOT}")
+
+    # 17 SIGNIFICANT DIGITS SURVIVED. A value recorded through PowerShell's
+    # -f operator loses the last digits and does not read back as the same
+    # double, which is the whole point of recording it.
+    record("the value round-trips at 17 significant digits",
+           float(repr(G.HISTORICAL_NBA_REFERENCE))
+           == G.HISTORICAL_NBA_REFERENCE
+           and len(repr(G.HISTORICAL_NBA_REFERENCE).split(".")[1]) >= 16,
+           repr(G.HISTORICAL_NBA_REFERENCE))
+
+
+def plant_withdrawn_reference() -> None:
+    """Put the withdrawn value back; the check must go red."""
+    real = G.HISTORICAL_NBA_REFERENCE
+    G.HISTORICAL_NBA_REFERENCE = 0.4191701412200928
+    try:
+        caught = (G.HISTORICAL_NBA_REFERENCE == 0.48472610116004944)
+        withdrawn = (G.HISTORICAL_NBA_REFERENCE in WITHDRAWN_REFERENCES)
+    finally:
+        G.HISTORICAL_NBA_REFERENCE = real
+    record("PLANT the withdrawn pre-A3 value is back -> caught (red)",
+           caught is False and withdrawn is True,
+           "0.4191701412200928 fails both assertions")
+
+
+# ==========================================================================
+# the backend half uses existing fixtures, and says so when it cannot
+# ==========================================================================
+
+def fixture(league, home, away, date, predictable=None):
+    """One row in the shape /api/games/schedule returns."""
+    row = {"league": league, "homeTeamId": home, "awayTeamId": away,
+           "gameDate": date}
+    if predictable is not None:
+        row["predictable"] = predictable
+    return row
+
+
+def backend_half_picks_existing_fixtures() -> None:
+    schedule = [
+        fixture("nba", 1610612757, 1610612763, "2026-10-29"),
+        fixture("nba", 1610612737, 1610612739, "2026-10-29"),
+        fixture("nba", 1610612740, 1610612758, "2026-10-29"),
+        fixture("nba", 1610612737, 1610612744, "2026-11-04"),
+    ]
+
+    chosen, reason = G.backend_fixtures(schedule, "nba", "2026-10-29")
+    record("two fixtures are chosen from the cached schedule",
+           len(chosen) == 2 and reason is None,
+           f"{chosen}, reason={reason}")
+    teams = {t for home, away, _d in chosen for t in (home, away)}
+    record("with four distinct teams, like MATCHUPS",
+           len(teams) == 4, f"{sorted(teams)}")
+    record("and only on the one permitted date",
+           all(d == "2026-10-29" for _h, _a, d in chosen),
+           "cutoff + 1, which is all MAX_DAYS_AHEAD allows")
+
+    # THE WNBA OUT OF SEASON: its sync caches nothing at all.
+    chosen, reason = G.backend_fixtures(schedule, "wnba", "2026-09-25")
+    record("a league with NO cached fixture is skipped WITH A REASON",
+           chosen == [] and reason and "no cached wnba fixture" in reason,
+           (reason or "")[:72])
+
+    # THE G LEAGUE OUT OF SEASON: fixtures exist, none on the one date.
+    gleague = [fixture("gleague", 1612709890, 1612709905, "2027-01-08")]
+    chosen, reason = G.backend_fixtures(gleague, "gleague", "2026-03-29")
+    record("fixtures but none on the date is a DIFFERENT reason",
+           chosen == [] and reason and "none of its 1 cached" in reason,
+           (reason or "")[:72])
+
+    # THE NFL READS ITS OWN FLAG, NOT THE DATE. Its rule is a dependency on
+    # both teams' earlier games, so a date filter would refuse everything.
+    nfl = [fixture("nfl", 1613000012, 1613000005, "2026-10-29", True),
+           fixture("nfl", 1613000011, 1613000018, "2026-11-01", True),
+           fixture("nfl", 1613000001, 1613000002, "2026-12-20", False)]
+    chosen, reason = G.backend_fixtures(nfl, "nfl", "1999-01-01")
+    record("the NFL picks by its predictable FLAG, ignoring the date",
+           len(chosen) == 2 and reason is None
+           and all(d != "1999-01-01" for _h, _a, d in chosen),
+           f"{chosen}")
+
+    unpredictable = [fixture("nfl", 1613000001, 1613000002, "2026-12-20",
+                             False)]
+    chosen, reason = G.backend_fixtures(unpredictable, "nfl", None)
+    record("an NFL week with nothing predictable yet is skipped with a "
+           "reason",
+           chosen == [] and reason and "dependency rule" in reason,
+           (reason or "")[:72])
+
+    # A SHORTFALL IS NOT A SILENT SUCCESS. One usable fixture where two were
+    # asked for still returns a reason alongside what it found.
+    one = [fixture("nba", 1610612737, 1610612739, "2026-10-29")]
+    chosen, reason = G.backend_fixtures(one, "nba", "2026-10-29")
+    record("finding ONE where two were asked for is reported too",
+           len(chosen) == 1 and reason and "only 1 of 2" in reason,
+           (reason or "")[:72])
+
+    # An unreadable schedule is an unknown, not an empty list.
+    chosen, reason = G.backend_fixtures(None, "nba", "2026-10-29")
+    record("an unreadable schedule says so rather than reading as empty",
+           chosen == [] and reason and "could not be read" in reason,
+           (reason or "")[:72])
+
+
+def skipped_half_reaches_the_verdict() -> None:
+    """A half captured on one side and skipped on the other is not a pass."""
+    tables = {"games_final.csv": "aaa"}
+
+    def side(skipped, fixtures):
+        block = context("2026-10-29T1027", tables)
+        block["backend_skipped"] = skipped
+        block["backend_fixtures"] = fixtures
+        return {"context": {"leagues": {"nba": block},
+                            "schedule_count": 1311, "teams_count": 30},
+                "bodies": {"inference_health": health(), "backend_health": {}}}
+
+    used = [{"home": 1, "away": 2, "date": "2026-10-29"}]
+    before = side(None, used)
+    after = side("the backend has no cached nba fixture at all", [])
+
+    ok, reasons, _notes, mutated = G.league_comparability(
+        before["context"]["leagues"]["nba"], after["context"]["leagues"]["nba"])
+    record("captured then skipped -> CANNOT COMPARE, not PASS",
+           ok is False and mutated is False,
+           f"comparable={ok}, mutated={mutated}")
+    record("and the reason NAMES the skip",
+           any("captured in one capture and skipped" in r for r in reasons),
+           [r[:72] for r in reasons][:2])
+
+    # A DIFFERENT FIXTURE IS ALSO NOT COMPARABLE. The choice comes from the
+    # live schedule, so it moves when a game is played or a week flexes -
+    # neither of which is a code change.
+    moved = side(None, [{"home": 3, "away": 4, "date": "2026-10-30"}])
+    ok, reasons, _notes, mutated = G.league_comparability(
+        before["context"]["leagues"]["nba"], moved["context"]["leagues"]["nba"])
+    record("a different existing fixture -> CANNOT COMPARE",
+           ok is False and mutated is False
+           and any("different existing fixtures" in r for r in reasons),
+           [r[:72] for r in reasons][:1])
+
+    # AND THE SAME FIXTURE IS STILL COMPARABLE, or the rule above would make
+    # every pair incomparable and the gate could never say PASS.
+    ok, reasons, _notes, mutated = G.league_comparability(
+        before["context"]["leagues"]["nba"],
+        side(None, used)["context"]["leagues"]["nba"])
+    record("the same fixture on both sides is still comparable",
+           ok is True and not reasons, f"comparable={ok}")
+
+    # SKIPPED ON BOTH SIDES IS COMPARABLE TOO: out of season that is the
+    # steady state, and a gate that withheld on it could never pass the WNBA.
+    both = side("the backend has no cached nba fixture at all", [])
+    ok, reasons, _notes, _m = G.league_comparability(
+        both["context"]["leagues"]["nba"], both["context"]["leagues"]["nba"])
+    record("skipped on BOTH sides is comparable, not withheld",
+           ok is True and not reasons,
+           "out of season this is the steady state")
+
+    # IT IS SAID OUT LOUD, EVERY RUN. The context carrying it is half the
+    # requirement; compare() printing it is the other half.
+    printed, _code = run_compare(before, after)
+    record("compare() prints the skip for the side that skipped",
+           "backend half SKIPPED in the current" in printed,
+           [line.strip() for line in printed.splitlines()
+            if "SKIPPED" in line][:1])
+    printed, _code = run_compare(side(None, used), side(None, used))
+    record("and names the fixtures it used when it did not skip",
+           "backend half used 1 existing fixture" in printed,
+           [line.strip() for line in printed.splitlines()
+            if "backend half used" in line][:1])
+
+
+def plant_skip_is_silent() -> None:
+    """Drop the two keys from the compared context, and the mismatch passes."""
+    tables = {"games_final.csv": "aaa"}
+
+    def side(skipped, fixtures):
+        block = context("2026-10-29T1027", tables)
+        block["backend_skipped"] = skipped
+        block["backend_fixtures"] = fixtures
+        return block
+
+    before = side(None, [{"home": 1, "away": 2, "date": "2026-10-29"}])
+    after = side("no cached fixture", [])
+
+    stripped_before = {k: v for k, v in before.items()
+                       if not k.startswith("backend_")}
+    stripped_after = {k: v for k, v in after.items()
+                      if not k.startswith("backend_")}
+    ok, reasons, _notes, _m = G.league_comparability(stripped_before,
+                                                     stripped_after)
+    if ok is False:
+        raise AssertionError(
+            "the stripped pair was still incomparable, so the check is not "
+            "reading the backend_ keys")
+    record("PLANT the backend keys out of the context -> the mismatch "
+           "PASSES silently",
+           ok is True and not reasons,
+           "so carrying them is what makes a skipped half visible")
+
+
+def run_compare(before, after):
+    """Drive the gate's own `compare` on two in-memory captures.
+
+    THE REAL FUNCTION, NOT A REIMPLEMENTATION. `compare` is a pure function
+    of two capture dicts, so there is nothing to stub: stdout is redirected
+    and the verdict is the one the gate would have reached.
+    """
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        code = G.compare(before, after)
+    return buffer.getvalue(), code
+
+
 def main() -> int:
     print("THE GATE'S TABLE RULE")
     print()
@@ -352,6 +717,17 @@ def main() -> int:
 
     print()
     refresh_block_rule()
+    print()
+    every_differing_field_is_printed()
+    every_field_is_printed_on_cannot_compare()
+    plant_field_cap()
+    print()
+    recorded_reference()
+    plant_withdrawn_reference()
+    print()
+    backend_half_picks_existing_fixtures()
+    skipped_half_reaches_the_verdict()
+    plant_skip_is_silent()
 
     passed = sum(1 for _n, ok_, _d in RESULTS if ok_)
     print()

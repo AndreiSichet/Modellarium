@@ -44,14 +44,40 @@ REPO = ML_TRAINING.parent
 BACKEND = os.environ.get("GATE_BACKEND", "http://localhost:8080")
 INFERENCE = os.environ.get("GATE_INFERENCE", "http://localhost:8000")
 
-# A DATED RECORD, NOT A CHECK. 0.4191701412200928 was the NBA reference
-# probability for ATL vs BOS on 2026-04-13, under snapshot 2026-10-06T2018 with
-# no injury report published, from the models A7 shipped on 2026-10-06. Its
-# predecessor, 0.42541608214378357, held from the 38-feature retrain on
-# 2026-08-26. Both are historical: once reports resume, the same request
-# against the same models returns something else, because four of the 38
-# features are a function of today rather than of the fixture.
-HISTORICAL_NBA_REFERENCE = 0.4191701412200928
+# A DATED RECORD, NOT A CHECK, AND NOTHING IN THIS FILE READS IT.
+#
+# Checked 2026-10-29: `HISTORICAL_NBA_REFERENCE` appears exactly once in the
+# whole repository - this assignment. No comparison uses it, so the withdrawn
+# value it held until today was never grading anything; it was a number
+# recorded under a name. Which also means "derive it from the same source the
+# gate uses" has no source to point at: this gate is pairwise by design and
+# has no live reference to compare against. So it stays a record, updated.
+#
+# WHAT IT RECORDS NOW. 0.48472610116004944 is the NBA reference probability
+# for the gate's own first body - ATL (1610612737) vs BOS (1610612738), a
+# CONSTRUCTED matchup from MATCHUPS below rather than a scheduled game - for
+# game_date 2026-10-25 under data_as_of 2026-10-24 and snapshot
+# 2026-10-25T0945, from the 34-feature models A3 shipped on 2026-10-25, with
+# the injury report pinned to INJURY_LIVE_AS_OF=2026-10-25T05:00:00.
+#
+# WHY THE OLD ONE COULD NOT BE DEFENDED, kept here because the succession is
+# the useful part: A3 dropped the four post-game availability features
+# (38 -> 34) and derived SEASON from the GAME_ID rather than the date, which
+# moved TEAM_ELO/OPPONENT_ELO on 14,592 rows. All seven team models are new
+# weights on a new feature history, so the old value cannot be reproduced by
+# the shipped models and is not a check that failed.
+#
+#   0.4191701412200928   ATL vs BOS 2026-04-13, snapshot 2026-10-06T2018,
+#                        post-A7 38-feature models      WITHDRAWN 2026-10-25
+#   0.42541608214378357  the 38-feature retrain of 2026-08-26   SUPERSEDED
+#
+# Not recorded with PowerShell's `-f` operator, ever: "{0}" -f $v prints 15
+# significant digits and the result does not read back as the same double.
+# Use .ToString('G17').
+HISTORICAL_NBA_REFERENCE = 0.48472610116004944
+HISTORICAL_NBA_REFERENCE_FIXTURE = (1610612737, 1610612738)
+HISTORICAL_NBA_REFERENCE_DATE = "2026-10-25"
+HISTORICAL_NBA_REFERENCE_SNAPSHOT = "2026-10-25T0945"
 
 # TWO MATCHUPS PER LEAGUE, FOUR DISTINCT TEAMS. One was demonstrably blind:
 # A7 corrected 135 games, and on 2026-04-13 not one of the 30 teams had a
@@ -300,6 +326,114 @@ def nfl_matchups(count=2) -> list:
     return chosen
 
 
+# Every differing field is printed. A CAP WOULD HAVE TO ANNOUNCE ITSELF, and
+# the version before 2026-10-29 did not: `fields[:6]` on the CANNOT COMPARE
+# branch and `fields[:8]` on REGRESSED, with a heading that counted BODIES
+# (`len(differing)`) rather than fields. Across the A3 switch that made
+# `total_rebounds` look unchanged when it had moved 0.2441 and 0.2745 - the
+# figure was only recovered afterwards by recomputing it from the baseline.
+#
+# The REGRESSED branch was the worse of the two: with seven markets it could
+# not truncate today, so a body with a ninth changed field would have hidden a
+# real regression behind a silent cut. The misleading-green pattern in its
+# purest form - green step, true fact, unreadable.
+#
+# There is no cap now. If one is ever wanted for readability it must print the
+# count it dropped, which is what SHOW_ALL_FIELDS being absent would mean.
+def print_fields(key: str, fields: list, limit: int = None) -> None:
+    """Every field, or `limit` of them followed by how many were dropped."""
+    shown = fields if limit is None else fields[:limit]
+    for field in shown:
+        print(f"             {key}  {field}")
+    dropped = len(fields) - len(shown)
+    if dropped:
+        print(f"             {key}  ... +{dropped} more field(s) not shown")
+
+
+def field_count(differing: list) -> int:
+    """Total differing FIELDS across bodies, which is not len(differing)."""
+    return sum(len(fields) for _key, fields in differing)
+
+
+def backend_fixtures(schedule, league: str, date, count: int = 2) -> tuple:
+    """Predictable fixtures the backend ALREADY HAS A ROW FOR.
+
+    WHY THE BACKEND HALF CANNOT USE THE CONSTRUCTED PAIRS. MATCHUPS holds
+    fixed team pairs so the inference half's bodies are stable from day to
+    day, and ATL vs BOS was chosen precisely because it is not a scheduled
+    game. Posting it to /api/predictions makes the backend run
+    GameLookup.findOrCreateGame, which CREATES a `game` row - so every
+    capture left two new rows in the production database, dated whatever
+    cutoff+1 was that morning. Measured 2026-10-29: 17 such rows, and 1,677
+    prediction rows hanging off them. A measuring tool was changing what it
+    measured.
+
+    So the backend half is pointed at rows that already exist. The source is
+    the backend's OWN cached schedule - the same body this capture already
+    fetched - which is by definition the set of `game` rows in the window. No
+    row can be created by posting one of them.
+
+    THE INFERENCE HALF IS UNCHANGED and keeps the constructed pairs. The two
+    halves are diffed against their own baselines and never cross-compared,
+    so they do not have to be the same fixture; what each one needs is to be
+    the same fixture as its own baseline, which the context below enforces.
+
+    PREDICTABILITY IS PER LEAGUE, as everywhere else in this project. The
+    three basketball leagues permit exactly cutoff + 1, so `date` is matched
+    exactly; the NFL's rule is a dependency on both teams' earlier games, so
+    its own `predictable` flag is read instead. A fixture the backend would
+    refuse is not a usable body.
+
+    Returns (fixtures, reason). `fixtures` is a list of (home, away, date);
+    `reason` is None when `count` were found and a sentence otherwise. An
+    empty list with a reason is the WNBA out of season, and it must be
+    REPORTED - see capture(), which records it in the context and prints it.
+    """
+    if not isinstance(schedule, list):
+        return [], ("the backend's schedule could not be read, so no "
+                    "existing fixture could be chosen")
+
+    rows = [row for row in schedule
+            if isinstance(row, dict) and row.get("league") == league]
+    if not rows:
+        return [], (f"the backend has no cached {league} fixture at all "
+                    f"(its sync writes none out of season)")
+
+    if league == "nfl":
+        # ITS OWN FLAG, NOT A DATE. 193 of 208 fixtures are refused at any
+        # moment under the dependency rule, and which ones changes weekly.
+        usable = [row for row in rows if row.get("predictable") is True]
+        why = "none of them is predictable yet under the dependency rule"
+    else:
+        usable = [row for row in rows if row.get("gameDate") == date]
+        why = (f"none of its {len(rows)} cached fixture(s) falls on "
+               f"{date}, the only date MAX_DAYS_AHEAD permits")
+
+    if not usable:
+        return [], f"the backend has {league} fixtures but {why}"
+
+    # FOUR DISTINCT TEAMS, the same shape MATCHUPS has and for the same
+    # reason: two bodies that share a team share whatever that team's
+    # features did.
+    chosen, used = [], set()
+    for row in usable:
+        home, away = row.get("homeTeamId"), row.get("awayTeamId")
+        if home is None or away is None or home in used or away in used:
+            continue
+        chosen.append((home, away, row.get("gameDate")))
+        used.update((home, away))
+        if len(chosen) == count:
+            break
+
+    if not chosen:
+        return [], (f"the backend's {league} fixtures could not yield a pair "
+                    f"with distinct teams")
+    if len(chosen) < count:
+        return chosen, (f"only {len(chosen)} of {count} usable {league} "
+                        f"fixture(s) with distinct teams")
+    return chosen, None
+
+
 def capture() -> dict:
     """Bodies plus the context they were produced under."""
     inference_health = curl("GET", f"{INFERENCE}/health")
@@ -362,6 +496,31 @@ def capture() -> dict:
                           for (h, a), d in zip(pairs, dates)],
         }
 
+        # THE BACKEND HALF, ON ROWS THAT ALREADY EXIST, and decided before
+        # the early return below so that a league with nothing predictable on
+        # the inference side still records what happened to its backend half.
+        # See backend_fixtures: posting a constructed pair here ran
+        # GameLookup.findOrCreateGame and CREATED a `game` row every morning,
+        # so the instrument was changing the database it measures.
+        chosen, shortfall = backend_fixtures(
+            schedule, league, dates[0] if dates else None)
+        context["leagues"][league]["backend_fixtures"] = [
+            {"home": h, "away": a, "date": d} for h, a, d in chosen]
+        context["leagues"][league]["backend_skipped"] = shortfall
+        if shortfall:
+            # LOUDLY, AND IN THE CONTEXT. A body that silently stops being
+            # captured is a guard that silently stops guarding - which is how
+            # the WNBA's freshness block came to be missing in the first
+            # place.
+            print(f"  {league}: BACKEND HALF SKIPPED - {shortfall}")
+        if not chosen:
+            bodies[f"{league}.backend.none"] = {
+                "__skipped__": shortfall or "no usable existing fixture"}
+        for index, (home, away, date) in enumerate(chosen):
+            bodies[f"{league}.backend.{index}"] = curl(
+                "POST", f"{BACKEND}{BACKEND_PATH[league]}",
+                {"homeTeamId": home, "awayTeamId": away, "gameDate": date})
+
         if not pairs:
             # Nothing predictable. True for the WNBA most of the year and for
             # the NFL between seasons, and reported rather than failed.
@@ -378,9 +537,6 @@ def capture() -> dict:
                 "POST", f"{INFERENCE}{PREDICT_PATH[league]}",
                 {"home_team_id": home, "away_team_id": away,
                  "game_date": date})
-            bodies[f"{league}.backend.{index}"] = curl(
-                "POST", f"{BACKEND}{BACKEND_PATH[league]}",
-                {"homeTeamId": home, "awayTeamId": away, "gameDate": date})
 
     # Not league-scoped and not a prediction, so kept beside them: a count that
     # slides with the calendar, guarded against collapse rather than diffed.
@@ -460,6 +616,25 @@ def league_comparability(before: dict, after: dict) -> tuple:
                        f"{after.get('data_as_of')}")
     if before.get("model_sha256") != after.get("model_sha256"):
         reasons.append("models changed")
+    # WHICH EXISTING FIXTURE THE BACKEND HALF USED. It is chosen from the
+    # backend's cached schedule at capture time, so it can move between two
+    # captures for reasons that are not code: a fixture becoming predictable,
+    # a played game leaving the window, the date rolling over. A body
+    # difference on a different fixture is not attributable to a change, so
+    # the league withholds instead of asserting one.
+    if before.get("backend_fixtures") != after.get("backend_fixtures"):
+        reasons.append(
+            f"the backend half used different existing fixtures "
+            f"({before.get('backend_fixtures')} -> "
+            f"{after.get('backend_fixtures')})")
+    # AND A HALF THAT WAS CAPTURED IN ONE AND SKIPPED IN THE OTHER. Not a
+    # defect, and not comparable either: one side has a body the other has
+    # not. Reported as its own reason rather than folded into the line above.
+    if bool(before.get("backend_skipped")) != bool(after.get("backend_skipped")):
+        reasons.append(
+            f"the backend half was captured in one capture and skipped in "
+            f"the other ({before.get('backend_skipped') or 'captured'} -> "
+            f"{after.get('backend_skipped') or 'captured'})")
     if before.get("availability_state") != after.get("availability_state"):
         reasons.append(f"availability {before.get('availability_state')} -> "
                        f"{after.get('availability_state')}")
@@ -551,18 +726,18 @@ def compare(before: dict, after: dict) -> int:
             print(f"           A body difference here is not attributable to "
                   f"a code change.")
             if differing:
-                print(f"           {len(differing)} body/bodies differ, "
-                      f"shown as information:")
+                print(f"           {len(differing)} body/bodies and "
+                      f"{field_count(differing)} field(s) differ, shown as "
+                      f"information:")
                 for key, fields in differing:
-                    for field in fields[:6]:
-                        print(f"             {key}  {field}")
+                    print_fields(key, fields)
         elif differing:
             verdicts[league] = "REGRESSED"
             print(f"  {league:<8} REGRESSED - context identical, "
-                  f"{len(differing)} body/bodies differ:")
+                  f"{len(differing)} body/bodies and "
+                  f"{field_count(differing)} field(s) differ:")
             for key, fields in differing:
-                for field in fields[:8]:
-                    print(f"             {key}  {field}")
+                print_fields(key, fields)
             regressions.append(league)
         else:
             verdicts[league] = "PASS"
@@ -570,6 +745,22 @@ def compare(before: dict, after: dict) -> int:
                   f"byte-identical")
         for note in notes:
             print(f"           note: {note}")
+
+        # THE BACKEND HALF'S COVERAGE, STATED EVERY RUN. A skipped body is
+        # reported whether or not the league passed, because "PASS - every
+        # body byte-identical" over a body that was never captured is the
+        # misleading green this gate exists to avoid.
+        for side, label in ((b, "baseline"), (a, "current")):
+            skipped = side.get("backend_skipped")
+            if skipped:
+                print(f"           backend half SKIPPED in the {label}: "
+                      f"{skipped}")
+        used = a.get("backend_fixtures")
+        if used is not None and not a.get("backend_skipped"):
+            print(f"           backend half used {len(used)} existing "
+                  f"fixture(s): "
+                  + ", ".join(f"{f['home']}v{f['away']}@{f['date']}"
+                              for f in used))
 
     for name in ("inference_health", "backend_health"):
         b = strip_health_context(strip_volatile(before["bodies"].get(name)))
