@@ -12,6 +12,9 @@ before.
 """
 
 import argparse
+import contextlib
+import hashlib
+import io
 import json
 import os
 import shutil
@@ -19,11 +22,17 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 HERE = Path(__file__).resolve().parent
 PROJECT = HERE.parent
 sys.path.insert(0, str(HERE))
 import daily_refresh as refresh  # noqa: E402
+# ONE DEFINITION OF THE GUARD, imported rather than copied. The
+# BaseException subtlety in RealSubprocessRefused is exactly the
+# kind of detail a second copy loses, and a guard absorbed by
+# `except Exception` reports CARRIED while preventing nothing.
+import verify_refresh_isolation as ISOLATION  # noqa: E402
 from served_data import (  # noqa: E402
     POINTER_FILE, REQUIRED_FILES, SNAPSHOTS_DIR, missing_files)
 
@@ -69,6 +78,48 @@ PROBE_PREFIX = "9999-"
 NEWLINE = chr(10)
 
 results = []
+
+
+def _outcome_writer(path: Path):
+    """record_outcome as _run expects it, writing only the outcome file.
+
+    The real one also writes the volume's last_refresh.json. Deliberately not
+    done here: this verifier runs against a COPY of the volume, and a record
+    written into that copy would then be read by a later check as though a
+    refresh had run.
+    """
+    def record_outcome(name, snapshot=None, per_league=None):
+        path.write_text(name, encoding="utf-8")
+    return record_outcome
+
+
+def tracked_data_tables() -> list:
+    """Every tracked *.csv under data-pipeline/data/, as git sees it.
+
+    DERIVED FROM GIT, never a list written here. The un-ignored set has
+    already changed twice - team_advanced_rolling was added, and the NFL's are
+    forbidden outright by licence - and a hand-kept list would quietly stop
+    covering a new one, which is this project's most-repeated defect shape.
+    """
+    done = subprocess.run(
+        ["git", "ls-files", "data-pipeline/data"],
+        capture_output=True, text=True, cwd=PROJECT)
+    if done.returncode != 0:
+        return []
+    return [PROJECT / line.strip() for line in done.stdout.splitlines()
+            if line.strip().endswith(".csv")]
+
+
+def tracked_table_hashes() -> dict:
+    """sha256 per tracked table, keyed by repo-relative path."""
+    out = {}
+    for path in tracked_data_tables():
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            digest = "ABSENT"
+        out[path.relative_to(PROJECT).as_posix()] = digest
+    return out
 
 
 def record(name, ok, detail=""):
@@ -389,32 +440,120 @@ def check_workflow_invocation() -> None:
     before any restart, so nothing being asserted here depends on it.
     """
     section("7  THE WORKFLOW'S OWN INVOCATION REBUILDS AND STAGES EVERY LEAGUE")
+
+    # NO REAL PIPELINE STEP RUNS HERE ANY MORE, AND THAT IS A FIX RATHER THAN
+    # A WEAKENING. Until 2026-10-29 this check ran daily_refresh.py as a
+    # subprocess with no --skip-rebuild, so it executed all thirteen steps in
+    # `cwd=PROJECT`: it fetched from nba_api and rewrote
+    # data-pipeline/data/processed/{games_final,player_boxscores_with_rolling,
+    # quarter_half_raw}.csv. Observed twice on 2026-10-22, +28 rows each time.
+    # Worse, `git checkout --` restored only the TRACKED four; the untracked
+    # intermediates (games_master, games_with_rolling, games_with_features)
+    # were left a season ahead of them while `git status` reported clean, so
+    # the repo copy was internally inconsistent for two days with no
+    # instrument able to see it.
+    #
+    # THE PROPERTY THIS CHECK EXISTS FOR IS ARGUMENT WIRING, NOT nba_api.
+    # "No league is silently dropped from the rebuild" is a question about
+    # which leagues `_run` iterates - the NFL was in LEAGUES and absent from
+    # the --leagues default - and a recording stub answers it directly. It
+    # answers it BETTER, too: the old version read league names out of
+    # stdout, and its own comment admitted that on a machine whose tree
+    # already holds a league's tables a dropped league still stages nine
+    # files.
+    #
+    # The run is IN-PROCESS because that is the only way the guard can refuse
+    # at all: a subprocess cannot see this process's substitution. The CLI
+    # contract is kept by the --skip-rebuild subprocess further down, which
+    # starts no step and writes nothing.
+    attempted = []
+    real_run_step = refresh.run_step
+
+    def recording_run_step(script, timeout, env=None):
+        """Record the step, never start it, and report success.
+
+        Returns what run_step returns - a list of surfaced fetch-counter
+        lines, empty here - so `rebuild_league` proceeds as though the step
+        had passed. What is being checked is which steps were ASKED for, not
+        what they would have produced.
+        """
+        attempted.append(getattr(script, "name", str(script)))
+        return []
+
     outcome_file = VOLUME / "verify-outcome.txt"
-    done = subprocess.run(
-        [sys.executable, "-W", "ignore", str(HERE / "daily_refresh.py"),
-         "--volume", str(VOLUME),
-         "--outcome-file", str(outcome_file),
-         # the one deviation; see the docstring
-         "--no-restart"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-        cwd=PROJECT, timeout=7200)
-    out = (done.stdout or "") + (done.stderr or "")
+    args = SimpleNamespace(
+        volume=str(VOLUME), leagues=",".join(refresh.LEAGUES),
+        step_timeout=60, full_refetch=False, force_swap=False,
+        skip_rebuild=False, stats_file=None, summary_file=None,
+        outcome_file=str(outcome_file), no_restart=True)
 
-    record("the run is GREEN", done.returncode == refresh.EXIT_OK,
-           f"exit {done.returncode}")
+    # STDOUT IS CAPTURED, because one assertion below reads a line validate()
+    # prints about the snapshot it staged. The subprocess version got that
+    # from done.stdout; in-process it has to be redirected, and it is printed
+    # afterwards so a failing run is still readable.
+    before_tables = tracked_table_hashes()
+    buffer = io.StringIO()
+    refresh.run_step = recording_run_step
+    try:
+        with contextlib.redirect_stdout(buffer):
+            code = refresh._run(args, VOLUME, list(refresh.LEAGUES),
+                                _outcome_writer(outcome_file))
+    finally:
+        refresh.run_step = real_run_step
+    after_tables = tracked_table_hashes()
+    out = buffer.getvalue()
+    staged_outcome = (outcome_file.read_text(encoding="utf-8").strip()
+                      if outcome_file.is_file() else "(no outcome file)")
 
-    # THE ASSERTION THAT CATCHES A DROPPED LEAGUE, and the reason the table
-    # count below cannot do it alone: stage() copies REQUIRED_FILES out of the
-    # repo whatever --leagues said, so on a machine whose working tree already
-    # holds a league's tables a three-league run still stages nine files - it
-    # just stages one league's from a rebuild that never ran. Only the rebuild
-    # output says which leagues were actually rebuilt.
-    rebuilt = [name for name in refresh.LEAGUES
-               if f"{NEWLINE}  {name}{NEWLINE}" in out]
-    missing_leagues = [name for name in refresh.LEAGUES if name not in rebuilt]
-    record("every league in LEAGUES was rebuilt by this run",
+    record("the run reached a verdict",
+           code in (refresh.EXIT_OK, refresh.EXIT_PARTIAL), f"exit {code}")
+
+    # THE ASSERTION THAT CATCHES A DROPPED LEAGUE, derived from LEAGUES'
+    # own step lists rather than from a name heuristic or from stdout.
+    rebuilt = sorted(
+        league for league, spec in refresh.LEAGUES.items()
+        if any(step.name in attempted for step in spec["steps"]))
+    missing_leagues = [name for name in refresh.LEAGUES
+                       if name not in rebuilt]
+    record("every league in LEAGUES was asked to rebuild",
            not missing_leagues,
-           f"rebuilt {rebuilt}; never rebuilt {missing_leagues or 'none'}")
+           f"{len(attempted)} step(s) attempted; rebuilt {rebuilt}; "
+           f"never rebuilt {missing_leagues or 'none'}")
+
+    # AND NOTHING IN THE WORKING COPY MOVED, which is the whole point.
+    # Hashes rather than mtimes: a rebuild producing identical bytes would
+    # still have been a real fetch, but a differing hash is unambiguous.
+    changed = [name for name, digest in before_tables.items()
+               if after_tables.get(name) != digest]
+    record("no tracked data table was rewritten by check 7",
+           not changed,
+           f"{len(before_tables)} tracked table(s) hashed; "
+           f"changed {changed or 'none'}")
+
+    # THE PLANT, RUN EVERY TIME RATHER THAN BY HAND. Put the real path back -
+    # by installing the refusing stand-in, which is what a real subprocess
+    # would hit first - and the run must refuse loudly instead of fetching.
+    # RealSubprocessRefused derives from BaseException precisely so
+    # stage_per_league's `except Exception` cannot absorb it into a CARRIED
+    # league, which is how the first version of that guard passed while
+    # preventing nothing.
+    refused = None
+    refresh.run_step = ISOLATION.refusing_run_step
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            refresh._run(args, VOLUME, list(refresh.LEAGUES),
+                         _outcome_writer(outcome_file))
+    except ISOLATION.RealSubprocessRefused as error:
+        refused = str(error)
+    except BaseException as error:                              # noqa: BLE001
+        refused = f"WRONG EXCEPTION {type(error).__name__}: {error}"
+    finally:
+        refresh.run_step = real_run_step
+    record("PLANT the real step path refuses loudly rather than running",
+           refused is not None and "RealSubprocess" not in str(refused)
+           and "tried to run" in (refused or ""),
+           (refused or "NOTHING WAS REFUSED - a real subprocess would "
+                       "have started")[:96])
 
     # THE STAGED SNAPSHOT, WHICH IS NOT THE SERVED ONE. On a nothing-new run
     # no swap happens and the staging directory is removed, so reading the
@@ -438,10 +577,13 @@ def check_workflow_invocation() -> None:
            f"{len(REQUIRED_FILES)} present"
            + (f"; missing {absent}" if absent else ""))
 
-    outcome = (outcome_file.read_text(encoding="utf-8").strip()
-               if outcome_file.is_file() else "(no outcome file)")
+    # READ BEFORE THE PLANT RAN, not after. RealSubprocessRefused derives
+    # from BaseException so it is not caught and the plant writes no outcome -
+    # but reading it afterwards would make this assertion depend on that,
+    # which is a dependency nobody would expect to find here.
     record("it reported a verdict the workflow can read",
-           outcome in {"advanced", "nothing-new"}, f"outcome {outcome!r}")
+           staged_outcome in {"advanced", "nothing-new", "partial"},
+           f"outcome {staged_outcome!r}")
     if outcome_file.is_file():
         outcome_file.unlink()
 

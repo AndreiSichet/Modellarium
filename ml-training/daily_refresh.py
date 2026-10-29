@@ -45,9 +45,9 @@ sys.path.insert(0, str(HERE))
 import pandas as pd  # noqa: E402
 import drift_report  # noqa: E402
 from served_data import (  # noqa: E402
-    OPTIONAL_FILES, POINTER_FILE, REPO_DATA_ROOT, REQUIRED_FILES,
-    SNAPSHOTS_DIR, missing_files, resolve_root, write_last_refresh,
-    write_snapshot_metadata)
+    OPTIONAL_FILES, POINTER_FILE, REFRESH_LATE_HOURS, REPO_DATA_ROOT,
+    REQUIRED_FILES, SNAPSHOTS_DIR, missing_files, read_last_refresh,
+    resolve_root, write_last_refresh, write_snapshot_metadata)
 
 DEFAULT_VOLUME = Path("D:/modellarium-data")
 KEEP_SNAPSHOTS = 7
@@ -418,6 +418,97 @@ def served_snapshot(attempts: int = 20, delay: float = 3.0,
     return {}
 
 
+# A staging directory this old cannot belong to a live run: the longest real
+# refresh measured is 18.0 minutes and the lock itself goes stale at 4 hours,
+# so 6 hours is past anything that could still be working. Deliberately not
+# "older than a day", which CLAUDE.md suggested - a cancelled 07:00 run would
+# then survive until the next morning's, which is the one run whose log nobody
+# reads twice.
+STAGING_STALE_AFTER_HOURS = 6
+
+
+def directory_size(path: Path) -> int:
+    """Bytes under `path`, counting files only, errors ignored."""
+    total = 0
+    for item in path.rglob("*"):
+        try:
+            if item.is_file():
+                total += item.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def sweep_staging(volume: Path, identifier: str,
+                  max_age_hours: float = STAGING_STALE_AFTER_HOURS) -> list:
+    """Remove orphaned `*.staging` directories. Called INSIDE the lock.
+
+    NOTHING HAS EVER REMOVED THESE. `prune` skips them by name, and
+    `stage_per_league` removes only the staging directory of the run it is in
+    - whose identifier is minute-granular and never recurs. So a run cancelled
+    between two leagues leaves its partial snapshot on the volume for good:
+    `2026-10-24T1331.staging`, 84.9 MB, the remains of a server-side
+    cancellation, sat there until it was deleted by hand on 2026-10-25.
+
+    THREE THINGS IT MUST NOT TOUCH, and each is checked rather than assumed:
+
+    * a completed snapshot. Only names ending `.staging` are considered, so a
+      real snapshot is out of scope by construction - including one that
+      happens to be NAMED like a staging directory, because the suffix test
+      is on the name and a completed snapshot never carries it.
+    * the directory `current` points at. Checked explicitly even though the
+      pointer can only name a completed snapshot, because "can only" is the
+      kind of claim that stops being true quietly, and the cost of the check
+      is one string comparison.
+    * THIS run's staging directory. At the moment this is called it does not
+      exist yet, so the age filter alone would do - but relying on that would
+      make the sweep unsafe the first time anything is reordered, and the
+      identifier is already in hand.
+
+    Returns what it removed, so the caller can report it and a test can
+    assert on it rather than on stdout.
+    """
+    root = volume / SNAPSHOTS_DIR
+    if not root.is_dir():
+        return []
+    current = read_pointer(volume)
+    cutoff = time.time() - max_age_hours * 3600.0
+    removed = []
+
+    for path in sorted(root.glob("*.staging")):
+        if not path.is_dir():
+            continue
+        if path.name == f"{identifier}.staging":
+            continue
+        if path.name == current or path.stem == current:
+            print(f"  kept {path.name}: the pointer names it", flush=True)
+            continue
+        try:
+            age_seconds = time.time() - path.stat().st_mtime
+        except OSError as error:
+            print(f"  kept {path.name}: cannot read its age "
+                  f"({type(error).__name__})", flush=True)
+            continue
+        if path.stat().st_mtime > cutoff:
+            print(f"  kept {path.name}: only {age_seconds / 3600:.1f}h old, "
+                  f"under {max_age_hours}h - a run may still be using it",
+                  flush=True)
+            continue
+
+        size = directory_size(path)
+        shutil.rmtree(path, ignore_errors=True)
+        if path.exists():
+            print(f"  WARNING: could not remove {path.name}", flush=True)
+            continue
+        removed.append((path.name, size, age_seconds))
+        print(f"  swept {path.name}: {size / 1_048_576:.1f} MB, "
+              f"{age_seconds / 3600:.1f}h old", flush=True)
+
+    if not removed:
+        print("  no orphaned staging directory to sweep", flush=True)
+    return removed
+
+
 def prune(volume: Path, keep: int) -> None:
     snapshots = sorted(
         (p for p in (volume / SNAPSHOTS_DIR).glob("*")
@@ -564,6 +655,14 @@ def main() -> int:
     args = parser.parse_args()
 
     volume = Path(args.volume)
+
+    # BEFORE ANYTHING ELSE WRITES OR READS EITHER FILE. The summary is
+    # emptied so only this run reaches GitHub, and the previous run's
+    # timestamp is read while it is still the PREVIOUS one - record_outcome
+    # overwrites it on every terminal path.
+    start_summary(args)
+    write_summary(args, previous_run_lines(volume))
+
     leagues = [name.strip() for name in args.leagues.split(",")
                if name.strip()]
     unknown = [name for name in leagues if name not in LEAGUES]
@@ -1118,6 +1217,97 @@ def outcome_table(per_league, before) -> list:
     return lines
 
 
+def start_summary(args) -> None:
+    """Empty the summary file, so only THIS run's content reaches GitHub.
+
+    MEASURED 2026-10-29: the summary file on the runner held **eleven**
+    per-league tables. `write_summary` opens it with mode "a", the workflow
+    passes a fixed relative path (`refresh-summary.md`) and then pipes the
+    whole file into $GITHUB_STEP_SUMMARY - and nothing ever removed it,
+    because the runner's checkout uses `clean: false` so that the ignored
+    `data/raw/` corpus survives. So every run appended to every previous run's
+    content and Monday's job summary showed Friday's, Saturday's twice,
+    Sunday's and Monday's tables, newest last.
+
+    TRUNCATED HERE RATHER THAN IN THE WORKFLOW, which was the other option.
+    A `Remove-Item` step would fix the scheduled job and leave the defect in
+    place for every local and rehearsal invocation - and the rehearsal is
+    exactly where a second run's table appearing under the first would be
+    read as the harness having done something. One place, however the script
+    is invoked.
+
+    NOT ALLOWED TO FAIL THE RUN, for the same reason the outcome record is
+    not: this is presentation, and an unwritable path must not turn a good
+    refresh into a failed one. It warns, which is the one kind of place in
+    this file where a warning is the right instrument.
+    """
+    if not args.summary_file:
+        return
+    try:
+        with open(args.summary_file, "w", encoding="utf-8"):
+            pass
+    except OSError as error:
+        print(f"WARNING: could not empty {args.summary_file}: "
+              f"{type(error).__name__}: {error}", flush=True)
+
+
+def previous_run_lines(volume: Path) -> list:
+    """How long since the previous run, read BEFORE this one overwrites it.
+
+    READ AT STARTUP, WHICH IS THE WHOLE POINT. `record_outcome` rewrites
+    last_refresh.json on every terminal path, so by the time the summary is
+    assembled the previous run's timestamp is gone. This is called before any
+    step runs.
+
+    THE SAME INSTRUMENT /health USES, deliberately. `read_last_refresh` owns
+    the thresholds (late at REFRESH_LATE_HOURS, overdue at
+    REFRESH_OVERDUE_HOURS) and the derivation, so the summary and /health
+    cannot disagree about whether a gap is late - two places computing the
+    same judgement is how they end up saying different things on the same
+    morning.
+
+    BUT THE WARNING IS KEYED ON THE HOURS, NOT ON `state`. `read_last_refresh`
+    returns `failed` in preference to `late`, short-circuiting before the
+    hours are examined - so a previous run that failed 27 hours ago reports
+    `failed` and would, if the warning keyed on the state, print no late
+    warning at all. Both facts are worth printing and they are printed
+    separately.
+
+    AN ABSENT RECORD IS AN UNKNOWN, NOT A ZERO. "0.0 h since the previous
+    run" on a volume that has never been refreshed is the conflation this
+    project has four recorded bugs from, so it says so in words.
+    """
+    record = read_last_refresh(volume)
+    state = record.get("state")
+    hours = record.get("hours_since")
+    outcome = record.get("outcome")
+    stamp = record.get("last_verdict_at")
+
+    if state == "not_a_volume":
+        return ["_No previous run recorded: this DATA_DIR is a plain data "
+                "root rather than a volume, so no refresh job maintains a "
+                "record here._"]
+    if hours is None:
+        return [f"_No previous run recorded (`{state}`), so the gap since "
+                f"the last refresh is **unknown** rather than zero._"]
+
+    lines = [f"_Previous run: **{hours:.1f} h** ago "
+             f"(`{outcome}`, {stamp})._"]
+    if hours >= REFRESH_LATE_HOURS:
+        lines.append("")
+        lines.append(
+            f"> **Late: {hours:.1f} h since the previous run, past the "
+            f"{REFRESH_LATE_HOURS} h threshold.** The cron QUEUES at 07:00 "
+            f"and this runner starts when the host wakes, so a gap of around "
+            f"half a day is ordinary here; this one is longer than that.")
+    if outcome in ("failed", "partial", "drift-report-failed"):
+        lines.append("")
+        lines.append(
+            f"> **The previous run ended `{outcome}`.** Whatever is being "
+            f"served may be older than the timestamp above.")
+    return lines
+
+
 def write_summary(args, lines) -> None:
     """Append markdown to the workflow summary, if one was asked for.
 
@@ -1151,6 +1341,12 @@ def _run(args, volume, leagues, record_outcome) -> int:
         print(f"  {league:<9}data_as_of {date}")
 
     identifier = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M")
+
+    # INSIDE THE LOCK, which main() holds for the whole of _run, and before
+    # anything stages: a sweep racing a concurrent run is exactly how you
+    # delete a staging directory someone is writing into.
+    section("SWEEP ORPHANED STAGING")
+    sweep_staging(volume, identifier)
 
     if args.full_refetch:
         return _drift_report(args, volume, leagues, previous_root,

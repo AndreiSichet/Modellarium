@@ -23,10 +23,12 @@ under --work.
 """
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -35,7 +37,10 @@ PROJECT = HERE.parent
 WORKFLOW = PROJECT / ".github" / "workflows" / "daily-refresh.yml"
 
 sys.path.insert(0, str(HERE))
+import daily_refresh as D  # noqa: E402
 import served_data as S  # noqa: E402
+
+NEWLINE = chr(10)
 
 RESULTS = []
 
@@ -330,6 +335,270 @@ def plant_missing_blank_line(work: Path) -> None:
            str(table_rows_are_in_tables(bad)[:1]))
 
 
+# ==========================================================================
+# 3. the summary holds THIS run only, and says how long since the last one
+# ==========================================================================
+
+def _args(summary_file=None):
+    """The one attribute start_summary and write_summary actually read."""
+    return argparse.Namespace(summary_file=summary_file)
+
+
+def summary_holds_one_run(work: Path) -> None:
+    """Two runs in a row must leave one table, not two.
+
+    THE DEFECT WAS AN ABSENT TRUNCATION, NOT A BAD APPEND. write_summary has
+    always opened the file with mode "a", which is right - it is called
+    several times per run and each call adds a section. What was missing was
+    anything emptying the file BETWEEN runs, and the runner's checkout uses
+    `clean: false` so the file survives. Measured on the runner 2026-10-29:
+    ELEVEN accumulated per-league tables in 3,016 bytes.
+    """
+    path = work / "summary-two-runs.md"
+
+    for run in ("first", "second"):
+        D.start_summary(_args(path))
+        D.write_summary(_args(path), ["### Per league", "",
+                                      "| league | outcome |", "|---|---|",
+                                      f"| nba | {run} |"])
+
+    text = path.read_text(encoding="utf-8")
+    record("two consecutive runs leave ONE per-league table",
+           text.count("### Per league") == 1,
+           f"{text.count('### Per league')} table(s) in the file")
+    record("and it is the SECOND run's, not the first's",
+           "second" in text and "first" not in text,
+           "only the latest run's rows survive")
+
+    # An absent --summary-file must be a no-op rather than a crash: the local
+    # and rehearsal invocations pass none.
+    D.start_summary(_args(None))
+    D.write_summary(_args(None), ["anything"])
+    record("no --summary-file is a no-op, not a crash", True,
+           "start_summary and write_summary both return early")
+
+    # An unwritable path must warn, not fail the refresh.
+    try:
+        D.start_summary(_args(work / "no-such-dir" / "s.md"))
+        survived = True
+    except Exception:                                           # noqa: BLE001
+        survived = False
+    record("an unwritable summary path warns and does not raise",
+           survived, "presentation must not fail the swap")
+
+
+def plant_summary_truncation(work: Path) -> None:
+    """Put the absent truncation back, and the one-table check goes red."""
+    path = work / "summary-plant.md"
+    real = D.start_summary
+
+    def appending_start(args):
+        """The defect exactly as it shipped: nothing empties the file."""
+        return None
+
+    D.start_summary = appending_start
+    try:
+        for run in ("first", "second"):
+            D.start_summary(_args(path))
+            D.write_summary(_args(path), ["### Per league", "",
+                                          f"| nba | {run} |"])
+        tables = path.read_text(encoding="utf-8").count("### Per league")
+    finally:
+        D.start_summary = real
+
+    if tables == 1:
+        raise PlantDidNothing(
+            "the plant left one table, so the check cannot be reading the "
+            "truncation")
+    record("PLANT no truncation -> two tables accumulate (red)",
+           tables == 2, f"{tables} tables with start_summary neutered")
+
+
+def hours_since_line(work: Path) -> None:
+    """The line spec 2 asked for, and the warning threshold.
+
+    READ BEFORE THE RUN OVERWRITES IT. record_outcome rewrites
+    last_refresh.json on every terminal path, so this is only answerable at
+    startup - which is where previous_run_lines is called from.
+    """
+    volume = fake_volume(work, "vol-hours")
+    late = S.REFRESH_LATE_HOURS
+
+    def at(hours, outcome="advanced"):
+        S.write_last_refresh(volume, outcome, "2026-10-22T0711", {})
+        body = json.loads(
+            (volume / S.LAST_REFRESH_FILE).read_text(encoding="utf-8"))
+        body["finished_at"] = (
+            datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        (volume / S.LAST_REFRESH_FILE).write_text(
+            json.dumps(body), encoding="utf-8")
+        return NEWLINE.join(D.previous_run_lines(volume))
+
+    # NO RECORD AT ALL. An unknown, never a zero - the conflation this
+    # project has four recorded bugs from.
+    missing = NEWLINE.join(D.previous_run_lines(volume))
+    record("no previous record says so in words, and does not crash",
+           "No previous run recorded" in missing and "unknown" in missing,
+           missing.strip()[:80])
+    record("and it does NOT print a 0.0 h gap",
+           "0.0 h" not in missing, "an absent record is not a fresh one")
+
+    under = at(late - 1)
+    record(f"{late - 1}h prints the line and no warning",
+           f"{late - 1:.1f} h" in under and "Late:" not in under,
+           under.strip()[:80])
+
+    over = at(late + 1)
+    record(f"{late + 1}h prints the line AND the late warning",
+           f"{late + 1:.1f} h" in over and "Late:" in over
+           and str(late) in over,
+           over.strip()[:80])
+
+    # EXACTLY AT THE THRESHOLD warns, matching read_last_refresh's own `>=`.
+    record(f"exactly {late}h warns, like /health's own boundary",
+           "Late:" in at(late), f"{late}h is late, not ok")
+
+    # A PREVIOUS RUN THAT FAILED, 27h ago. read_last_refresh returns `failed`
+    # in preference to `late`, short-circuiting before the hours are looked
+    # at - so a warning keyed on `state` would print nothing here.
+    both = at(late + 1, outcome="failed")
+    record("a failed run 27h ago prints BOTH warnings, not just one",
+           "Late:" in both and "ended `failed`" in both,
+           "the hours and the outcome are separate facts")
+
+    # A plain data root is a different answer from a volume with no record.
+    plain = work / "plain-for-hours"
+    plain.mkdir(parents=True, exist_ok=True)
+    text = NEWLINE.join(D.previous_run_lines(plain))
+    record("a plain data root says NOT a volume, a different answer",
+           "plain data root" in text, text.strip()[:80])
+
+
+def plant_hours_threshold(work: Path) -> None:
+    """Key the warning on `state` instead of the hours, and lose a case."""
+    volume = fake_volume(work, "vol-hours-plant")
+    late = S.REFRESH_LATE_HOURS
+    S.write_last_refresh(volume, "failed", "2026-10-22T0711", {})
+    body = json.loads(
+        (volume / S.LAST_REFRESH_FILE).read_text(encoding="utf-8"))
+    body["finished_at"] = (datetime.now(timezone.utc)
+                           - timedelta(hours=late + 1)).isoformat()
+    (volume / S.LAST_REFRESH_FILE).write_text(
+        json.dumps(body), encoding="utf-8")
+
+    real = D.read_last_refresh
+
+    def state_only(vol, now=None):
+        """As if the warning were keyed on `state`, which hides this case."""
+        got = real(vol, now)
+        got["hours_since"] = 0.0           # what keying on `state` amounts to
+        return got
+
+    D.read_last_refresh = state_only
+    try:
+        text = NEWLINE.join(D.previous_run_lines(volume))
+    finally:
+        D.read_last_refresh = real
+
+    if "Late:" in text:
+        raise PlantDidNothing("the plant still warned, so the check is not "
+                              "reading the hours")
+    record("PLANT warning keyed on state -> a late 'failed' run is silent",
+           "Late:" not in text and "ended `failed`" in text,
+           "the outcome is reported and the 27h gap is not")
+
+
+# ==========================================================================
+# 4. orphaned staging directories are swept, and only those
+# ==========================================================================
+
+def staging_sweep(work: Path) -> None:
+    """Old orphans go; everything else stays.
+
+    SEVEN ASSERTIONS AND FIVE OF THEM ARE ABOUT WHAT MUST NOT BE REMOVED. A
+    sweep that only proves it deletes something is the dangerous half of the
+    test: this runs inside the refresh lock, on the volume the app serves.
+    """
+    volume = fake_volume(work, "vol-sweep")
+    snapshots = volume / S.SNAPSHOTS_DIR
+    old = time.time() - 48 * 3600
+    fresh = time.time() - 10 * 60
+
+    def make(name, mtime):
+        path = snapshots / name / "processed"
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "games_final.csv").write_text("x" * 2048, encoding="utf-8")
+        os.utime(snapshots / name, (mtime, mtime))
+        return snapshots / name
+
+    stale = make("2026-10-24T1331.staging", old)
+    young = make("2026-10-29T1800.staging", fresh)
+    completed = make("2026-10-22T0711", old)          # the pointer's target
+    looks_like = make("2026-10-20T0900", old)         # a completed snapshot
+    mine = make("2026-10-29T1900.staging", old)       # THIS run's
+
+    removed = D.sweep_staging(volume, "2026-10-29T1900")
+    names = [name for name, _size, _age in removed]
+
+    record("a 2-day-old orphan is removed",
+           not stale.exists() and "2026-10-24T1331.staging" in names,
+           f"swept {names}")
+    record("and its size is reported, not just its name",
+           bool(removed) and removed[0][1] > 2000,
+           f"{removed[0][1] if removed else 0} bytes")
+    record("a 10-minute-old staging directory SURVIVES",
+           young.exists(), "a run may still be writing into it")
+    record("the pointer's target survives",
+           completed.exists(), "never delete what is being served")
+    record("a completed snapshot survives",
+           looks_like.exists(), "only *.staging is in scope")
+    record("THIS run's staging directory survives even when old",
+           mine.exists(), "excluded by identifier, not only by age")
+    record("exactly one directory was removed",
+           len(removed) == 1, f"{len(removed)} removed")
+
+    # A volume with no staging directories at all must be a no-op.
+    bare = work / "bare-volume"
+    (bare / S.SNAPSHOTS_DIR).mkdir(parents=True, exist_ok=True)
+    (bare / S.POINTER_FILE).write_text("nothing", encoding="utf-8")
+    record("a volume with no staging directories is a no-op",
+           D.sweep_staging(bare, "x") == [], "returns an empty list")
+
+
+def plant_staging_sweep(work: Path) -> None:
+    """Two plants: sweep too much, and sweep what is being served."""
+    # (a) DROP THE AGE FILTER. The young directory must then be removed, and
+    #     the survival assertion above is what would go red.
+    volume = fake_volume(work, "vol-sweep-plant-a")
+    young = volume / S.SNAPSHOTS_DIR / "2026-10-29T1800.staging"
+    young.mkdir(parents=True, exist_ok=True)
+    mtime = time.time() - 10 * 60
+    os.utime(young, (mtime, mtime))
+
+    removed = D.sweep_staging(volume, "other", max_age_hours=0)
+    if young.exists():
+        raise PlantDidNothing("a 0-hour age limit left the young directory "
+                              "in place, so the age filter is not what the "
+                              "check is reading")
+    record("PLANT age limit 0 -> a 10-minute-old staging dir is swept (red)",
+           not young.exists() and len(removed) == 1,
+           "the survival check reads the age filter")
+
+    # (b) POINT THE POINTER AT A STAGING DIRECTORY, with the age filter wide
+    #     open. It must survive on the pointer check alone.
+    volume = fake_volume(work, "vol-sweep-plant-b")
+    served = volume / S.SNAPSHOTS_DIR / "2026-10-24T1331.staging"
+    served.mkdir(parents=True, exist_ok=True)
+    old = time.time() - 48 * 3600
+    os.utime(served, (old, old))
+    (volume / S.POINTER_FILE).write_text("2026-10-24T1331.staging",
+                                         encoding="utf-8")
+    removed = D.sweep_staging(volume, "other", max_age_hours=0)
+    record("PLANT the pointer names a staging dir -> it survives anyway",
+           served.exists() and removed == [],
+           "the pointer check is independent of the age filter")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--work", type=Path)
@@ -351,6 +620,15 @@ def main() -> int:
     print()
     plant_summary_structure()
     plant_missing_blank_line(work)
+    print()
+    summary_holds_one_run(work)
+    plant_summary_truncation(work)
+    print()
+    hours_since_line(work)
+    plant_hours_threshold(work)
+    print()
+    staging_sweep(work)
+    plant_staging_sweep(work)
 
     passed = sum(1 for _n, ok, _d in RESULTS if ok)
     print()
