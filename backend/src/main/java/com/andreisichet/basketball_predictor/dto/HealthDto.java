@@ -41,7 +41,8 @@ public record HealthDto(
             int startupAttempts,
             long startupWaitedSeconds,
             Map<String, LeagueSyncDto> leagues) {
-        static ScheduleSyncDto from(ScheduleSyncStatus.Snapshot snapshot) {
+        /** Public because the /schedule-sync sub-resource builds one directly. */
+        public static ScheduleSyncDto from(ScheduleSyncStatus.Snapshot snapshot) {
             Map<String, LeagueSyncDto> leagues = new java.util.LinkedHashMap<>();
             snapshot.leagues().forEach((league, state) -> leagues.put(league,
                     new LeagueSyncDto(state.result(), state.detail(),

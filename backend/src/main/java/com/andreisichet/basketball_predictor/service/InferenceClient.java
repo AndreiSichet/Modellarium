@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.client.UnknownContentTypeException;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.andreisichet.basketball_predictor.dto.InferenceHealth;
@@ -91,6 +92,8 @@ public class InferenceClient {
             return fixtures == null ? List.of() : fixtures;
         } catch (RestClientResponseException error) {
             throw rejected("NFL schedule lookup failed", error);
+        } catch (UnknownContentTypeException error) {
+            throw unreadable(error);
         } catch (RestClientException error) {
             throw unreachable(error);
         }
@@ -122,6 +125,8 @@ public class InferenceClient {
             return fixtures == null ? List.of() : fixtures;
         } catch (RestClientResponseException error) {
             throw rejected("Schedule lookup failed", error);
+        } catch (UnknownContentTypeException error) {
+            throw unreadable(error);
         } catch (RestClientException error) {
             throw unreachable(error);
         }
@@ -136,6 +141,8 @@ public class InferenceClient {
                     .body(InferenceHealth.class);
         } catch (RestClientResponseException error) {
             throw rejected("Health check failed", error);
+        } catch (UnknownContentTypeException error) {
+            throw unreadable(error);
         } catch (RestClientException error) {
             throw unreachable(error);
         }
@@ -150,6 +157,8 @@ public class InferenceClient {
                     .body(responseType);
         } catch (RestClientResponseException error) {
             throw rejected("Inference service rejected the request", error);
+        } catch (UnknownContentTypeException error) {
+            throw unreadable(error);
         } catch (RestClientException error) {
             throw unreachable(error);
         }
@@ -173,6 +182,36 @@ public class InferenceClient {
                 : HttpStatus.BAD_GATEWAY;
         return new ResponseStatusException(
                 status, context + ": " + error.getResponseBodyAsString(), error);
+    }
+
+    /**
+     * The service answered, and the backend could not read what it said.
+     *
+     * 502, NOT THE 503 THIS USED TO BE, AND THE OLD ANSWER WAS UNTRUE.
+     * {@code UnknownContentTypeException} extends {@code RestClientException}
+     * but NOT {@code RestClientResponseException}, so it fell through to
+     * {@code unreachable} and a service that had answered perfectly well was
+     * reported as *"Inference service unreachable"* with a 503 - the wrong
+     * diagnosis in the first place an operator looks. 502 is what the other
+     * "inference answered badly" case already uses, which is
+     * {@code rejected}'s non-4xx branch.
+     *
+     * NOTHING ELSE MOVED. A refused connection, a timeout and any other I/O
+     * failure are still 503 with the same message; 4xx is still 400 and
+     * other 5xx still 502, both with their existing text.
+     * {@code InferenceClientCauseTest} asserts each of those unchanged.
+     *
+     * AND IT IS STILL NOT A COLD START. {@link InferenceReadiness} matches on
+     * {@code ResourceAccessException}, never on {@code RestClientException},
+     * so a body the backend cannot parse was never retryable and is not
+     * retryable now - the status it is reported under was never what the
+     * retry read.
+     */
+    private ResponseStatusException unreadable(UnknownContentTypeException error) {
+        return new ResponseStatusException(
+                HttpStatus.BAD_GATEWAY,
+                "Inference service returned a response the backend could "
+                        + "not read: " + error.getMessage(), error);
     }
 
     /** Nothing answered at all. */

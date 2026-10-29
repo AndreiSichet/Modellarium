@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -13,6 +14,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.client.UnknownContentTypeException;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -129,6 +131,84 @@ class InferenceClientCauseTest {
                     assertThat(error.getCause())
                             .isInstanceOf(ResourceAccessException.class);
                     assertThat(InferenceReadiness.isNotReady(error)).isTrue();
+                });
+    }
+
+    @Test
+    void aMalformedBodyIsNowAHonest502AndNotAnUntrue503() {
+        // THE WHOLE OF C1. UnknownContentTypeException extends
+        // RestClientException but not RestClientResponseException, so until
+        // 2026-10-29 it fell through to unreachable() and a service that had
+        // answered perfectly well was reported as "Inference service
+        // unreachable" with a 503. A JSON endpoint answering text/html is the
+        // ordinary way to get here - a proxy error page, or a FastAPI
+        // traceback rendered as HTML.
+        Harness h = harness();
+        h.server().expect(requestTo(BASE + "/health"))
+                .andRespond(withSuccess("<html>not json at all</html>",
+                        MediaType.TEXT_HTML));
+
+        assertThatThrownBy(() -> h.client().getHealth())
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(thrown -> {
+                    ResponseStatusException error = (ResponseStatusException) thrown;
+                    assertThat(error.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+                    assertThat(error.getReason())
+                            .startsWith("Inference service returned a response "
+                                    + "the backend could not read: ");
+                    // AND IT NO LONGER CLAIMS THE SERVICE WAS UNREACHABLE.
+                    assertThat(error.getReason()).doesNotContain("unreachable");
+                    assertThat(error.getCause())
+                            .isInstanceOf(UnknownContentTypeException.class);
+                    // STILL NOT A COLD START. The retry reads the cause, not
+                    // the status, so this was never retryable and is not now.
+                    assertThat(InferenceReadiness.isNotReady(error)).isFalse();
+                });
+    }
+
+    @Test
+    void theMalformedBodyMappingAppliesToEveryCallSite() {
+        // FOUR CATCH BLOCKS, NOT ONE. getHealth, both schedule fetchers and
+        // post each have their own try - a fix applied to one of them would
+        // leave the other three reporting 503, and the schedule fetch is the
+        // call the startup sync actually makes.
+        for (String path : new String[] {"/schedule?days_ahead=120",
+                                         "/schedule/nfl"}) {
+            Harness h = harness();
+            h.server().expect(requestTo(BASE + path))
+                    .andRespond(withSuccess("<html>nope</html>",
+                            MediaType.TEXT_HTML));
+
+            assertThatThrownBy(() -> {
+                if (path.contains("nfl")) {
+                    h.client().fetchNflSchedule();
+                } else {
+                    h.client().fetchSchedule(120);
+                }
+            })
+                    .isInstanceOf(ResponseStatusException.class)
+                    .satisfies(thrown -> assertThat(
+                            ((ResponseStatusException) thrown).getStatusCode())
+                            .isEqualTo(HttpStatus.BAD_GATEWAY));
+        }
+    }
+
+    @Test
+    void aRefusedConnectionIsStillA503AndStillSaysUnreachable() {
+        // THE CONTROL FOR C1. The point of the change was that one case
+        // stopped claiming "unreachable"; the case that genuinely IS
+        // unreachable must keep saying so, at the same status, with the same
+        // words. Without this the fix could have moved both.
+        InferenceClient client = new InferenceClient(
+                RestClient.builder(), "http://127.0.0.1:1");
+
+        assertThatThrownBy(client::getHealth)
+                .satisfies(thrown -> {
+                    ResponseStatusException error = (ResponseStatusException) thrown;
+                    assertThat(error.getStatusCode())
+                            .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+                    assertThat(error.getReason())
+                            .startsWith("Inference service unreachable: ");
                 });
     }
 
