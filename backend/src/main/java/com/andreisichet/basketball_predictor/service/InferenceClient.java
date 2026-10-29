@@ -155,19 +155,30 @@ public class InferenceClient {
         }
     }
 
-    /** The service answered, but with a failure. */
+    /**
+     * The service answered, but with a failure.
+     *
+     * THE CAUSE IS PASSED, AND THE STATUS AND REASON ARE UNCHANGED. Adding a
+     * cause to a {@code ResponseStatusException} alters neither
+     * {@code getStatusCode()} nor {@code getReason()}, and Spring builds the
+     * response body from those two - so every status code and message this API
+     * returns is byte-identical to before. What it changes is that
+     * {@link InferenceReadiness} can now see what actually went wrong, which
+     * the mapped status cannot express: a 4xx and a malformed body both have
+     * to be told apart from a service that is merely still starting.
+     */
     private ResponseStatusException rejected(String context, RestClientResponseException error) {
         HttpStatus status = error.getStatusCode().is4xxClientError()
                 ? HttpStatus.BAD_REQUEST
                 : HttpStatus.BAD_GATEWAY;
         return new ResponseStatusException(
-                status, context + ": " + error.getResponseBodyAsString());
+                status, context + ": " + error.getResponseBodyAsString(), error);
     }
 
     /** Nothing answered at all. */
     private ResponseStatusException unreachable(RestClientException error) {
         return new ResponseStatusException(
                 HttpStatus.SERVICE_UNAVAILABLE,
-                "Inference service unreachable: " + error.getMessage());
+                "Inference service unreachable: " + error.getMessage(), error);
     }
 }
