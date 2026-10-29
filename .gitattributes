@@ -1,1 +1,31 @@
+# MEASURED BEFORE IT WAS ADDED, in a scratch clone, 2026-10-29. A plain
+# `git add --renormalize .` against HEAD with no attributes at all changes
+# ZERO files: this repository is already consistently LF in the index and
+# CRLF in the working tree, because core.autocrlf=true has been set the whole
+# time. So this file changes no stored byte. What it buys is that the
+# behaviour stops depending on each clone's local config - the self-hosted
+# runner and the dev box could disagree, and nothing would say so.
+#
+# THE ATTRIBUTE THAT LOOKS PROTECTIVE IS THE DESTRUCTIVE ONE, which is why
+# it is absent. `*.csv -text` and `*.json -text` were the obvious way to
+# "keep the data tables byte-exact", and measuring them showed the opposite:
+# `-text` means "store the working-tree bytes verbatim", and on this Windows
+# checkout those bytes are CRLF while the index holds LF. Renormalising under
+# that candidate would have rewritten 7 tracked data tables and 13 model and
+# manifest JSON files - including ml-training/models/provenance.json, whose
+# sha256 entries are the only link between the figures recorded in the notes
+# and the weights that produced them.
+#
+# So the data tables are left to `text=auto`, which detects them as text and
+# keeps doing exactly what it has been doing. Nothing here is a -text
+# override, and adding one needs the same measurement again.
+* text=auto
+
+# LF in the repository AND in the working tree: a shell script with CRLF
+# fails on a Unix runner with "bad interpreter: no such file or directory",
+# which is a confusing way to learn about line endings. Measured: 0 files
+# change, because none is currently stored otherwise.
+*.sh text eol=lf
+
+# ------------------------------------------------------------------- LFS
 data-pipeline/data/processed/player_boxscores_with_rolling.csv filter=lfs diff=lfs merge=lfs -text

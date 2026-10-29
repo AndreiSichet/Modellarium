@@ -171,3 +171,23 @@ data-pipeline/nfl/data/
 # fact and keeps its old path ignored as well, because a checkout already
 # held data there; this league starts here, so there is no second path.
 data-pipeline/data/nhl/
+
+# ------------------------------------------- working notes and throwaway probes
+# KEPT OUT BY A RULE NOW, NOT BY DISCIPLINE. These four have been "never
+# committed" since the project started, enforced by the standing rule against
+# `git add -A` and by naming files explicitly when staging. That rule has held,
+# but it is the only thing that has held: one `git add .` in the wrong
+# directory and CLAUDE.md - which the owner moves in and out of the tree on
+# purpose - is in a public repository.
+#
+# `probes/` is throwaway by definition: scripts written to answer one question,
+# kept only until it is answered, and several of them write their findings to
+# .log and .html files fetched from third-party sites.
+#
+# A PROBE THAT TURNS OUT TO BE WORTH KEEPING gets moved and renamed into
+# ml-training/ as a verify_*.py, which is what every verifier in there was.
+# Nothing is un-ignored here, so there is no exception to get wrong.
+CLAUDE.md
+NOTES_HISTORY.md
+data-pipeline/probes/
+ml-training/probes/
