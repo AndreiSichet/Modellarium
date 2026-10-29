@@ -114,14 +114,24 @@ def main():
             ("the gate ran to a verdict", result.returncode in (0, 1)),
             ("the new-data trigger fired on its own, without --force",
              "genuinely new games since then" in result.stdout
-             and "Nothing worth retraining" not in result.stdout),
-            ("production was RE-FIT, not scored as shipped",
-             "RE-FITTING PRODUCTION" in result.stdout
-             and "shipped as-is" in result.stdout),
+             and "NOT ENOUGH NEW GAMES" not in result.stdout),
+            # REWRITTEN 2026-10-26, WITH THE RULE ITSELF. This asserted
+            # "RE-FITTING PRODUCTION" and "shipped as-is" - the OLD rule's two
+            # markers, where production was refitted on the candidate's own
+            # rows and the shipped weights were printed but never compared.
+            # The gate now compares the SHIPPED models directly, so both
+            # strings are gone, and leaving the assertion as it was would have
+            # held the old behaviour in place: a committed check asserting the
+            # very thing the change removes.
+            ("production is scored AS-IS, with no refit",
+             "scored AS-IS" in result.stdout
+             and "RE-FITTING PRODUCTION" not in result.stdout),
             ("the test window sits in the post-cutoff region",
-             "<- the gate's window" in result.stdout),
+             "<- the gate window, all after" in result.stdout),
+            # Counting "FAIL - regressed" alone would miss a market blocked by
+            # the naive guard, so this counts any per-market verdict.
             ("a per-target verdict was produced for all 7",
-             result.stdout.count("pass") + result.stdout.count("FAIL - regressed") >= 7),
+             result.stdout.count("pass") + result.stdout.count("FAIL -") >= 7),
             ("ml-training/models/ was not touched",
              not any(p.stat().st_mtime > (workdir.stat().st_mtime)
                      for p in (PROJECT_ROOT / "ml-training" / "models").glob("*.json"))),

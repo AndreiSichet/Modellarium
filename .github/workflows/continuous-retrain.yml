@@ -261,7 +261,12 @@ jobs:
           }
 
           $py = '.\.ct-venv\Scripts\python.exe'
-          & $py ml-training/continuous_retrain.py --min-new-games 100 2>&1 |
+          # --min-new-training-games is the data the CANDIDATE must have that
+          # production has not seen. It is NOT the threshold: the number of
+          # games that must exist after production's cutoff is this plus the
+          # 500-game test window, so 600. The old flag was --min-new-games 100,
+          # which read as the threshold and was not one.
+          & $py ml-training/continuous_retrain.py --min-new-training-games 100 2>&1 |
             Tee-Object -FilePath retrain-output.txt
 
           # $LASTEXITCODE is the native process's code and survives the
