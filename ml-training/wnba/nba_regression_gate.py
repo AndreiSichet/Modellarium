@@ -119,6 +119,19 @@ HEALTH_CONTEXT_FIELDS = {
     # produces that verdict; the clock half stays ignored.
     "refresh",
     "data_as_of", "dataAsOf", "stale",
+    # THE BACKEND'S SCHEDULE-SYNC BLOCK, which carries two wall-clock stamps
+    # and a per-league detail string. `lastAttemptAt` moves on every container
+    # start and every six-hourly tick, so diffing it would make the gate red
+    # whenever the pair straddles a restart - which is exactly what a before /
+    # after pair around a rebuild IS. Classified rather than toleranced, for
+    # the same reason the refresh block above is: the clock is not the code.
+    #
+    # Stripped rather than carried into the per-league context because it is
+    # not per-league identity and it says nothing about which snapshot or
+    # which models produced a body. What a lost field would break is the
+    # backend's own shape, and _missing_or_changed still guards every field
+    # that is NOT in this set.
+    "scheduleSync",
     # THE NFL'S TWO MOVING COUNTS. `predictable_fixtures` falls and `fixtures`
     # falls as the season is played, both as a function of the data rather than
     # of any code - so they are context in exactly the way data_as_of is, and

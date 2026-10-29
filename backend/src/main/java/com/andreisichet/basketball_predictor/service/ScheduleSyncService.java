@@ -44,6 +44,37 @@ public class ScheduleSyncService {
     }
 
     /**
+     * What one league's sync did, so the caller can decide what to retry.
+     *
+     * RETURNED RATHER THAN THROWN, AND THE LOGGING DID NOT MOVE. The
+     * six-hourly path must keep behaving exactly as it did, so the warn line
+     * in syncLeague stays where it was and says what it always said; this
+     * type only makes the outcome visible to a caller that wants it. Before
+     * this, the failure was caught and logged here and ScheduleSyncJob's own
+     * try/catch never fired - which is why the job could not tell a
+     * successful startup sync from four failed ones, and why nothing noticed
+     * that the startup sync fails at every single cold start.
+     */
+    public enum SyncResult {
+        /** Fixtures were fetched and the table was updated. */
+        SYNCED,
+        /** The fetch worked and returned nothing, which is often correct. */
+        NOTHING_TO_CACHE,
+        /** Inference is not up yet. Worth retrying. */
+        NOT_READY,
+        /** A real failure. Retrying cannot help. */
+        FAILED
+    }
+
+    /** One league's result, with the detail its log line carried. */
+    public record SyncOutcome(String league, SyncResult result, String detail) {
+        /** Only NOT_READY is worth another attempt. */
+        public boolean retryable() {
+            return result == SyncResult.NOT_READY;
+        }
+    }
+
+    /**
      * The NBA schedule. A SEPARATE TRANSACTION from the WNBA's.
      *
      * The two leagues are synced by two public methods rather than one, and
@@ -54,8 +85,8 @@ public class ScheduleSyncService {
      * its own fetch failure handling.
      */
     @Transactional
-    public void syncNba() {
-        syncLeague("NBA", inferenceClient::fetchSchedule);
+    public SyncOutcome syncNba() {
+        return syncLeague("NBA", inferenceClient::fetchSchedule);
     }
 
     /**
@@ -68,8 +99,8 @@ public class ScheduleSyncService {
      * unplayed WNBA games were playoffs, so this syncs 0 fixtures.
      */
     @Transactional
-    public void syncWnba() {
-        syncLeague("WNBA", inferenceClient::fetchWnbaSchedule);
+    public SyncOutcome syncWnba() {
+        return syncLeague("WNBA", inferenceClient::fetchWnbaSchedule);
     }
 
     /**
@@ -87,8 +118,8 @@ public class ScheduleSyncService {
      * backend would then reject it, because no shipped model has seen one.
      */
     @Transactional
-    public void syncGleague() {
-        syncLeague("GLEAGUE", inferenceClient::fetchGleagueSchedule);
+    public SyncOutcome syncGleague() {
+        return syncLeague("GLEAGUE", inferenceClient::fetchGleagueSchedule);
     }
 
     /**
@@ -111,26 +142,36 @@ public class ScheduleSyncService {
      * /schedule/nfl, not by what is in the game table.
      */
     @Transactional
-    public void syncNfl() {
-        syncLeague("NFL", ignoredHorizon -> inferenceClient.fetchNflSchedule());
+    public SyncOutcome syncNfl() {
+        return syncLeague("NFL",
+                ignoredHorizon -> inferenceClient.fetchNflSchedule());
     }
 
-    private void syncLeague(
+    private SyncOutcome syncLeague(
             String league, IntFunction<List<InferenceScheduledGame>> fetch) {
         List<InferenceScheduledGame> fixtures;
 
         try {
             fixtures = fetch.apply(daysAhead);
         } catch (Exception error) {
+            // THE SAME LINE, AT THE SAME LEVEL, WITH THE SAME TEXT. The
+            // six-hourly job's log must not move; only the return value is
+            // new. InferenceReadiness reads the cause chain rather than the
+            // mapped status, which says 503 for everything.
             log.warn("{} schedule sync skipped - could not fetch fixtures: {}",
                     league, error.getMessage());
-            return;
+            return new SyncOutcome(league,
+                    InferenceReadiness.isNotReady(error)
+                            ? SyncResult.NOT_READY
+                            : SyncResult.FAILED,
+                    error.getMessage());
         }
 
         if (fixtures.isEmpty()) {
             log.info("{} schedule sync: 0 fixtures returned{}, "
                     + "nothing to cache.", league, horizon(league));
-            return;
+            return new SyncOutcome(league, SyncResult.NOTHING_TO_CACHE,
+                    "0 fixtures returned");
         }
 
         // Scoped to the league being synced. The two id ranges are disjoint,
@@ -175,6 +216,8 @@ public class ScheduleSyncService {
             log.info("{} schedule sync: {} fixture(s) had their "
                     + "predictable/kickoff/flex/week updated.", league, updated);
         }
+        return new SyncOutcome(league, SyncResult.SYNCED,
+                fixtures.size() + " fetched, " + created + " new");
     }
 
     /**

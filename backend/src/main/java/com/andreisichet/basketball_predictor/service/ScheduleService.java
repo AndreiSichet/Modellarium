@@ -22,14 +22,17 @@ public class ScheduleService {
     private final GameRepository gameRepository;
     private final TeamRepository teamRepository;
     private final InferenceClient inferenceClient;
+    private final ScheduleSyncStatus scheduleSyncStatus;
 
     public ScheduleService(
             GameRepository gameRepository,
             TeamRepository teamRepository,
-            InferenceClient inferenceClient) {
+            InferenceClient inferenceClient,
+            ScheduleSyncStatus scheduleSyncStatus) {
         this.gameRepository = gameRepository;
         this.teamRepository = teamRepository;
         this.inferenceClient = inferenceClient;
+        this.scheduleSyncStatus = scheduleSyncStatus;
     }
 
     /** Cached fixtures inside the requested window, with team names attached. */
@@ -52,9 +55,20 @@ public class ScheduleService {
                 .toList();
     }
 
-    /** Live on every call, never cached. */
+    /**
+     * Live on every call, never cached.
+     *
+     * THE INFERENCE CALL COMES FIRST, AND IT STILL THROWS. A 503 here when
+     * inference is unreachable is the existing contract and is not softened:
+     * the schedule-sync block is an extra field on the success path, not an
+     * excuse to answer 200 while the thing this endpoint reports on is down.
+     * The consequence - that the block cannot be read during the retry
+     * window, which is when it is most interesting - is recorded in
+     * CLAUDE.md rather than fixed by making a red look green.
+     */
     public HealthDto getHealth() {
-        return HealthDto.from(inferenceClient.getHealth());
+        return HealthDto.from(inferenceClient.getHealth(),
+                scheduleSyncStatus.snapshot());
     }
 
     private ScheduledGameDto toDto(Game game, Map<Long, Team> teamsById) {

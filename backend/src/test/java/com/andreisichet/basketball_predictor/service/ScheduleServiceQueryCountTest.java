@@ -47,6 +47,16 @@ import jakarta.persistence.EntityManagerFactory;
         // 29 February: never fires. Keeps the sync job from issuing queries
         // in the middle of a measurement.
         "schedule.sync.cron=0 0 0 29 2 ?",
+
+        // AND THE STARTUP RETRY OFF, FOR THE SAME REASON ONE STEP ON. The
+        // startup sync has always run once as this context comes up, before
+        // the measurement; it now retries for up to five minutes on a daemon
+        // thread when inference is unreachable, which locally it may be. A
+        // retry writing fixtures DURING a query count is a measurement that
+        // moves for a reason that has nothing to do with the endpoint.
+        // Zero means one attempt per league and no waiting - exactly the
+        // behaviour this test was written against.
+        "schedule.sync.startup.max-total-wait-ms=0",
 })
 class ScheduleServiceQueryCountTest {
     /**

@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.json.JsonTest;
 
 import com.andreisichet.basketball_predictor.model.GleaguePrediction;
+import com.andreisichet.basketball_predictor.service.ScheduleSyncStatus;
 import com.andreisichet.basketball_predictor.model.NflPrediction;
 import com.andreisichet.basketball_predictor.model.WnbaPrediction;
 
@@ -99,7 +100,13 @@ class InferenceWireShapeTest {
             InferenceHealth health =
                     mapper.readValue(Fixture.read("health.json"), InferenceHealth.class);
 
-            HealthDto dto = HealthDto.from(health);
+            // The second argument is the schedule-sync block, which is
+            // the backend's own state rather than anything on the inference
+            // wire. A fresh ScheduleSyncStatus is the never_run state, which
+            // is what this endpoint reports in the moment before the first
+            // attempt.
+            HealthDto dto = HealthDto.from(health,
+                    new ScheduleSyncStatus().snapshot());
 
             assertThat(dto.modelsLoaded()).isEqualTo(health.modelsLoaded());
             assertThat(dto.dataAsOf()).isEqualTo(DATA_AS_OF);
@@ -119,6 +126,15 @@ class InferenceWireShapeTest {
             assertThat(dto.nfl().predictableFixtures()).isPositive();
             assertThat(dto.nfl().predictionRule())
                     .isEqualTo("both teams' previous games in history");
+
+            // ADDITIVE, like the WNBA's block before it. Every assertion
+            // above this line is the one it was, which is the point: section
+            // 21's outage came from RETYPING a field on this record, so a new
+            // field arrives beside the old ones and nothing existing moves.
+            assertThat(dto.scheduleSync()).isNotNull();
+            assertThat(dto.scheduleSync().lastResult()).isEqualTo("never_run");
+            assertThat(dto.scheduleSync().leagues()).isEmpty();
+            assertThat(dto.scheduleSync().lastSuccessAt()).isNull();
         }
 
         @Test

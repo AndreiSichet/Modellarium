@@ -1,7 +1,10 @@
 package com.andreisichet.basketball_predictor.dto;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
+
+import com.andreisichet.basketball_predictor.service.ScheduleSyncStatus;
 
 /** Dataset freshness as sent to clients. */
 public record HealthDto(
@@ -12,7 +15,51 @@ public record HealthDto(
         boolean stale,
         LeagueFreshnessDto wnba,
         LeagueFreshnessDto gleague,
-        NflFreshnessDto nfl) {
+        NflFreshnessDto nfl,
+        ScheduleSyncDto scheduleSync) {
+    /**
+     * Whether this backend actually cached the fixtures it is serving.
+     *
+     * THE ONLY FIELD HERE THAT IS NOT ABOUT THE DATA. Every other field
+     * describes the pipeline's freshness, and all of them read identically
+     * whether the startup sync populated the games table or failed four times
+     * and said so only in a container log. Measured 2026-10-29: it failed at
+     * every cold start, because uvicorn binds its socket only after loading
+     * the models, so for the first ten seconds or so there is nothing
+     * listening and the backend's ApplicationReadyEvent fires inside that
+     * window.
+     *
+     * CAMELCASE LIKE THE REST OF THIS RECORD. The inference service's own
+     * /health is snake_case and this one is not - dataAsOf, modelsLoaded,
+     * predictableFixtures - so scheduleSync follows the record it lives in
+     * rather than the service it sits beside.
+     */
+    public record ScheduleSyncDto(
+            String lastResult,
+            Instant lastAttemptAt,
+            Instant lastSuccessAt,
+            int startupAttempts,
+            long startupWaitedSeconds,
+            Map<String, LeagueSyncDto> leagues) {
+        static ScheduleSyncDto from(ScheduleSyncStatus.Snapshot snapshot) {
+            Map<String, LeagueSyncDto> leagues = new java.util.LinkedHashMap<>();
+            snapshot.leagues().forEach((league, state) -> leagues.put(league,
+                    new LeagueSyncDto(state.result(), state.detail(),
+                            state.at())));
+            return new ScheduleSyncDto(
+                    snapshot.lastResult(),
+                    snapshot.lastAttemptAt(),
+                    snapshot.lastSuccessAt(),
+                    snapshot.startupAttempts(),
+                    snapshot.startupWaitedSeconds(),
+                    leagues);
+        }
+    }
+
+    /** One league's last sync outcome. */
+    public record LeagueSyncDto(String result, String detail, Instant at) {
+    }
+
     /**
      * The NFL's freshness, carrying the two fields its rule needs.
      *
@@ -67,7 +114,8 @@ public record HealthDto(
      * So the WNBA's cutoff arrives as a new nested field and every existing
      * client keeps reading exactly what it read before.
      */
-    public static HealthDto from(InferenceHealth health) {
+    public static HealthDto from(InferenceHealth health,
+                                ScheduleSyncStatus.Snapshot scheduleSync) {
         return new HealthDto(
                 health.status(),
                 health.modelsLoaded(),
@@ -76,6 +124,7 @@ public record HealthDto(
                 health.stale(),
                 LeagueFreshnessDto.from(health.wnba()),
                 LeagueFreshnessDto.from(health.gleague()),
-                NflFreshnessDto.from(health.nfl()));
+                NflFreshnessDto.from(health.nfl()),
+                ScheduleSyncDto.from(scheduleSync));
     }
 }

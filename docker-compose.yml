@@ -118,6 +118,28 @@ services:
     # degraded prediction into no prediction at all.
     depends_on:
       - injury-service
+    # THE SOCKET DOES NOT EXIST UNTIL THE MODELS ARE LOADED, which is why the
+    # backend needed this and `service_started` was not enough. uvicorn runs
+    # the lifespan startup BEFORE it creates the listening socket, so the
+    # pre-ready behaviour is a refused connection rather than a 503 - measured
+    # 2026-10-29, inference answering its first 200 thirteen point two seconds
+    # after its own start while the backend's startup sync fired at 0.5s and
+    # all four leagues failed inside 82ms.
+    #
+    # Python rather than curl because this image has neither curl nor wget
+    # (checked: `command -v` finds neither in python:3.14-slim), and
+    # reimplementing a health probe in shell against a slim image is how a
+    # healthcheck comes to report a true-looking green.
+    #
+    # start_period, not a longer interval: during it a failure does not count
+    # toward retries, so an ordinary slow boot is not a sick container.
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=4).status == 200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
     ports:
       - "8000:8000"
 
@@ -140,7 +162,16 @@ services:
       postgres:
         condition: service_healthy
       inference-service:
-        condition: service_started
+        # service_healthy, NOT service_started, AND THE RETRY IS STILL NEEDED.
+        # This closes the ordered case - `docker compose up` and `docker
+        # compose restart` now hold the backend until inference answers 200.
+        # It does NOT close the case this stack actually meets most often: on
+        # a host wake the daemon brings all five containers up within ~5s of
+        # each other under `restart: always`, and that path does not consult
+        # depends_on at all. So the gate removes the race where it can be
+        # removed, and ScheduleSyncJob's bounded per-league retry covers where
+        # it cannot.
+        condition: service_healthy
 
   frontend:
     restart: always
