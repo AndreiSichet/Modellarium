@@ -57,6 +57,15 @@ import jakarta.persistence.EntityManagerFactory;
         // Zero means one attempt per league and no waiting - exactly the
         // behaviour this test was written against.
         "schedule.sync.startup.max-total-wait-ms=0",
+
+        // AND THE STARTUP SYNC OFF ENTIRELY. The cap at 0 stops the RETRY;
+        // it does not stop the one attempt per league, which is four fetches
+        // and ~1,300 row writes on a daemon thread racing this measurement.
+        // Observed 2026-10-30: 39 queries against a ceiling of 6, with 1,361
+        // fixtures in the table. Before the cold-start work this could not
+        // happen - the sync ran on the thread publishing
+        // ApplicationReadyEvent and was finished before any test body.
+        "schedule.sync.startup.enabled=false",
 })
 class ScheduleServiceQueryCountTest {
     /**

@@ -1,6 +1,7 @@
 package com.andreisichet.basketball_predictor.service;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -22,6 +23,9 @@ import com.andreisichet.basketball_predictor.dto.InferenceResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceScheduledGame;
 import com.andreisichet.basketball_predictor.dto.InferenceWnbaResponse;
 
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+
 /** The one place that talks to the Python inference service. */
 @Component
 public class InferenceClient {
@@ -29,7 +33,21 @@ public class InferenceClient {
             new ParameterizedTypeReference<>() {
             };
 
+    private static final TypeReference<Map<String, Object>> BODY_TYPE =
+            new TypeReference<>() {
+            };
+
     private final RestClient client;
+
+    /**
+     * ITS OWN MAPPER, NOT THE INJECTED ONE, AND THAT IS DELIBERATE.
+     * Deserialising a refusal body must not be able to fail because the
+     * application's mapper was configured for something else - and this
+     * constructor is called from tests that build the client directly with no
+     * Spring context at all. The only thing read is a flat map of a refusal's
+     * own fields.
+     */
+    private final ObjectMapper refusalMapper = new ObjectMapper();
 
     public InferenceClient(
             RestClient.Builder builder,
@@ -180,8 +198,41 @@ public class InferenceClient {
         HttpStatus status = error.getStatusCode().is4xxClientError()
                 ? HttpStatus.BAD_REQUEST
                 : HttpStatus.BAD_GATEWAY;
-        return new ResponseStatusException(
-                status, context + ": " + error.getResponseBodyAsString(), error);
+        String body = error.getResponseBodyAsString();
+        String reason = context + ": " + body;
+
+        // THE SAME STATUS AND THE SAME REASON EITHER WAY. A refusal that
+        // carries a `code` becomes an InferenceRefusal so its fields can
+        // reach the response body through InferenceErrorAttributes; one that
+        // does not stays exactly the ResponseStatusException it has always
+        // been. Nothing about the status or the message depends on which
+        // branch is taken, which is what makes this additive.
+        Map<String, Object> fields = refusalFields(body);
+        if (fields != null && fields.get("code") != null) {
+            return new InferenceRefusal(status, reason, fields, error);
+        }
+        return new ResponseStatusException(status, reason, error);
+    }
+
+    /**
+     * A refusal body as a flat map, or null when it is not one.
+     *
+     * NULL ON ANY DOUBT, AND NEVER A THROW. This runs while already handling
+     * a failure, so a body that is HTML, empty, or JSON of the wrong shape
+     * must degrade to "no structured fields" rather than replacing a useful
+     * 400 with a parse error. An unknown is not a zero: a null here means
+     * "nothing classified this", which is what the frontend treats as a
+     * code-less refusal.
+     */
+    private Map<String, Object> refusalFields(String body) {
+        if (body == null || body.isBlank() || body.charAt(0) != '{') {
+            return null;
+        }
+        try {
+            return refusalMapper.readValue(body, BODY_TYPE);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     /**

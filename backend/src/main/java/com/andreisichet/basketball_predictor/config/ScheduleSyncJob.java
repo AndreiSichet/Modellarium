@@ -79,6 +79,7 @@ public class ScheduleSyncJob {
     private final boolean background;
     private final long initialWaitMs;
     private final long maxTotalWaitMs;
+    private final boolean startupEnabled;
 
     /**
      * @Autowired IS REQUIRED HERE, not decoration.
@@ -102,10 +103,12 @@ public class ScheduleSyncJob {
             @Value("${schedule.sync.startup.initial-wait-ms:-1}")
             long initialWaitMs,
             @Value("${schedule.sync.startup.max-total-wait-ms:-1}")
-            long maxTotalWaitMs) {
+            long maxTotalWaitMs,
+            @Value("${schedule.sync.startup.enabled:true}")
+            boolean startupEnabled) {
         this(scheduleSyncService, status, Thread::sleep, true,
                 orDerived(initialWaitMs, INITIAL_WAIT_MS),
-                orDerived(maxTotalWaitMs, MAX_TOTAL_WAIT_MS));
+                orDerived(maxTotalWaitMs, MAX_TOTAL_WAIT_MS), startupEnabled);
     }
 
     /**
@@ -125,7 +128,7 @@ public class ScheduleSyncJob {
                     Waiter waiter,
                     boolean background) {
         this(scheduleSyncService, status, waiter, background,
-                INITIAL_WAIT_MS, MAX_TOTAL_WAIT_MS);
+                INITIAL_WAIT_MS, MAX_TOTAL_WAIT_MS, true);
     }
 
     ScheduleSyncJob(ScheduleSyncService scheduleSyncService,
@@ -134,12 +137,24 @@ public class ScheduleSyncJob {
                     boolean background,
                     long initialWaitMs,
                     long maxTotalWaitMs) {
+        this(scheduleSyncService, status, waiter, background,
+                initialWaitMs, maxTotalWaitMs, true);
+    }
+
+    ScheduleSyncJob(ScheduleSyncService scheduleSyncService,
+                    ScheduleSyncStatus status,
+                    Waiter waiter,
+                    boolean background,
+                    long initialWaitMs,
+                    long maxTotalWaitMs,
+                    boolean startupEnabled) {
         this.scheduleSyncService = scheduleSyncService;
         this.status = status;
         this.waiter = waiter;
         this.background = background;
         this.initialWaitMs = initialWaitMs;
         this.maxTotalWaitMs = maxTotalWaitMs;
+        this.startupEnabled = startupEnabled;
     }
 
     /**
@@ -195,6 +210,20 @@ public class ScheduleSyncJob {
      */
     @EventListener(ApplicationReadyEvent.class)
     public void syncOnStartup() {
+        // SWITCHABLE OFF, AND A TEST FOUND OUT WHY. Before the cold-start
+        // retry, this ran on the thread publishing ApplicationReadyEvent, so
+        // it had finished before any @SpringBootTest body began. It now runs
+        // on a daemon thread - which is right for production and wrong for a
+        // test that measures something - and
+        // ScheduleServiceQueryCountTest started seeing the sync's own
+        // queries inside its measurement: 39 where its ceiling is 6, with
+        // 1,361 fixtures in the table. Setting the retry cap to 0 was not
+        // enough, because one attempt per league is still four fetches and
+        // ~1,300 row writes racing the thing under test.
+        if (!startupEnabled) {
+            log.info("Initial schedule sync disabled by configuration.");
+            return;
+        }
         if (!background) {
             retryUntilSettled();
             return;
