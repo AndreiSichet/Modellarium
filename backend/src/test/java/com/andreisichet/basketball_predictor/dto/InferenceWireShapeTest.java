@@ -53,6 +53,84 @@ class InferenceWireShapeTest {
     private static final LocalDate NFL_DATA_AS_OF = LocalDate.of(2026, 10, 5);
 
     @Nested
+    class EarlySeason {
+        /**
+         * The additive block on a successful NBA team prediction.
+         *
+         * WHAT IT IS FOR, measured 2026-10-30: of 34 feature columns, 28
+         * were NaN in both fixtures of a tied pair, and the totals model put
+         * them in the same leaf of all 108 trees - 219.0228271484375 twice.
+         * The numbers are right and the inputs are mostly absent, and a
+         * reader had no way to tell.
+         *
+         * ABSENT IS NOT ZERO, which is why the field is nullable and why
+         * this asserts the absent case as well as the present one. Every
+         * fixture captured before today has no such key, and Jackson's
+         * tolerance for that is the whole reason this is additive.
+         */
+        @Test
+        void aPredictionBodyWithTheBlockDeserialisesIt() {
+            String body = """
+                    {"home_team_id":1610612744,"away_team_id":1610612747,
+                     "game_date":"2026-10-30","data_as_of":"2026-10-29",
+                     "stale":false,"days_behind":1,
+                     "predictions":{"home_win_probability":0.5,
+                       "home_margin":1.0,"total_points":219.02,
+                       "rebound_margin":0.5,"total_rebounds":89.0,
+                       "assist_margin":0.5,"total_assists":50.0},
+                     "early_season":{"needed":10,"home_games_played":5,
+                       "away_games_played":4,
+                       "full_window_date":"2026-11-07"}}""";
+
+            InferenceResponse response =
+                    mapper.readValue(body, InferenceResponse.class);
+
+            assertThat(response.earlySeason()).isNotNull();
+            assertThat(response.earlySeason().needed()).isEqualTo(10);
+            assertThat(response.earlySeason().homeGamesPlayed()).isEqualTo(5);
+            assertThat(response.earlySeason().awayGamesPlayed()).isEqualTo(4);
+            assertThat(response.earlySeason().fullWindowDate())
+                    .isEqualTo(LocalDate.of(2026, 11, 7));
+            // AND NOTHING ELSE MOVED.
+            assertThat(response.predictions().totalPoints()).isEqualTo(219.02);
+            assertThat(response.dataAsOf())
+                    .isEqualTo(LocalDate.of(2026, 10, 29));
+        }
+
+        @Test
+        void theExistingFixtureWithNoSuchKeyStillDeserialises() {
+            // THE CAPTURED FIXTURE IS UNCHANGED and predates the field, so
+            // this is the additive guarantee tested against a real body
+            // rather than a hand-written one.
+            InferenceResponse response = mapper.readValue(
+                    Fixture.read("predict.json"), InferenceResponse.class);
+
+            assertThat(response.earlySeason()).isNull();
+            assertThat(response.predictions()).isNotNull();
+        }
+
+        @Test
+        void aMissingFullWindowDateIsNullRatherThanAFailure() {
+            // Inference returns null whenever the schedule cannot be read -
+            // a note is not worth failing a prediction for.
+            String body = """
+                    {"data_as_of":"2026-10-29","stale":false,"days_behind":1,
+                     "predictions":{"home_win_probability":0.5,
+                       "home_margin":1.0,"total_points":219.02,
+                       "rebound_margin":0.5,"total_rebounds":89.0,
+                       "assist_margin":0.5,"total_assists":50.0},
+                     "early_season":{"needed":10,"home_games_played":5,
+                       "away_games_played":4,"full_window_date":null}}""";
+
+            InferenceResponse response =
+                    mapper.readValue(body, InferenceResponse.class);
+
+            assertThat(response.earlySeason().fullWindowDate()).isNull();
+            assertThat(response.earlySeason().needed()).isEqualTo(10);
+        }
+    }
+
+    @Nested
     class Health {
         @Test
         void deserialisesThePerFamilyModelBreakdown() {

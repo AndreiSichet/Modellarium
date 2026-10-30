@@ -70,7 +70,12 @@ public class PredictionService {
                     awayTeam.getAbbreviation(),
                     game.getGameDate(),
                     game.isPlayed(),
-                    PredictionDto.from(prediction));
+                    PredictionDto.from(prediction),
+                    // FROM THE INFERENCE RESPONSE, not from the row just
+                    // saved. The context describes how much of this season
+                    // is known right now; the stored prediction has no
+                    // opinion about that and should not acquire one.
+                    GameSummaryDto.EarlySeasonDto.of(inference));
         });
     }
 

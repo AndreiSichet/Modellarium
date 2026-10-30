@@ -1,3 +1,4 @@
+import EarlySeasonNote from './EarlySeasonNote';
 import { formatSpread, formatValue, formatWin } from '../predictionFormat';
 import { abbrOf } from '../data/teams';
 import { dataAsOfFor } from '../dates';
@@ -16,6 +17,13 @@ function GameTab({ game, health, league }) {
 
   return (
     <div className="market-groups">
+      {/* ABOVE THE MARKETS, NOT BESIDE ONE OF THEM. The condition is about
+          every number on this tab - the win probability leans on last
+          season's Elo exactly as the total does - so attaching it to the
+          totals row would under-state it. It renders nothing once both
+          teams reach the window, which is what makes it self-clearing. */}
+      <EarlySeasonNote earlySeason={game.earlySeason} />
+
       <MarketGroup title="Outcome">
         <TeamMetric
           label="Win probability"

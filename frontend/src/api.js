@@ -189,6 +189,13 @@ export function normalisePredictionBody(leagueSlug, body) {
   return {
     gameId: body?.[endpoint.gameIdField],
     prediction: body?.[endpoint.predictionField],
+    // CARRIED THROUGH OR THE NOTE NEVER SHOWS. This mapping is the only
+    // path from a backend body to the shape components read, so a field it
+    // drops is a field that does not exist as far as the page is concerned -
+    // which is how the NFL's kickoff came to be absent with nothing failing.
+    // Undefined for the three leagues whose backends send none, which is
+    // what EarlySeasonNote treats as "nothing to say".
+    earlySeason: body?.earlySeason,
   };
 }
 

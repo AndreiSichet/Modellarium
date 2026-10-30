@@ -120,7 +120,30 @@ VOLATILE = {"predictedAt", "id", "gameId", "predicted_at"}
 
 # Derived from today and so never equal across a date boundary. Reported with
 # the context rather than diffed.
-CONTEXT_ONLY = {"daysBehind", "days_behind"}
+#
+# THE EARLY-SEASON COUNTS JOIN THEM, 2026-10-30, AND THEY ARE CLASSIFIED
+# BEFORE THEY SHIP RATHER THAN AFTER THE FIRST RED. `early_season` arrives on
+# every successful NBA team prediction: `needed` is max(WINDOWS) and stable,
+# but the two games-played counts move on every game-day and
+# `full_window_date` moves with them. Diffing those would make the NBA
+# REGRESSED on any pair straddling a game-day - the FIFTH time the clock
+# would have moved under this gate, after daysBehind twice, schedule_count
+# and the availability state.
+#
+# `needed` IS DELIBERATELY NOT HERE. It is the one part of the block that
+# cannot move on its own, so leaving it diffed means the block disappearing -
+# or the window changing - still shows up as `early_season.needed: 10 ->
+# None`. Classifying the whole block would have removed the guard along with
+# the noise.
+#
+# Both spellings, like daysBehind/days_behind: inference sends snake_case and
+# the backend camelCase, and a set holding one of them would classify half
+# the pair and diff the other.
+CONTEXT_ONLY = {
+    "daysBehind", "days_behind",
+    "home_games_played", "away_games_played", "full_window_date",
+    "homeGamesPlayed", "awayGamesPlayed", "fullWindowDate",
+}
 
 MIN_SCHEDULE_COUNT = 100
 

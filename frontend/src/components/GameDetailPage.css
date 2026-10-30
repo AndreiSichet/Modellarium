@@ -336,3 +336,19 @@
   font-size: 0.88rem;
   margin: 0.4rem 0 0;
 }
+
+/* ------------------------------------------------- the early-season note
+   Context, not a warning: the predictions are real, they are just running
+   on missing-value defaults because training dropped every row like them.
+   Quiet, above the markets, and it removes itself once both teams reach a
+   full window. */
+.early-season-note {
+  background: var(--surface-muted, #f4f6f9);
+  border-left: 3px solid var(--accent-muted, #b9c3d1);
+  border-radius: 4px;
+  color: var(--text-muted, #455060);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.85rem;
+}

@@ -10,10 +10,10 @@ import org.springframework.web.server.ResponseStatusException;
  * Inference refused, and said why in a form a client can branch on.
  *
  * WHAT THIS EXISTS TO CARRY. A refusal from inference is a 400 whose body is
- * now {@code {"detail": …, "code": "insufficient_history", "needed": 10,
- * "home_games_played": 5, …}}. Until this class, the backend put that whole
+ * now {@code {"detail": ..., "code": "insufficient_history", "needed": 10,
+ * "home_games_played": 5, ...}}. Until this class, the backend put that whole
  * body into the message string and nothing else - so the browser received
- * {@code "Inference service rejected the request: {\"detail\":\"HOME team …"}
+ * {@code "Inference service rejected the request: {\"detail\":\"HOME team ..."}
  * and the Quarters &amp; Halves tab printed it onto the page under the heading
  * "the service did not answer". The service had answered; it had refused, and
  * said precisely why.

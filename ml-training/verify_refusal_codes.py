@@ -298,6 +298,123 @@ def gleague_season_opener_code() -> None:
                app.gleague_refusal_code(error))
 
 
+# ==========================================================================
+# 6. the early-season context block
+# ==========================================================================
+
+def early_season_block() -> None:
+    """Additive, derived, and it can never fail a prediction."""
+    app = _app()
+    from build_rolling_features import WINDOWS
+
+    # THE STATE THIS NEEDS, LOADED EXPLICITLY. Importing app does not run its
+    # lifespan, so `state.games_final_df` is unset - the first version of
+    # this section raised AttributeError, which also revealed that the
+    # production function accessed the attribute directly on a path whose
+    # contract is that it cannot fail. Both were fixed: the function uses
+    # getattr, and this loads the frame so the counts are real rather than
+    # the degraded zero.
+    if getattr(app.state, "games_final_df", None) is None:
+        app.state.games_final_df = app.load_games_final()
+        app.state.data_as_of = app.pd.Timestamp(
+            app.state.games_final_df["GAME_DATE"].max())
+
+    # THE FIELD IS LAST AND NULLABLE. Last so every key already on the wire
+    # keeps its POSITION as well as its name - the gate compares bodies, and
+    # a reordering would read as a diff on every market. Nullable so an
+    # unreachable schedule costs a note rather than a prediction.
+    fields = list(app.PredictionResponse.model_fields)
+    record("early_season is the LAST field of PredictionResponse",
+           fields[-1] == "early_season", f"{fields}")
+    record("and it is nullable, defaulting to None",
+           app.PredictionResponse.model_fields["early_season"].default is None,
+           "an absent block is None, not an error")
+
+    # THE WINDOW COMES FROM THE FEATURE DEFINITIONS, same source as the
+    # refusal's `needed`. Asserted against WINDOWS rather than against 10.
+    block = app.early_season_context(1610612744, 1610612747,
+                                     app.pd.Timestamp("2026-10-30"))
+    record("needed equals max(WINDOWS)",
+           block.needed == max(WINDOWS),
+           f"needed={block.needed}, max(WINDOWS)={max(WINDOWS)}")
+    record("the counts are the served tables' own counts",
+           block.home_games_played
+           == app.team_games_played(1610612744, app.pd.Timestamp("2026-10-30"))
+           and block.away_games_played > 0,
+           f"home={block.home_games_played} away={block.away_games_played}")
+
+    # THE DATE IS REAL, AND IT IS THE LATER OF THE TWO. A window needs both
+    # sides, so the fixture clears when the slower team does.
+    record("full_window_date is a date while a side is short",
+           block.full_window_date is not None,
+           str(block.full_window_date))
+
+    # ALREADY AT THE WINDOW -> None, not today's date and not a guess.
+    record("a team already at the window yields no date",
+           app.full_window_date(1610612744, 1610612747, 40, 40,
+                                max(WINDOWS)) is None,
+           "nothing to wait for")
+
+    # PLANT: THE SCHEDULE RAISES. A note must never fail a prediction, so
+    # every failure in that computation has to come back as None.
+    real = app.fetch_schedule_frame
+
+    def exploding(*_args, **_kwargs):
+        raise RuntimeError("nba_api is down")
+
+    app.fetch_schedule_frame = exploding
+    try:
+        out = app.full_window_date(1610612744, 1610612747, 5, 5,
+                                   max(WINDOWS))
+        raised = None
+    except BaseException as error:                              # noqa: BLE001
+        out, raised = "RAISED", error
+    finally:
+        app.fetch_schedule_frame = real
+    record("PLANT the schedule API raises -> the date is None, no exception",
+           raised is None and out is None,
+           f"returned {out!r}" if raised is None
+           else f"RAISED {type(raised).__name__}")
+
+    # PLANT: AN EMPTY SCHEDULE. Different cause, same requirement.
+    def empty(*_args, **_kwargs):
+        return app.pd.DataFrame()
+
+    app.fetch_schedule_frame = empty
+    try:
+        out = app.full_window_date(1610612744, 1610612747, 5, 5,
+                                   max(WINDOWS))
+    finally:
+        app.fetch_schedule_frame = real
+    record("PLANT an empty schedule -> None rather than a wrong date",
+           out is None, f"returned {out!r}")
+
+    # AND THE WHOLE BLOCK SURVIVES A BROKEN SCHEDULE, which is the shape a
+    # prediction would actually meet.
+    app.fetch_schedule_frame = exploding
+    try:
+        degraded = app.early_season_context(1610612744, 1610612747,
+                                            app.pd.Timestamp("2026-10-30"))
+        raised = None
+    except BaseException as error:                              # noqa: BLE001
+        degraded, raised = None, error
+    finally:
+        app.fetch_schedule_frame = real
+    record("a prediction still gets its block with the date missing",
+           raised is None and degraded is not None
+           and degraded.needed == max(WINDOWS)
+           and degraded.full_window_date is None,
+           "needed and the counts survive; only the date is lost")
+
+    # NO LITERAL WINDOW ANYWHERE NEAR IT.
+    source = APP.read_text(encoding="utf-8")
+    body = source[source.index("def early_season_context"):]
+    body = body[:body.index(chr(10) + "def ")] if chr(10) + "def " in body else body
+    record("early_season_context writes no numeric window",
+           "QH_WINDOW" in body and not re.search(r"needed\s*=\s*\d", body),
+           "needed is only ever QH_WINDOW")
+
+
 def main() -> int:
     print("REFUSALS THAT SAY WHY")
     print()
@@ -310,6 +427,8 @@ def main() -> int:
     completeness_flag_guard()
     print()
     gleague_season_opener_code()
+    print()
+    early_season_block()
 
     passed = sum(1 for _n, ok, _d in RESULTS if ok)
     print()

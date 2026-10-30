@@ -28,7 +28,7 @@ import com.andreisichet.basketball_predictor.service.InferenceRefusal;
  * rather than on "is there a JSON body in the message".
  *
  * {@code message} IS NOT REWRITTEN. It still reads "Inference service
- * rejected the request: {…}", because something may be reading it and because
+ * rejected the request: {...}", because something may be reading it and because
  * the gate compares bodies. The frontend prefers {@code code} when it is
  * there and falls back to {@code message} when it is not, so the prose stays
  * as the human-readable last resort it has always been.

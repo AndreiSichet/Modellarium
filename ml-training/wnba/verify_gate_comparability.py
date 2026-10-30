@@ -767,6 +767,94 @@ def plant_reason_in_the_compared_body() -> None:
            "the code is compared; the prose is not reachable from here")
 
 
+# ==========================================================================
+# the early-season block is classified before it ships
+# ==========================================================================
+
+def early_season_is_context() -> None:
+    """Its counts move daily; `needed` does not. Both halves asserted.
+
+    CLASSIFIED BEFORE THE FIRST RED, which is the whole point. `early_season`
+    arrives on every successful NBA team prediction from commit 4, and the two
+    games-played counts move on every game-day. Diffing them would make the
+    NBA REGRESSED on any pair straddling one - the fifth time the clock would
+    have moved under this gate, after daysBehind twice, schedule_count and the
+    availability state. Three of those four were found by a red morning
+    instead of in advance.
+    """
+    body = {"home_team_id": 1, "predictions": {"total_points": 219.0}}
+    block = {"needed": 10, "home_games_played": 5, "away_games_played": 4,
+             "full_window_date": "2026-11-07"}
+
+    with_block = dict(body, early_season=block)
+    moved = dict(body, early_season={"needed": 10, "home_games_played": 6,
+                                     "away_games_played": 5,
+                                     "full_window_date": "2026-11-06"})
+
+    # 1. A GAME-DAY PASSING MUST NOT BE A REGRESSION.
+    fields = G.diff_fields(G.strip_volatile(with_block),
+                           G.strip_volatile(moved))
+    record("the counts moving a game-day is NOT a body difference",
+           fields == [], f"{fields or 'no difference'}")
+
+    # 2. BUT THE BLOCK APPEARING IS, exactly once. This is the one deploy
+    #    where the NBA legitimately reads REGRESSED.
+    fields = G.diff_fields(G.strip_volatile(body),
+                           G.strip_volatile(with_block))
+    record("the block arriving is reported as exactly one field",
+           len(fields) == 1 and "early_season" in fields[0],
+           f"{fields}")
+
+    # 3. AND THE BLOCK VANISHING IS STILL CAUGHT. Classifying the whole
+    #    block would have removed this guard along with the noise, which is
+    #    why `needed` is deliberately left diffed.
+    fields = G.diff_fields(G.strip_volatile(with_block),
+                           G.strip_volatile(body))
+    record("the block disappearing is still caught",
+           len(fields) == 1 and "None" in fields[0], f"{fields}")
+
+    # 4. BOTH SPELLINGS. Inference sends snake_case, the backend camelCase;
+    #    a set holding one would classify half a pair and diff the other.
+    camel = {"needed": 10, "homeGamesPlayed": 5, "awayGamesPlayed": 4,
+             "fullWindowDate": "2026-11-07"}
+    camel_moved = dict(camel, homeGamesPlayed=6, awayGamesPlayed=5,
+                       fullWindowDate="2026-11-06")
+    fields = G.diff_fields(
+        G.strip_volatile(dict(body, earlySeason=camel)),
+        G.strip_volatile(dict(body, earlySeason=camel_moved)))
+    record("the backend's camelCase names are classified too",
+           fields == [], f"{fields or 'no difference'}")
+
+    record("`needed` is NOT in CONTEXT_ONLY - it is the guard",
+           "needed" not in G.CONTEXT_ONLY,
+           "a changed window still shows as a body difference")
+
+
+def plant_early_season_unclassified() -> None:
+    """Take the counts back out, and a game-day pair goes red."""
+    real = G.CONTEXT_ONLY
+    G.CONTEXT_ONLY = {"daysBehind", "days_behind"}
+    try:
+        body = {"home_team_id": 1}
+        a = dict(body, early_season={"needed": 10, "home_games_played": 5,
+                                     "away_games_played": 4,
+                                     "full_window_date": "2026-11-07"})
+        b = dict(body, early_season={"needed": 10, "home_games_played": 6,
+                                     "away_games_played": 5,
+                                     "full_window_date": "2026-11-06"})
+        fields = G.diff_fields(G.strip_volatile(a), G.strip_volatile(b))
+    finally:
+        G.CONTEXT_ONLY = real
+
+    if not fields:
+        raise AssertionError(
+            "the plant reported no difference, so the check is not reading "
+            "CONTEXT_ONLY")
+    record("PLANT the counts unclassified -> a game-day pair goes red",
+           len(fields) == 3,
+           f"{len(fields)} field(s): {[f.split(':')[0] for f in fields]}")
+
+
 def run_compare(before, after):
     """Drive the gate's own `compare` on two in-memory captures.
 
@@ -874,6 +962,9 @@ def main() -> int:
     skipped_half_reaches_the_verdict()
     plant_skip_is_silent()
     plant_reason_in_the_compared_body()
+    print()
+    early_season_is_context()
+    plant_early_season_unclassified()
 
     passed = sum(1 for _n, ok_, _d in RESULTS if ok_)
     print()

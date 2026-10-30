@@ -151,6 +151,41 @@ class Predictions(BaseModel):
     assist_margin: float
     total_assists: float
 
+class EarlySeasonContext(BaseModel):
+    """How much of this season each side has played, and when that stops
+    mattering.
+
+    WHY A SUCCESSFUL PREDICTION NEEDS THIS. The team models answer every
+    fixture, including one where almost nothing about this season is known -
+    and `drop_incomplete` removed every such row from their training set, so
+    October is a regime they were never fitted on. Measured 2026-10-30 on the
+    live slate: of 34 feature columns, **28 were NaN in both** fixtures of a
+    tied pair, and the totals model put them in the SAME LEAF OF ALL 108
+    TREES, returning 219.0228271484375 twice. Spread and moneyline separated
+    the same pair in 27 and 23 trees, which is why those markets differed and
+    totals did not. Mid-season the effect is absent: 0.0% of totals are
+    non-unique across the 2023-24, 2024-25 and 2025-26 mid-season samples.
+    So the number is right, the inputs are mostly absent, and a reader has no
+    way to tell. This block is what lets the page say so.
+
+    ADDITIVE AND NULLABLE THROUGHOUT. Every existing field of
+    PredictionResponse keeps its name, type and meaning; this arrives as one
+    new key. `full_window_date` is None whenever the schedule cannot be read -
+    see `full_window_date()` - because a prediction must never fail or slow
+    down for the sake of a note.
+    """
+
+    # THE WINDOW, FROM THE FEATURE DEFINITIONS. Same source as the Q1/1H
+    # refusal's `needed`: max(WINDOWS) out of build_rolling_features. A
+    # literal 10 here would be a second copy of a number that moves.
+    needed: int
+    home_games_played: int
+    away_games_played: int
+    # The date BOTH sides reach the window, from the real remaining schedule.
+    # None when it cannot be computed, never a guess and never today's date.
+    full_window_date: date | None = None
+
+
 class PredictionResponse(BaseModel):
     home_team_id: int
     away_team_id: int
@@ -159,6 +194,12 @@ class PredictionResponse(BaseModel):
     stale: bool
     days_behind: int
     predictions: Predictions
+    # ADDED 2026-10-30, LAST AND NULLABLE. Last so every key that was already
+    # on the wire keeps its position as well as its name - the regression
+    # gate compares bodies, and a reordering would be a diff on every market
+    # for no reason. Nullable so a schedule the service cannot reach costs a
+    # note rather than a prediction.
+    early_season: EarlySeasonContext | None = None
 
 class QuarterHalfPrediction(BaseModel):
     """One Q1/1H market."""
@@ -1012,6 +1053,98 @@ def check_completeness_flags(manifests: dict) -> None:
         )
 
 
+def team_games_played(team_id: int, game_date: pd.Timestamp) -> int:
+    """Completed games this season for one team, before this fixture.
+
+    The same question the Q1/1H refusal answers, against the full-game table
+    rather than the quarter one: these are the rows the ROLL5/ROLL10 columns
+    are built from.
+    """
+    # getattr, NOT state.games_final_df. The attribute is set in the
+    # lifespan, so a direct access raises AttributeError wherever the lifespan
+    # has not run - and this function sits on a prediction path whose contract
+    # is that the note can never fail the prediction. An absent frame is 0
+    # games known, which is the honest reading, and the note then says "fewer
+    # than 10" rather than nothing.
+    games = getattr(state, "games_final_df", None)
+    if games is None or games.empty:
+        return 0
+    season = season_of(pd.Timestamp(game_date))
+    rows = games[(games["TEAM_ID"] == team_id)
+                 & (games["SEASON"] == season)
+                 & (games["GAME_DATE"] < pd.Timestamp(game_date))]
+    return int(len(rows))
+
+
+def full_window_date(home_team_id: int, away_team_id: int,
+                     home_played: int, away_played: int,
+                     needed: int):
+    """When BOTH teams will have `needed` games, from the real schedule.
+
+    DERIVED, NEVER A DATE ARITHMETIC GUESS. "about four more games is about
+    nine days" would be wrong for any team on a long homestand, and wrong by
+    days for the two teams that always trail the league. On 2026-10-30 the
+    first team reached the window on 2026-11-06 and the last two on
+    2026-11-11, with the last refusing FIXTURE later still - a five-day
+    spread that no average could produce.
+
+    NEVER RAISES, AND NEVER SLOWS A PREDICTION DOWN. The schedule comes from
+    the same six-hour cache /schedule uses, and any failure at all - a
+    timeout, an unpublished season, a shape nobody expected - returns None.
+    A note is not worth a 502 on a prediction, and `None` reads as "not
+    known" rather than as a date.
+    """
+    short = max(needed - home_played, needed - away_played)
+    if short <= 0:
+        return None
+    try:
+        frame = fetch_schedule_frame(
+            season_string(datetime.now().date()), NBA_LEAGUE_ID)
+        if frame is None or frame.empty:
+            return None
+        rows = frame.assign(
+            parsed_date=pd.to_datetime(frame["gameDate"],
+                                       format="%m/%d/%Y %H:%M:%S"),
+            padded_game_id=frame["gameId"].astype(str).str.zfill(10),
+        )
+        rows = rows[
+            (rows["gameStatus"] == GAME_STATUS_SCHEDULED)
+            & (rows["padded_game_id"].str[2] == REGULAR_SEASON_GAME_ID_DIGIT)
+        ].sort_values("parsed_date")
+
+        when = None
+        for team_id, played in ((home_team_id, home_played),
+                                (away_team_id, away_played)):
+            missing = needed - played
+            if missing <= 0:
+                continue
+            theirs = rows[(rows["homeTeam_teamId"] == team_id)
+                          | (rows["awayTeam_teamId"] == team_id)]
+            if len(theirs) < missing:
+                return None
+            reaches = theirs.iloc[missing - 1]["parsed_date"].date()
+            when = reaches if when is None or reaches > when else when
+        return when
+    except Exception:                                           # noqa: BLE001
+        # DELIBERATELY BARE. Anything this computation can raise is less
+        # important than the prediction it is attached to.
+        return None
+
+
+def early_season_context(home_team_id: int, away_team_id: int,
+                         game_date: pd.Timestamp) -> "EarlySeasonContext":
+    """The block every successful NBA team prediction now carries."""
+    home_played = team_games_played(home_team_id, game_date)
+    away_played = team_games_played(away_team_id, game_date)
+    return EarlySeasonContext(
+        needed=QH_WINDOW,
+        home_games_played=home_played,
+        away_games_played=away_played,
+        full_window_date=full_window_date(
+            home_team_id, away_team_id, home_played, away_played, QH_WINDOW),
+    )
+
+
 def validate_matchup(request: "PredictionRequest") -> pd.Timestamp:
     """Checks every prediction endpoint must make. Returns the parsed date."""
     game_date = pd.Timestamp(request.game_date)
@@ -1264,6 +1397,8 @@ def predict(request: PredictionRequest):
         stale=stale,
         days_behind=days_behind,
         predictions=Predictions(**results),
+        early_season=early_season_context(
+            request.home_team_id, request.away_team_id, game_date),
     )
 
 @app.post("/predict/quarter-half", response_model=QuarterHalfResponse)
