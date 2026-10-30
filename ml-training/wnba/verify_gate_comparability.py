@@ -468,10 +468,10 @@ def backend_half_picks_existing_fixtures() -> None:
         fixture("nba", 1610612737, 1610612744, "2026-11-04"),
     ]
 
-    chosen, reason = G.backend_fixtures(schedule, "nba", "2026-10-29")
+    chosen, skipped = G.backend_fixtures(schedule, "nba", "2026-10-29")
     record("two fixtures are chosen from the cached schedule",
-           len(chosen) == 2 and reason is None,
-           f"{chosen}, reason={reason}")
+           len(chosen) == 2 and skipped is None,
+           f"{chosen}, skip={skipped}")
     teams = {t for home, away, _d in chosen for t in (home, away)}
     record("with four distinct teams, like MATCHUPS",
            len(teams) == 4, f"{sorted(teams)}")
@@ -480,75 +480,104 @@ def backend_half_picks_existing_fixtures() -> None:
            "cutoff + 1, which is all MAX_DAYS_AHEAD allows")
 
     # THE WNBA OUT OF SEASON: its sync caches nothing at all.
-    chosen, reason = G.backend_fixtures(schedule, "wnba", "2026-09-25")
-    record("a league with NO cached fixture is skipped WITH A REASON",
-           chosen == [] and reason and "no cached wnba fixture" in reason,
-           (reason or "")[:72])
+    chosen, skipped = G.backend_fixtures(schedule, "wnba", "2026-09-25")
+    record("a league with NO cached fixture gets its own CODE",
+           chosen == [] and skipped
+           and skipped["code"] == G.SKIP_NO_CACHED_FIXTURES,
+           (skipped or {}).get("code"))
+    record("and a readable reason beside it",
+           bool(skipped) and "no cached wnba fixture" in skipped["reason"],
+           (skipped or {}).get("reason", "")[:68])
 
     # THE G LEAGUE OUT OF SEASON: fixtures exist, none on the one date.
     gleague = [fixture("gleague", 1612709890, 1612709905, "2027-01-08")]
-    chosen, reason = G.backend_fixtures(gleague, "gleague", "2026-03-29")
-    record("fixtures but none on the date is a DIFFERENT reason",
-           chosen == [] and reason and "none of its 1 cached" in reason,
-           (reason or "")[:72])
+    chosen, skipped = G.backend_fixtures(gleague, "gleague", "2026-03-29")
+    record("fixtures but none on the date is a DIFFERENT code",
+           chosen == [] and skipped
+           and skipped["code"] == G.SKIP_NONE_ON_RULE_DATE,
+           (skipped or {}).get("code"))
+    record("and the COUNT lives only in the reason, never in the code",
+           "none of its 1 cached" in skipped["reason"]
+           and not any(ch.isdigit() for ch in skipped["code"]),
+           f"code={skipped['code']!r} carries no number")
 
     # THE NFL READS ITS OWN FLAG, NOT THE DATE. Its rule is a dependency on
     # both teams' earlier games, so a date filter would refuse everything.
     nfl = [fixture("nfl", 1613000012, 1613000005, "2026-10-29", True),
            fixture("nfl", 1613000011, 1613000018, "2026-11-01", True),
            fixture("nfl", 1613000001, 1613000002, "2026-12-20", False)]
-    chosen, reason = G.backend_fixtures(nfl, "nfl", "1999-01-01")
+    chosen, skipped = G.backend_fixtures(nfl, "nfl", "1999-01-01")
     record("the NFL picks by its predictable FLAG, ignoring the date",
-           len(chosen) == 2 and reason is None
+           len(chosen) == 2 and skipped is None
            and all(d != "1999-01-01" for _h, _a, d in chosen),
            f"{chosen}")
 
     unpredictable = [fixture("nfl", 1613000001, 1613000002, "2026-12-20",
                              False)]
-    chosen, reason = G.backend_fixtures(unpredictable, "nfl", None)
-    record("an NFL week with nothing predictable yet is skipped with a "
-           "reason",
-           chosen == [] and reason and "dependency rule" in reason,
-           (reason or "")[:72])
+    chosen, skipped = G.backend_fixtures(unpredictable, "nfl", None)
+    record("an NFL week with nothing predictable yet has its own code",
+           chosen == [] and skipped
+           and skipped["code"] == G.SKIP_NONE_PREDICTABLE
+           and "dependency rule" in skipped["reason"],
+           (skipped or {}).get("code"))
 
     # A SHORTFALL IS NOT A SILENT SUCCESS. One usable fixture where two were
     # asked for still returns a reason alongside what it found.
     one = [fixture("nba", 1610612737, 1610612739, "2026-10-29")]
-    chosen, reason = G.backend_fixtures(one, "nba", "2026-10-29")
+    chosen, skipped = G.backend_fixtures(one, "nba", "2026-10-29")
     record("finding ONE where two were asked for is reported too",
-           len(chosen) == 1 and reason and "only 1 of 2" in reason,
-           (reason or "")[:72])
+           len(chosen) == 1 and skipped
+           and skipped["code"] == G.SKIP_FEWER_THAN_REQUESTED
+           and "only 1 of 2" in skipped["reason"],
+           (skipped or {}).get("code"))
 
     # An unreadable schedule is an unknown, not an empty list.
-    chosen, reason = G.backend_fixtures(None, "nba", "2026-10-29")
+    chosen, skipped = G.backend_fixtures(None, "nba", "2026-10-29")
     record("an unreadable schedule says so rather than reading as empty",
-           chosen == [] and reason and "could not be read" in reason,
-           (reason or "")[:72])
+           chosen == [] and skipped
+           and skipped["code"] == G.SKIP_SCHEDULE_UNREADABLE,
+           (skipped or {}).get("code"))
+
+    # EVERY CODE IS A BARE WORD. A code with a number in it would be the
+    # original defect wearing a new name.
+    codes = [value for name, value in vars(G).items()
+             if name.startswith("SKIP_")]
+    record("every SKIP_* code is a stable bare word with no digits",
+           len(codes) >= 6
+           and all(isinstance(c, str) and c and not any(ch.isdigit()
+                                                        for ch in c)
+                   for c in codes),
+           f"{sorted(codes)}")
 
 
 def skipped_half_reaches_the_verdict() -> None:
     """A half captured on one side and skipped on the other is not a pass."""
     tables = {"games_final.csv": "aaa"}
 
-    def side(skipped, fixtures):
+    def side(code, fixtures, reason=None):
         block = context("2026-10-29T1027", tables)
-        block["backend_skipped"] = skipped
+        block["backend_skip_code"] = code
+        block["backend_skip_reason"] = reason
         block["backend_fixtures"] = fixtures
+        bodies = {"inference_health": health(), "backend_health": {}}
+        if code:
+            bodies["nba.backend.none"] = {"__skipped__": code}
         return {"context": {"leagues": {"nba": block},
                             "schedule_count": 1311, "teams_count": 30},
-                "bodies": {"inference_health": health(), "backend_health": {}}}
+                "bodies": bodies}
 
     used = [{"home": 1, "away": 2, "date": "2026-10-29"}]
     before = side(None, used)
-    after = side("the backend has no cached nba fixture at all", [])
+    after = side(G.SKIP_NO_CACHED_FIXTURES, [],
+                 "the backend has no cached nba fixture at all")
 
     ok, reasons, _notes, mutated = G.league_comparability(
         before["context"]["leagues"]["nba"], after["context"]["leagues"]["nba"])
     record("captured then skipped -> CANNOT COMPARE, not PASS",
            ok is False and mutated is False,
            f"comparable={ok}, mutated={mutated}")
-    record("and the reason NAMES the skip",
-           any("captured in one capture and skipped" in r for r in reasons),
+    record("and the reason NAMES the change in availability",
+           any("availability changed" in r for r in reasons),
            [r[:72] for r in reasons][:2])
 
     # A DIFFERENT FIXTURE IS ALSO NOT COMPARABLE. The choice comes from the
@@ -570,9 +599,57 @@ def skipped_half_reaches_the_verdict() -> None:
     record("the same fixture on both sides is still comparable",
            ok is True and not reasons, f"comparable={ok}")
 
+    # ------------------------------------------------------------------
+    # DEPLOY C'S FALSE REGRESSED, AS A CASE. Two captures that differ ONLY
+    # in the cached fixture count must PASS. On 2026-10-30 this came back
+    # REGRESSED for the G League: the skip body held the prose, the backend
+    # restart synced 8 fixtures between the captures, and "none of its 349
+    # cached fixture(s)" became "357".
+    # ------------------------------------------------------------------
+    counted_349 = side(G.SKIP_NONE_ON_RULE_DATE, [],
+                       "the backend has gleague fixtures but none of its 349 "
+                       "cached fixture(s) falls on 2026-03-29, the only date "
+                       "MAX_DAYS_AHEAD permits")
+    counted_357 = side(G.SKIP_NONE_ON_RULE_DATE, [],
+                       "the backend has gleague fixtures but none of its 357 "
+                       "cached fixture(s) falls on 2026-03-29, the only date "
+                       "MAX_DAYS_AHEAD permits")
+    ok, reasons, _notes, mutated = G.league_comparability(
+        counted_349["context"]["leagues"]["nba"],
+        counted_357["context"]["leagues"]["nba"])
+    record("349 -> 357 cached fixtures: still COMPARABLE",
+           ok is True and not reasons and mutated is False,
+           f"comparable={ok}, reasons={reasons}")
+
+    printed, code = run_compare(counted_349, counted_357)
+    record("and the whole pair PASSES - the count is not a regression",
+           code == G.EXIT_PASS,
+           f"exit {code}: "
+           + ("PASS" if code == G.EXIT_PASS else "NOT PASS"))
+    record("the differing count is still PRINTED, from the reason",
+           "357" in printed and "349" in printed,
+           "both counts readable in the output, neither compared")
+
+    # AND TWO DIFFERENT CODES ARE NOT COMPARABLE, which is the other half:
+    # the half was unavailable for two different reasons, so its bodies are
+    # not comparable even though both are absent.
+    other_code = side(G.SKIP_NO_CACHED_FIXTURES, [],
+                      "the backend has no cached gleague fixture at all")
+    ok, reasons, _notes, mutated = G.league_comparability(
+        counted_349["context"]["leagues"]["nba"],
+        other_code["context"]["leagues"]["nba"])
+    record("a DIFFERENT skip code -> CANNOT COMPARE, not PASS",
+           ok is False and mutated is False
+           and any("availability changed" in r for r in reasons),
+           [r[:72] for r in reasons][:1])
+    _printed, code = run_compare(counted_349, other_code)
+    record("and the pair's verdict is CANNOT COMPARE",
+           code == G.EXIT_CANNOT, f"exit {code}")
+
     # SKIPPED ON BOTH SIDES IS COMPARABLE TOO: out of season that is the
     # steady state, and a gate that withheld on it could never pass the WNBA.
-    both = side("the backend has no cached nba fixture at all", [])
+    both = side(G.SKIP_NO_CACHED_FIXTURES, [],
+                "the backend has no cached nba fixture at all")
     ok, reasons, _notes, _m = G.league_comparability(
         both["context"]["leagues"]["nba"], both["context"]["leagues"]["nba"])
     record("skipped on BOTH sides is comparable, not withheld",
@@ -583,7 +660,8 @@ def skipped_half_reaches_the_verdict() -> None:
     # requirement; compare() printing it is the other half.
     printed, _code = run_compare(before, after)
     record("compare() prints the skip for the side that skipped",
-           "backend half SKIPPED in the current" in printed,
+           "backend half SKIPPED in the current" in printed
+           and G.SKIP_NO_CACHED_FIXTURES in printed,
            [line.strip() for line in printed.splitlines()
             if "SKIPPED" in line][:1])
     printed, _code = run_compare(side(None, used), side(None, used))
@@ -597,14 +675,15 @@ def plant_skip_is_silent() -> None:
     """Drop the two keys from the compared context, and the mismatch passes."""
     tables = {"games_final.csv": "aaa"}
 
-    def side(skipped, fixtures):
+    def side(code, fixtures):
         block = context("2026-10-29T1027", tables)
-        block["backend_skipped"] = skipped
+        block["backend_skip_code"] = code
+        block["backend_skip_reason"] = "prose with 349 in it"
         block["backend_fixtures"] = fixtures
         return block
 
     before = side(None, [{"home": 1, "away": 2, "date": "2026-10-29"}])
-    after = side("no cached fixture", [])
+    after = side(G.SKIP_NO_CACHED_FIXTURES, [])
 
     stripped_before = {k: v for k, v in before.items()
                        if not k.startswith("backend_")}
@@ -620,6 +699,72 @@ def plant_skip_is_silent() -> None:
            "PASSES silently",
            ok is True and not reasons,
            "so carrying them is what makes a skipped half visible")
+
+
+def plant_reason_in_the_compared_body() -> None:
+    """Put the prose back where the code is, and deploy C's red returns.
+
+    TWO PLANTS, because the defect had two halves: the compared BODY held the
+    prose, and the compared CONTEXT would have too if the code had not been
+    separated out. Each is restored on its own, so each assertion is shown to
+    be reading the thing it names.
+    """
+    tables = {"games_final.csv": "aaa"}
+
+    def side(reason, in_body):
+        block = context("2026-10-29T1027", tables)
+        block["backend_skip_code"] = G.SKIP_NONE_ON_RULE_DATE
+        block["backend_skip_reason"] = reason
+        block["backend_fixtures"] = []
+        bodies = {"inference_health": health(), "backend_health": {}}
+        bodies["nba.backend.none"] = {"__skipped__": in_body}
+        return {"context": {"leagues": {"nba": block},
+                            "schedule_count": 1311, "teams_count": 30},
+                "bodies": bodies}
+
+    prose_349 = "none of its 349 cached fixture(s) falls on 2026-03-29"
+    prose_357 = "none of its 357 cached fixture(s) falls on 2026-03-29"
+
+    # (a) THE PROSE IN THE BODY, which is what shipped. The counts differ, the
+    #     context is identical, so the league reports REGRESSED.
+    _printed, code = run_compare(side(prose_349, prose_349),
+                                 side(prose_357, prose_357))
+    if code == G.EXIT_PASS:
+        raise AssertionError(
+            "the plant still passed, so the check is not reading the body")
+    record("PLANT the prose back in the compared body -> REGRESSED (red)",
+           code == G.EXIT_REGRESSED,
+           f"exit {code}, which is the false red deploy C hit")
+
+    # (b) THE CONTROL, same pair with the code in the body: PASS. Without
+    #     this the plant above could be red for any reason at all.
+    _printed, code = run_compare(side(prose_349, G.SKIP_NONE_ON_RULE_DATE),
+                                 side(prose_357, G.SKIP_NONE_ON_RULE_DATE))
+    record("control: the same pair with the CODE in the body -> PASS",
+           code == G.EXIT_PASS,
+           f"exit {code}, so the red above is the prose and nothing else")
+
+    # (c) THE REASON MUST NOT BE NAMED BY league_comparability. Read out of
+    #     the source rather than inferred from behaviour: a future edit that
+    #     adds it would reintroduce the defect for every league at once.
+    # THE SLICE HAS TO STOP AT THE NEXT def, and the first version of this
+    # check did not: it ran to `strip_health_context`, which is 150 lines
+    # further down, so it swallowed `compare()` - where the reason is
+    # legitimately PRINTED - and failed for the opposite of a defect.
+    source = Path(G.__file__).read_text(encoding="utf-8")
+    start = source.index("def league_comparability")
+    end = source.index(chr(10) + "def ", start + 1)
+    # COMMENTS STRIPPED, because the function's own comment says that
+    # backend_skip_reason is deliberately not compared - and a check a
+    # comment can turn red is a check about prose rather than about code.
+    # That is what the first version of this did.
+    body = chr(10).join(
+        line for line in source[start:end].splitlines()
+        if not line.strip().startswith("#"))
+    record("league_comparability never names backend_skip_reason",
+           "backend_skip_reason" not in body
+           and "backend_skip_code" in body,
+           "the code is compared; the prose is not reachable from here")
 
 
 def run_compare(before, after):
@@ -728,6 +873,7 @@ def main() -> int:
     backend_half_picks_existing_fixtures()
     skipped_half_reaches_the_verdict()
     plant_skip_is_silent()
+    plant_reason_in_the_compared_body()
 
     passed = sum(1 for _n, ok_, _d in RESULTS if ok_)
     print()

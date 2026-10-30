@@ -355,6 +355,30 @@ def field_count(differing: list) -> int:
     return sum(len(fields) for _key, fields in differing)
 
 
+# THE SKIP CODES, WHICH ARE WHAT GETS COMPARED. A skipped backend half used to
+# put its human-readable reason into the compared body, and that reason embeds
+# the cached fixture count - so when deploy C's backend restart synced 8 new
+# G League fixtures between the two captures, the reason went from "none of its
+# 349 cached fixture(s)" to "357" and the gate reported the G League
+# **REGRESSED**. A false REGRESSED is the worst verdict this gate can produce,
+# because the obvious way to clear it is to recapture the baseline, which is
+# the one thing its own rules forbid.
+#
+# So the two facts are separated. The CODE is why the half was skipped and
+# changes only when the situation changes; the REASON is the same fact with
+# today's numbers in it, for a human reading the output. The code is compared,
+# the reason is printed and carried in the context and never byte-compared.
+#
+# Same shape as the fields already in HEALTH_CONTEXT_FIELDS: the clock and the
+# counters are context, and the judgement is what gets diffed.
+SKIP_NO_CACHED_FIXTURES = "no_cached_fixtures"
+SKIP_NONE_ON_RULE_DATE = "none_on_rule_date"
+SKIP_NONE_PREDICTABLE = "none_predictable"
+SKIP_NO_DISTINCT_PAIR = "no_distinct_pair"
+SKIP_FEWER_THAN_REQUESTED = "fewer_than_requested"
+SKIP_SCHEDULE_UNREADABLE = "schedule_unreadable"
+
+
 def backend_fixtures(schedule, league: str, date, count: int = 2) -> tuple:
     """Predictable fixtures the backend ALREADY HAS A ROW FOR.
 
@@ -384,33 +408,46 @@ def backend_fixtures(schedule, league: str, date, count: int = 2) -> tuple:
     its own `predictable` flag is read instead. A fixture the backend would
     refuse is not a usable body.
 
-    Returns (fixtures, reason). `fixtures` is a list of (home, away, date);
-    `reason` is None when `count` were found and a sentence otherwise. An
-    empty list with a reason is the WNBA out of season, and it must be
-    REPORTED - see capture(), which records it in the context and prints it.
+    Returns (fixtures, skip). `fixtures` is a list of (home, away, date).
+    `skip` is None when `count` were found, and otherwise a dict with a
+    stable `code` and a human `reason` that may contain today's counts. ONLY
+    THE CODE IS EVER COMPARED - see the SKIP_* constants for why. An empty
+    list with a skip is the WNBA out of season, and it must be REPORTED: see
+    capture(), which prints the reason, stores both, and compares the code.
     """
+    def skip(code, reason):
+        return {"code": code, "reason": reason}
+
     if not isinstance(schedule, list):
-        return [], ("the backend's schedule could not be read, so no "
-                    "existing fixture could be chosen")
+        return [], skip(SKIP_SCHEDULE_UNREADABLE,
+                        "the backend's schedule could not be read, so no "
+                        "existing fixture could be chosen")
 
     rows = [row for row in schedule
             if isinstance(row, dict) and row.get("league") == league]
     if not rows:
-        return [], (f"the backend has no cached {league} fixture at all "
-                    f"(its sync writes none out of season)")
+        return [], skip(
+            SKIP_NO_CACHED_FIXTURES,
+            f"the backend has no cached {league} fixture at all "
+            f"(its sync writes none out of season)")
 
     if league == "nfl":
         # ITS OWN FLAG, NOT A DATE. 193 of 208 fixtures are refused at any
         # moment under the dependency rule, and which ones changes weekly.
         usable = [row for row in rows if row.get("predictable") is True]
+        code = SKIP_NONE_PREDICTABLE
         why = "none of them is predictable yet under the dependency rule"
     else:
         usable = [row for row in rows if row.get("gameDate") == date]
+        code = SKIP_NONE_ON_RULE_DATE
+        # THE COUNT LIVES HERE AND NOWHERE THAT IS COMPARED. `len(rows)` moves
+        # whenever the schedule sync runs, which a backend restart does.
         why = (f"none of its {len(rows)} cached fixture(s) falls on "
                f"{date}, the only date MAX_DAYS_AHEAD permits")
 
     if not usable:
-        return [], f"the backend has {league} fixtures but {why}"
+        return [], skip(code,
+                        f"the backend has {league} fixtures but {why}")
 
     # FOUR DISTINCT TEAMS, the same shape MATCHUPS has and for the same
     # reason: two bodies that share a team share whatever that team's
@@ -426,11 +463,15 @@ def backend_fixtures(schedule, league: str, date, count: int = 2) -> tuple:
             break
 
     if not chosen:
-        return [], (f"the backend's {league} fixtures could not yield a pair "
-                    f"with distinct teams")
+        return [], skip(
+            SKIP_NO_DISTINCT_PAIR,
+            f"the backend's {league} fixtures could not yield a pair "
+            f"with distinct teams")
     if len(chosen) < count:
-        return chosen, (f"only {len(chosen)} of {count} usable {league} "
-                        f"fixture(s) with distinct teams")
+        return chosen, skip(
+            SKIP_FEWER_THAN_REQUESTED,
+            f"only {len(chosen)} of {count} usable {league} "
+            f"fixture(s) with distinct teams")
     return chosen, None
 
 
@@ -502,20 +543,30 @@ def capture() -> dict:
         # See backend_fixtures: posting a constructed pair here ran
         # GameLookup.findOrCreateGame and CREATED a `game` row every morning,
         # so the instrument was changing the database it measures.
-        chosen, shortfall = backend_fixtures(
+        chosen, skipped = backend_fixtures(
             schedule, league, dates[0] if dates else None)
         context["leagues"][league]["backend_fixtures"] = [
             {"home": h, "away": a, "date": d} for h, a, d in chosen]
-        context["leagues"][league]["backend_skipped"] = shortfall
-        if shortfall:
-            # LOUDLY, AND IN THE CONTEXT. A body that silently stops being
-            # captured is a guard that silently stops guarding - which is how
-            # the WNBA's freshness block came to be missing in the first
-            # place.
-            print(f"  {league}: BACKEND HALF SKIPPED - {shortfall}")
+        # TWO KEYS, AND ONLY THE FIRST IS COMPARED. `backend_skip_code` is a
+        # stable word; `backend_skip_reason` carries today's counts and is
+        # here to be read, not diffed. league_comparability names the code and
+        # never the reason - deploy C's false REGRESSED on the G League was
+        # the reason going into a compared body.
+        context["leagues"][league]["backend_skip_code"] = (
+            skipped["code"] if skipped else None)
+        context["leagues"][league]["backend_skip_reason"] = (
+            skipped["reason"] if skipped else None)
+        if skipped:
+            # LOUDLY. A body that silently stops being captured is a guard
+            # that silently stops guarding - which is how the WNBA's
+            # freshness block came to be missing in the first place.
+            print(f"  {league}: BACKEND HALF SKIPPED "
+                  f"[{skipped['code']}] - {skipped['reason']}")
         if not chosen:
+            # THE CODE, NOT THE PROSE. This body IS byte-compared.
             bodies[f"{league}.backend.none"] = {
-                "__skipped__": shortfall or "no usable existing fixture"}
+                "__skipped__": (skipped["code"] if skipped
+                                else SKIP_NO_DISTINCT_PAIR)}
         for index, (home, away, date) in enumerate(chosen):
             bodies[f"{league}.backend.{index}"] = curl(
                 "POST", f"{BACKEND}{BACKEND_PATH[league]}",
@@ -627,14 +678,22 @@ def league_comparability(before: dict, after: dict) -> tuple:
             f"the backend half used different existing fixtures "
             f"({before.get('backend_fixtures')} -> "
             f"{after.get('backend_fixtures')})")
-    # AND A HALF THAT WAS CAPTURED IN ONE AND SKIPPED IN THE OTHER. Not a
-    # defect, and not comparable either: one side has a body the other has
-    # not. Reported as its own reason rather than folded into the line above.
-    if bool(before.get("backend_skipped")) != bool(after.get("backend_skipped")):
+    # AND THE SKIP CODE, WHICH IS A WORD AND NOT A SENTENCE. Captured on one
+    # side and skipped on the other is not a defect and not comparable either:
+    # one side has a body the other has not. Two DIFFERENT skip codes are the
+    # same situation one step on - the half was unavailable for two different
+    # reasons, so the bodies are not comparable.
+    #
+    # THE CODE AND NEVER THE REASON. The reason embeds the cached fixture
+    # count, and comparing it made deploy C report the G League REGRESSED when
+    # the backend restart synced 8 fixtures between the captures (349 -> 357).
+    # `backend_skip_reason` is in the context beside this and is deliberately
+    # not named here.
+    if before.get("backend_skip_code") != after.get("backend_skip_code"):
         reasons.append(
-            f"the backend half was captured in one capture and skipped in "
-            f"the other ({before.get('backend_skipped') or 'captured'} -> "
-            f"{after.get('backend_skipped') or 'captured'})")
+            f"the backend half's availability changed "
+            f"({before.get('backend_skip_code') or 'captured'} -> "
+            f"{after.get('backend_skip_code') or 'captured'})")
     if before.get("availability_state") != after.get("availability_state"):
         reasons.append(f"availability {before.get('availability_state')} -> "
                        f"{after.get('availability_state')}")
@@ -751,12 +810,14 @@ def compare(before: dict, after: dict) -> int:
         # body byte-identical" over a body that was never captured is the
         # misleading green this gate exists to avoid.
         for side, label in ((b, "baseline"), (a, "current")):
-            skipped = side.get("backend_skipped")
-            if skipped:
-                print(f"           backend half SKIPPED in the {label}: "
-                      f"{skipped}")
+            code = side.get("backend_skip_code")
+            if code:
+                # The reason is PRINTED, which is the whole point of keeping
+                # it: the code says what changed, the prose says why.
+                print(f"           backend half SKIPPED in the {label} "
+                      f"[{code}]: {side.get('backend_skip_reason')}")
         used = a.get("backend_fixtures")
-        if used is not None and not a.get("backend_skipped"):
+        if used is not None and not a.get("backend_skip_code"):
             print(f"           backend half used {len(used)} existing "
                   f"fixture(s): "
                   + ", ".join(f"{f['home']}v{f['away']}@{f['date']}"
