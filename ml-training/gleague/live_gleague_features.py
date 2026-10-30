@@ -319,9 +319,17 @@ def get_live_features(home_team_id: int, away_team_id: int, game_date,
     if incomplete and manifest.get("requires_complete_features"):
         detail = "; ".join(f"{t}: {', '.join(c)}"
                            for t, c in incomplete.items())
-        raise NotScoreable(
+        error = NotScoreable(
             f"incomplete features for this fixture ({detail}). The shipped "
             f"models are linear pipelines and cannot score a partial row.")
+        # THE COLUMNS, ON THE EXCEPTION. The message has always named them in
+        # prose; carrying them as data is what lets the serving layer tell a
+        # season opener (REST_DAYS only) from a short form window, without
+        # parsing its own error text.
+        error.missing_columns = sorted(
+            {column for columns in incomplete.values() for column in columns})
+        error.incomplete_targets = sorted(incomplete)
+        raise error
 
     # The same shape live_wnba_features returns, so the two endpoints in
     # app.py differ only in which league they name.

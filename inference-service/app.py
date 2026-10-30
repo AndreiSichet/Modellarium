@@ -10,6 +10,7 @@ import time
 import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import JSONResponse
 from nba_api.stats.endpoints import scheduleleaguev2
 from pydantic import BaseModel, ConfigDict, Field
 from xgboost import XGBClassifier, XGBRegressor
@@ -28,6 +29,7 @@ from live_features import (  # noqa: E402
     load_games_final,
     season_of,
 )
+from build_rolling_features import WINDOWS as QH_WINDOWS  # noqa: E402
 from live_quarter_half_features import (  # noqa: E402
     InsufficientQuarterHalfHistory,
     get_live_quarter_half_features,
@@ -188,6 +190,10 @@ class TeamPlayerProps(BaseModel):
     is_home: bool
     availability_known: bool
     availability_note: str | None = None
+    # ADDED 2026-10-30, additive and nullable: every existing field keeps its
+    # name, type and meaning. `no_usable_history` is the early-season state,
+    # `availability_unknown` the offseason one with no injury report.
+    availability_code: str | None = None
     players: list[PlayerPrediction]
 
 class PlayerPropsResponse(BaseModel):
@@ -624,6 +630,11 @@ async def lifespan(_app: FastAPI):
     state.gleague_known_team_ids = state.gleague_state["known_team_ids"]
     state.gleague_models, state.gleague_manifest = load_gleague_models()
 
+    # BEFORE ANYTHING IS SERVED. A missing completeness flag is a broken
+    # deploy, not a degraded one.
+    check_completeness_flags({"gleague": state.gleague_manifest,
+                              "wnba": state.wnba_manifest})
+
     # The NFL's own cutoff, own ids and own prediction rule. `load_nfl_state`
     # REFUSES a synthetic table set here unless MODELLARIUM_ALLOW_SYNTHETIC_NFL
     # is set, so a production boot cannot serve invented scores as results -
@@ -878,12 +889,136 @@ def health():
         },
     }
 
+# ===========================================================================
+# REFUSAL CODES
+#
+# A refusal used to be a 400 whose `detail` was prose, and the frontend had
+# nothing to branch on - so it fell through to "the request failed, the
+# service did not answer" and printed the JSON onto the page. The service HAD
+# answered; it deliberately refused. Measured 2026-10-30: all ten NBA
+# fixtures of the day refused the Q1/1H markets, and the earliest any of them
+# can succeed is 2026-11-06, the latest 2026-11-13.
+#
+# ADDITIVE, AND THAT IS THE WHOLE CONSTRAINT. The status code is unchanged and
+# `detail` is byte-identical to what it was; a `code` and the numbers that
+# explain it arrive beside them. Anything reading `detail` or the status keeps
+# working, which is why Refusal subclasses HTTPException rather than replacing
+# it: an un-handled Refusal still renders as the plain 400 it always did.
+#
+# EVERY PATH HAS A CODE, including the three in validate_matchup, because a
+# path with no code is a path the frontend has to guess about - and guessing
+# from an empty list is how the player-props panel came to show two headed
+# boxes and nothing else. `unclassified` is a code too: it says "this refusal
+# is real but nothing has classified it", which is different from silence.
+REFUSAL_SAME_TEAM = "same_team"
+REFUSAL_UNKNOWN_TEAM = "unknown_team"
+REFUSAL_DATE_OUT_OF_RANGE = "date_out_of_range"
+REFUSAL_INSUFFICIENT_HISTORY = "insufficient_history"
+REFUSAL_INCOMPLETE_FEATURES = "incomplete_features"
+REFUSAL_SEASON_OPENER = "season_opener"
+REFUSAL_NO_USABLE_HISTORY = "no_usable_history"
+REFUSAL_SYNTHETIC_DATA = "synthetic_data_refused"
+REFUSAL_UNCLASSIFIED = "unclassified"
+
+
+class Refusal(HTTPException):
+    """A 400 that says WHY in a form a client can branch on.
+
+    `detail` is passed through untouched, so the existing wire text and status
+    are preserved exactly; `code` and `fields` are rendered beside them by the
+    handler below.
+    """
+
+    def __init__(self, detail: str, code: str, **fields):
+        super().__init__(status_code=400, detail=detail)
+        self.code = code
+        self.fields = {k: v for k, v in fields.items() if v is not None}
+
+
+def refusal_body(error: "Refusal") -> dict:
+    """The JSON a Refusal renders as. `detail` first, then the additions."""
+    return {"detail": error.detail, "code": error.code, **error.fields}
+
+# THE WINDOW, FROM THE FEATURE DEFINITIONS. `WINDOWS` is what
+# build_rolling_features hands every builder, so the longest of them is what a
+# complete Q1/1H row needs. Never written as 10 here: a literal would be a
+# number with no expiry, and three of those have already broken something.
+QH_WINDOW = max(QH_WINDOWS)
+
+
+def qh_games_played(team_id: int, game_date: pd.Timestamp) -> int:
+    """How many games with quarter data this team has in the current season.
+
+    The same count the refusal message quotes, exposed as a number so the
+    frontend does not have to parse prose for it.
+    """
+    history = state.qh_history_df
+    if history is None or history.empty:
+        return 0
+    season = season_of(pd.Timestamp(game_date))
+    rows = history[(history["TEAM_ID"] == team_id)
+                   & (history["SEASON"] == season)
+                   & (history["GAME_DATE"] < pd.Timestamp(game_date))]
+    return int(len(rows))
+
+
+def gleague_refusal_code(error) -> str:
+    """A season opener is its own answer, not a generic incomplete row.
+
+    Measured 2026-10-30: every 2026-27 G League fixture refuses, and the
+    only missing columns are REST_DAYS and IS_LONG_BREAK - because `rest_for`
+    is season-scoped, so a seven-month off-season is not a week off. That is a
+    different thing from a team with a short form window, and a reader should
+    be told which.
+    """
+    missing = getattr(error, "missing_columns", None) or []
+    if missing and all("REST" in column or "LONG_BREAK" in column
+                       for column in missing):
+        return REFUSAL_SEASON_OPENER
+    return REFUSAL_INCOMPLETE_FEATURES
+
+# A MANIFEST FLAG WITH NOTHING CHECKING THE FLAG IS NOT A SAFETY PROPERTY.
+# `live_gleague_features.get_live_features` refuses an incomplete feature row
+# only `if incomplete and manifest.get("requires_complete_features")`. The
+# WNBA's equivalent is unconditional, so the G League's protection is the one
+# that can be switched off by a rebuilt manifest that simply omits a key -
+# silently, at which point a linear pipeline starts scoring rows with NaN in
+# them. Checked here, at boot, where a wrong answer costs a failed deploy
+# instead of a season of quiet nonsense.
+#
+# PRESENCE, NOT TRUTH. A manifest that says `false` is a decision someone
+# made and this has no business overriding it; a manifest with no key at all
+# is the accident.
+MANIFESTS_REQUIRING_COMPLETENESS_FLAG = {
+    "gleague": "requires_complete_features",
+}
+
+
+def check_completeness_flags(manifests: dict) -> None:
+    """Refuse to serve a manifest whose completeness flag went missing."""
+    missing = sorted(
+        f"{league}.{key}"
+        for league, key in MANIFESTS_REQUIRING_COMPLETENESS_FLAG.items()
+        if key not in (manifests.get(league) or {})
+    )
+    if missing:
+        raise SystemExit(
+            f"MANIFEST IS MISSING A COMPLETENESS FLAG: {missing}.\n"
+            f"  live_gleague_features refuses an incomplete feature row only "
+            f"when this key is present and truthy, so without it a linear "
+            f"pipeline would score rows containing NaN and say nothing.\n"
+            f"  Add the key to the manifest - `false` is an acceptable value "
+            f"and means someone decided; absent means nobody did."
+        )
+
+
 def validate_matchup(request: "PredictionRequest") -> pd.Timestamp:
     """Checks every prediction endpoint must make. Returns the parsed date."""
     game_date = pd.Timestamp(request.game_date)
 
     if request.home_team_id == request.away_team_id:
-        raise HTTPException(400, "home_team_id and away_team_id must differ.")
+        raise Refusal("home_team_id and away_team_id must differ.",
+                      REFUSAL_SAME_TEAM, team_id=request.home_team_id)
 
     unknown = [
         team_id
@@ -891,20 +1026,24 @@ def validate_matchup(request: "PredictionRequest") -> pd.Timestamp:
         if team_id not in state.known_team_ids
     ]
     if unknown:
-        raise HTTPException(
-            400,
+        raise Refusal(
             f"No history for team id(s) {unknown}. Features cannot be built for a "
             f"team with no completed games in the data.",
+            REFUSAL_UNKNOWN_TEAM,
+            unknown_team_ids=unknown,
         )
 
     latest_allowed = state.data_as_of + pd.DateOffset(days=MAX_DAYS_AHEAD)
     if game_date > latest_allowed:
-        raise HTTPException(
-            400,
+        raise Refusal(
             f"game_date {request.game_date} is more than {MAX_DAYS_AHEAD} day past "
             f"the newest game in the data ({state.data_as_of.date()}). Rest-day "
             f"features would be computed against the wrong prior game. Latest "
             f"accepted date is {latest_allowed.date()}.",
+            REFUSAL_DATE_OUT_OF_RANGE,
+            requested_date=str(request.game_date),
+            latest_accepted_date=str(latest_allowed.date()),
+            data_as_of=str(state.data_as_of.date()),
         )
 
     return game_date
@@ -1141,9 +1280,22 @@ def predict_quarter_half(request: PredictionRequest):
             state.games_final_df,
         )
     except InsufficientQuarterHalfHistory as error:
-        raise HTTPException(400, str(error)) from error
+        # THE NUMBERS COME FROM THE EXCEPTION AND THE FEATURE DEFINITIONS,
+        # never from a literal. `needed` is max(WINDOWS) out of
+        # build_rolling_features - the same source the builders use - so a
+        # window change moves this without anyone remembering to.
+        raise Refusal(
+            str(error),
+            REFUSAL_INSUFFICIENT_HISTORY,
+            needed=QH_WINDOW,
+            home_games_played=qh_games_played(request.home_team_id, game_date),
+            away_games_played=qh_games_played(request.away_team_id, game_date),
+            short_side=error.side.lower(),
+            short_team_id=error.team_id,
+        ) from error
     except (ValueError, KeyError) as error:
-        raise HTTPException(400, f"Could not build features: {error}") from error
+        raise Refusal(f"Could not build features: {error}",
+                      REFUSAL_UNCLASSIFIED) from error
 
     predictions = []
     for key, field, classification in QH_MODEL_REGISTRY:
@@ -1190,6 +1342,17 @@ def player_props_for_team(team_id: int, opponent_id: int, game_date, is_home: bo
         bool(roster["AVAILABILITY_KNOWN"].iloc[0]) if not roster.empty else False
     )
     note = None if availability_known else describe_roster(roster)
+    # A CODE BESIDE THE NOTE, NOT INSTEAD OF IT. The note is prose and has
+    # always been prose; the frontend was left inferring "nobody has usable
+    # history" from an empty list, which is why its explanation branch
+    # (`!board?.homeTeam && !board?.awayTeam`) could never fire - both boards
+    # are PRESENT, just empty. An empty roster is now said rather than
+    # implied.
+    availability_code = (
+        None if availability_known
+        else REFUSAL_NO_USABLE_HISTORY if roster.empty
+        else "availability_unknown"
+    )
 
     roster = roster.head(PLAYER_PROPS_PER_TEAM)
 
@@ -1221,6 +1384,7 @@ def player_props_for_team(team_id: int, opponent_id: int, game_date, is_home: bo
         is_home=is_home,
         availability_known=availability_known,
         availability_note=note,
+        availability_code=availability_code,
         players=players,
     )
 
@@ -1239,7 +1403,8 @@ def predict_player_props(request: PredictionRequest):
             ),
         ]
     except (ValueError, KeyError) as error:
-        raise HTTPException(400, f"Could not build features: {error}") from error
+        raise Refusal(f"Could not build features: {error}",
+                      REFUSAL_UNCLASSIFIED) from error
 
     days_behind, stale = freshness()
     return PlayerPropsResponse(
@@ -1363,7 +1528,10 @@ def predict_gleague(request: PredictionRequest):
             state.gleague_state,
         )
     except GleagueNotScoreable as error:
-        raise HTTPException(400, str(error)) from error
+        raise Refusal(str(error), gleague_refusal_code(error),
+                      missing_features=getattr(
+                          error, "missing_columns", None)
+                      ) from error
     except (ValueError, KeyError) as error:
         raise HTTPException(
             400, f"Could not build features: {error}") from error
@@ -1412,7 +1580,10 @@ def predict_wnba(request: PredictionRequest):
             request.home_team_id, request.away_team_id, game_date
         )
     except WnbaNotScoreable as error:
-        raise HTTPException(400, str(error)) from error
+        raise Refusal(str(error), REFUSAL_INCOMPLETE_FEATURES,
+                      missing_features=getattr(
+                          error, "missing_columns", None)
+                      ) from error
     except (ValueError, KeyError) as error:
         raise HTTPException(400, f"Could not build features: {error}") from error
 
@@ -1590,3 +1761,15 @@ def predict_nfl(request: PredictionRequest):
         home_win_interpretation=state.nfl_manifest["winner_qualifier"],
         source=NFL_SOURCE,
     )
+
+
+@app.exception_handler(Refusal)
+async def refusal_handler(_request, error: Refusal):
+    """Render a Refusal as its old body plus the new fields.
+
+    FastAPI's default HTTPException handler emits `{"detail": ...}` and
+    nothing else, so the additive fields need this. Registered for Refusal
+    only: every other HTTPException in this service renders exactly as before.
+    """
+    return JSONResponse(status_code=error.status_code,
+                        content=refusal_body(error))
