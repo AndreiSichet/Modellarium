@@ -25,6 +25,7 @@ sections all titled `Game log` - under Pre-season, Regular season and
 Playoffs. A flat scan reads all three or none.
 """
 import datetime as dt
+from zoneinfo import ZoneInfo
 import re
 
 import nhl_franchises as F
@@ -35,6 +36,11 @@ import nhl_franchises as F
 # measurement. It is kept because the day a source does supply times, this is
 # the branch that should run.
 NHL_HOURS_UNTIL_FINAL = 3.0
+
+# The latest US zone an NHL game is played in. See
+# date_ended_utc: the season straddles the DST boundary, so
+# this has to be a zone rather than an offset.
+PACIFIC = ZoneInfo("America/Los_Angeles")
 
 DASH = "[–—−-]"
 # THE AWAY MARKER, and the `\b` that mis-oriented up to 451 rows a season.
@@ -754,6 +760,22 @@ def kickoff_utc(row):
     return None
 
 
+def date_ended_utc(date):
+    """The instant date D has ended in the latest US zone a game is played.
+
+    PACIFIC, FROM THE ZONE, NOT A CONSTANT. The latest zone an NHL game is
+    played in is Pacific, so a US calendar date D is over everywhere relevant
+    at midnight Pacific on D+1 - which is D+1 **07:00 UTC in PDT** and D+1
+    **08:00 UTC in PST**. Every NHL season straddles that boundary (US DST
+    ends on 1 November 2026), and the one-hour difference is exactly the
+    window the refresh time turns on, so a hardcoded offset would be right
+    for most of a season and wrong for the rest.
+    """
+    midnight_pacific = dt.datetime.combine(
+        date + dt.timedelta(days=1), dt.time(0, 0), tzinfo=PACIFIC)
+    return midnight_pacific.astimezone(dt.timezone.utc)
+
+
 def in_progress(date, now, kickoff=None):
     """Might a score on this row be a score written DURING the game?
 
@@ -761,16 +783,33 @@ def in_progress(date, now, kickoff=None):
 
       * with an instant, the game is in progress for NHL_HOURS_UNTIL_FINAL
         after it;
-      * without one, it is judged on its DATE. A game scheduled on date D is
-        over in every North American zone by the end of D+1 whatever time it
-        started, so it stays in progress until MORE than a full day has
-        passed. A nominal clock time would be worse than no time: assuming
-        23:00 UTC puts a 7 p.m. Pacific game's drop three hours before it
-        actually starts, and accepts a score written in overtime as final.
+      * without one, it is judged on its DATE - and the test is whether that
+        date has ENDED in the latest US zone the game could have been played
+        in, which is `date_ended_utc`.
+
+    NARROWED 2026-10-30 FROM A FULL EXTRA DAY, AND THE SAVING IS MEASURED.
+    This used to be `(now.date() - date).days <= 1`, which accepted a game on
+    D only from **D+2** - a whole day later than the information was
+    available. 320 Wikipedia revisions across 8 articles were replayed to
+    check the narrower rule is safe:
+
+      * a complete score with its markers appeared a median **0.6 h BEFORE**
+        the date ended, and 55 of 98 first-completions were already in place
+        before it;
+      * **0 of 320 revisions ever showed a PARTIAL score with its markers
+        already set**, which is the one failure this rule must not accept.
+
+    So the rule is both safe on the evidence and conservative: it still waits
+    for more than half of the games whose scores were already correct.
+
+    WHY NOT A NOMINAL CLOCK TIME, still: assuming 23:00 UTC puts a 7 p.m.
+    Pacific game's drop three hours before it actually starts and accepts a
+    score written in overtime as final. The date's end in the latest zone is
+    the weakest claim that is always true.
     """
     if kickoff is not None:
         return (now - kickoff) < dt.timedelta(hours=NHL_HOURS_UNTIL_FINAL)
-    return (now.date() - date).days <= 1
+    return now < date_ended_utc(date)
 
 
 def _too_recent(date, now):

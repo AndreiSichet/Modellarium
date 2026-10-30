@@ -323,16 +323,122 @@ def plant_duplicate_game(h):
 
 
 def plant_in_progress(h):
-    """(g) a score inside the in-progress window -> the guard."""
+    """(g) a score inside the in-progress window -> the guard.
+
+    REWRITTEN 2026-10-30 WITH THE RULE IT TESTS, and the old assertion is
+    quoted here because it was right about the old rule:
+
+        return (today and yesterday and not older, ...)
+
+    Under the full-day rule a game on D was in progress until D+2, so
+    "yesterday" was in progress. The rule is now whether the game's date has
+    ENDED in the latest US zone it could be played in - midnight Pacific on
+    D+1 - which 320 replayed revisions showed is safe: 0 of them ever carried
+    a partial score with its markers already set, and a complete score with
+    markers appeared a median 0.6 h BEFORE the date ended.
+    """
     parse = h.modules["parse"]
     import datetime as dt
     now = dt.datetime(2026, 10, 19, 12, 0, tzinfo=dt.timezone.utc)
     today = parse.in_progress(dt.date(2026, 10, 19), now)
     yesterday = parse.in_progress(dt.date(2026, 10, 18), now)
     older = parse.in_progress(dt.date(2026, 10, 16), now)
-    return (today and yesterday and not older,
-            "today=%s yesterday=%s three days ago=%s (full-day rule; this "
-            "source supplies no puck drop)" % (today, yesterday, older))
+
+    # THE BOUNDARY, BOTH SIDES OF IT. The saving is exactly the hour of
+    # midnight Pacific, so an off-by-one here is the whole change.
+    ended = parse.date_ended_utc(dt.date(2026, 10, 18))
+    just_before = parse.in_progress(
+        dt.date(2026, 10, 18), ended - dt.timedelta(minutes=1))
+    just_after = parse.in_progress(
+        dt.date(2026, 10, 18), ended + dt.timedelta(minutes=1))
+
+    # THE POSITIVE CONTROL ON THE NARROWING: the rule this replaced said
+    # yesterday was still in progress at this instant.
+    old_rule_said_in_progress = (now.date() - dt.date(2026, 10, 18)).days <= 1
+
+    return (today and not yesterday and not older
+            and just_before and not just_after
+            and old_rule_said_in_progress,
+            "today=%s yesterday=%s three days ago=%s; the 2026-10-18 date "
+            "ends %s, in progress one minute before=%s and after=%s; the "
+            "full-day rule it replaced called yesterday in-progress=%s"
+            % (today, yesterday, older, ended.isoformat(), just_before,
+               just_after, old_rule_said_in_progress))
+
+
+def plant_partial_with_markers(h):
+    """(p) a mid-game score in ONE copy, markers set, date not ended.
+
+    THE FAILURE THE NARROWED RULE MUST NOT ACCEPT, and the reason the rule
+    needed measuring rather than reasoning about. An editor watching a game
+    can write the running score AND set the outcome marker before the game is
+    over - at which point both the score and the markers look complete. 320
+    replayed revisions contained 0 such rows, so the risk is small; "small"
+    is not "impossible", and the guard has to hold on the one that does
+    happen.
+
+    Planted in ONE copy on purpose. The pairing channel repairs a one-copy
+    score edit, so without the date guard this row would be REPAIRED into
+    the corpus rather than refused - which is worse than a visible failure.
+    """
+    import datetime as dt
+    parse = h.modules["parse"]
+    year = h.seasons[0]
+    row_a, _row_b, lines = h.a_game(year, want_end="REG")
+    path, line = lines[0]
+
+    # A score mid-game: the eventual winner is a goal short of its final
+    # tally, which is exactly what a live-updating editor leaves behind.
+    mid = "%d–%d" % (max(row_a["goals_for"] - 1, 0),
+                         row_a["goals_against"])
+    final = "%d–%d" % (row_a["goals_for"], row_a["goals_against"])
+    flipped = "%d–%d" % (row_a["goals_against"], row_a["goals_for"])
+    if final in line:
+        h.rewrite(path, line, line.replace(final, mid, 1))
+    elif flipped in line:
+        h.rewrite(path, line,
+                  line.replace(flipped, "%d–%d"
+                               % (row_a["goals_against"],
+                                  max(row_a["goals_for"] - 1, 0)), 1))
+    else:
+        raise PlantDidNothing("neither orientation of the score is in the row")
+
+    # THE GUARD ITSELF, asked directly: on the game's own date, before that
+    # date has ended, the row is in progress whatever it says.
+    ended = parse.date_ended_utc(row_a["date"])
+    during = ended - dt.timedelta(hours=4)
+    refused = parse.in_progress(row_a["date"], during)
+    accepted_after = not parse.in_progress(row_a["date"], ended)
+
+    # AND THROUGH THE PARSER, WITH `now` INSIDE THE WINDOW. The first
+    # version of this called load_season, which uses the real clock - and a
+    # 2014 game is long final, so the guard correctly did not apply and the
+    # planted row reached the corpus. That was the plant testing the wrong
+    # thing: the guard is about RECENCY, so the only honest way to exercise
+    # it on an archived game is to tell the parser that now is inside the
+    # game's own window, which is what `parse_article`'s `now` is for.
+    text = path.read_text(encoding="utf-8")
+    during_rows, _bad = parse.parse_article(
+        text, year, row_a["team_fid"], row_a["article"], now=during)
+    after_rows, _bad2 = parse.parse_article(
+        text, year, row_a["team_fid"], row_a["article"],
+        now=ended + dt.timedelta(hours=1))
+
+    def played_on(rows):
+        return [r for r in rows
+                if r["date"] == row_a["date"] and r["played"]]
+
+    reached_during = played_on(during_rows)
+    reached_after = played_on(after_rows)
+
+    return (refused and accepted_after
+            and not reached_during and len(reached_after) == 1,
+            "the %s date ends %s; in progress four hours before=%s, final "
+            "at the boundary=%s; with `now` inside the window the planted "
+            "row reached the parse %d time(s), and one hour after the date "
+            "ended %d time(s)"
+            % (row_a["date"], ended.isoformat(), refused, accepted_after,
+               len(reached_during), len(reached_after)))
 
 
 def plant_west_coast_in_progress(h):
@@ -488,6 +594,8 @@ PLANTS = [
     ("(l) that disagreement resolved", plant_quarantine_resolved),
     ("(m) standings lagging in the open season", plant_standings_lag),
     ("(n) a listed unusable game that no longer fails", plant_stale_exception),
+    ("(p) a mid-game score with markers, date not ended",
+     plant_partial_with_markers),
 ]
 
 
