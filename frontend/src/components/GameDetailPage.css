@@ -307,3 +307,32 @@
     align-items: flex-start;
   }
 }
+
+
+/* ----------------------------------------- the raw body, behind a toggle
+   A refusal used to print its JSON straight onto the page under "the
+   service did not answer". The text is still reachable, because for an
+   unclassified refusal it is the only thing that identifies it - but it is
+   for whoever goes looking rather than the first thing anyone reads. */
+.predictions-error-details {
+  margin: 0.5rem 0 0.75rem;
+}
+
+.predictions-error-details > summary {
+  color: var(--text-muted, #4b5563);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.predictions-error-details .predictions-error-detail {
+  margin-top: 0.4rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* One roster empty and the other not: a sentence where an empty list was. */
+.player-board-empty {
+  color: var(--text-muted, #4b5563);
+  font-size: 0.88rem;
+  margin: 0.4rem 0 0;
+}

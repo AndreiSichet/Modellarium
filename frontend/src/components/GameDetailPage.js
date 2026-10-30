@@ -49,7 +49,15 @@ function GameDetailPage() {
 
       setQuarterHalf({ status: 'ready', data: result?.prediction ?? null, error: null });
     } catch (failure) {
-      setQuarterHalf({ status: 'error', data: null, error: failure.message });
+      // THE WHOLE ERROR, NOT JUST ITS SENTENCE. A refusal's code is what
+      // lets the tab say why; keeping only `message` is what forced it to
+      // print the raw body.
+      setQuarterHalf({
+        status: 'error',
+        data: null,
+        error: failure.message,
+        failure,
+      });
     }
   }, [homeTeamId, awayTeamId, gameDate]);
 
@@ -62,7 +70,12 @@ function GameDetailPage() {
         : await getPlayerPropPredictions({ homeTeamId, awayTeamId, gameDate });
       setPlayerProps({ status: 'ready', data: result, error: null });
     } catch (failure) {
-      setPlayerProps({ status: 'error', data: null, error: failure.message });
+      setPlayerProps({
+        status: 'error',
+        data: null,
+        error: failure.message,
+        failure,
+      });
     }
   }, [homeTeamId, awayTeamId, gameDate]);
 
@@ -129,7 +142,12 @@ function GameDetailPage() {
         {tab === 'game' ? (
           <GameTab game={game} health={health} league={league} />
         ) : tab === 'quarters' ? (
-          <QuarterHalfTab state={quarterHalf} onRetry={loadQuarterHalf} health={health} />
+          <QuarterHalfTab
+            state={quarterHalf}
+            onRetry={loadQuarterHalf}
+            health={health}
+            game={game}
+          />
         ) : (
           <PlayerStatTab
             stat={stat}

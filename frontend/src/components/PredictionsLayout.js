@@ -70,6 +70,23 @@ function PredictionsLayout() {
         isPredictable(game, freshness, leagueBySlug(game.leagueSlug))
       );
 
+      // ONE FIXTURE'S REFUSAL COSTS ONE ROW, NOT THE PAGE. Until
+      // 2026-10-30 this was a bare Promise.all inside one try/catch, so a
+      // single declined fixture rejected the lot and the whole league page
+      // became "could not load". That is not hypothetical: the G League
+      // refuses a team's FIRST game of a season - `rest_for` is
+      // season-scoped, so a seven-month off-season is not a week off - and
+      // its season opens in early November. Simulated on a copy of the
+      // served history: with zero 2026-27 games every fixture refuses, and
+      // with ONE game recorded the next fixture scores. So it is opening
+      // night per team, and on opening night the entire page would have
+      // gone dark.
+      //
+      // EVERY LEAGUE, not just the G League. The WNBA refuses an incomplete
+      // row unconditionally and the NBA's Q1/1H models refuse for the first
+      // fortnight of a season; only the NFL imputes. A page that survives
+      // one league's refusal and not another's would be a difference nobody
+      // could predict.
       const predicted = await Promise.all(
         predictable.map(async (game, index) => {
           const { leagueSlug } = game;
@@ -77,13 +94,49 @@ function PredictionsLayout() {
           // Both paths end in the same normaliser: the fixtures are written
           // in each backend DTO's own shape, so dev cannot quietly agree with
           // itself while production disagrees.
-          const summary = DEV_FIXTURES_ON
-            ? normalisePredictionBody(leagueSlug, devPredictionFor(game, index))
-            : await createPredictionFor(leagueSlug, {
-                homeTeamId: game.homeTeamId,
-                awayTeamId: game.awayTeamId,
-                gameDate: game.gameDate,
-              });
+          let summary;
+          try {
+            summary = DEV_FIXTURES_ON
+              ? normalisePredictionBody(leagueSlug, devPredictionFor(game, index))
+              : await createPredictionFor(leagueSlug, {
+                  homeTeamId: game.homeTeamId,
+                  awayTeamId: game.awayTeamId,
+                  gameDate: game.gameDate,
+                });
+          } catch (failure) {
+            // A 4xx IS A REFUSAL AND IS KEPT; ANYTHING ELSE RE-THROWS.
+            // A declined fixture is information - the row says so and the
+            // rest of the slate renders. A 5xx or a network failure is a
+            // genuine fault and must still take the page down, or a broken
+            // backend would look like 1,300 unpredictable fixtures.
+            const status = failure?.status;
+            if (!(typeof status === 'number' && status >= 400 && status < 500)) {
+              throw failure;
+            }
+            return {
+              key: `${game.homeTeamId}-${game.awayTeamId}-${game.gameDate}`,
+              gameId: null,
+              leagueSlug,
+              homeTeamId: game.homeTeamId,
+              homeTeamName: game.homeTeamName,
+              homeTeamAbbr: game.homeTeamAbbr,
+              awayTeamId: game.awayTeamId,
+              awayTeamName: game.awayTeamName,
+              awayTeamAbbr: game.awayTeamAbbr,
+              gameDate: game.gameDate,
+              kickoffUtc: game.kickoffUtc,
+              flex: game.flex,
+              week: game.week,
+              predictable: game.predictable,
+              prediction: null,
+              refusal: {
+                code: failure?.code ?? null,
+                detail: failure?.body?.detail ?? null,
+                message: failure?.message ?? null,
+                fields: failure?.fields ?? {},
+              },
+            };
+          }
 
           return {
             key: `${game.homeTeamId}-${game.awayTeamId}-${game.gameDate}`,

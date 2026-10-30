@@ -1,15 +1,41 @@
 const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8080/api';
 
+// A REFUSAL IS NOT A FAILURE, AND THE PAGE USED TO SAY IT WAS. Inference
+// refuses the Q1/1H markets for a team whose season is younger than the
+// models' rolling window, with a 400 whose body now carries a `code` and the
+// numbers behind it. All of that used to be flattened into one string, so the
+// tab rendered raw JSON under the heading "the service did not answer" - the
+// service HAD answered, deliberately and with a reason.
+//
+// THE MESSAGE IS UNCHANGED. `message` is still what it was, so anything
+// reading `error.message` keeps working; `code`, `status` and `fields` are
+// added to the Error so a component can branch instead of guessing.
 async function readError(response) {
   let message = null;
+  let body = null;
 
   try {
-    const body = await response.json();
+    body = await response.json();
     message = body.message || body.error || null;
   } catch {
   }
 
-  return new Error(message || `Request failed with status ${response.status}`);
+  const error = new Error(message || `Request failed with status ${response.status}`);
+  error.status = response.status;
+  error.code = body?.code ?? null;
+  // Everything the refusal sent except the parts that are already the
+  // message or belong to the error envelope. A component reads
+  // fields.needed, not fields.status.
+  error.fields = body
+    ? Object.fromEntries(
+        Object.entries(body).filter(
+          ([key]) =>
+            !['timestamp', 'status', 'error', 'message', 'path', 'code'].includes(key)
+        )
+      )
+    : {};
+  error.body = body;
+  return error;
 }
 
 async function request(path, options) {

@@ -71,19 +71,38 @@ test('the in-season player board is empty on both sides and says why', () => {
   expect(offseason.homeTeam.players.length).toBeGreaterThan(0);
 });
 
-test('an empty in-season board renders its note and no player rows', () => {
+test('an empty in-season board explains itself instead of showing two bare panels', () => {
   renderBoard(devPlayerPropsInSeasonFor('2026-10-21'));
 
-  // Both boards still render - the teams are present, only their rosters are
-  // empty - so the user gets two headed panels with an explanation and no
-  // rows, which is what the service actually supports saying today.
-  // By heading rather than by text: the abbreviation also appears inside the
-  // team badge, so a plain text query matches twice per board and says
-  // nothing about which element carried it.
-  const titles = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
-  expect(titles).toEqual(['ATL', 'ORL']);
+  // THIS ASSERTION WAS REPLACED ON 2026-10-30, AND THE REASON IS THE POINT.
+  // It used to require two headed panels each carrying 'no players with
+  // usable history' and no rows:
+  //
+  //     expect(titles).toEqual(['ATL', 'ORL']);
+  //     expect(screen.getAllByText('no players with usable history'))
+  //       .toHaveLength(2);
+  //
+  // That was a faithful record of what the app did on 21 October, which is
+  // why the fixture file it reads is UNCHANGED. But it was also a record of
+  // the defect: PlayerStatTab's explanation branch required both boards to
+  // be ABSENT (`!board?.homeTeam && !board?.awayTeam`) while the real
+  // response has both PRESENT with empty rosters, so the sentence that
+  // explains the early season could never appear. Measured 2026-10-30: all
+  // ten NBA fixtures of the day were in exactly that state.
+  //
+  // So the captured shape stays and the expectation moves: both rosters
+  // empty now gets the explanation.
+  expect(screen.getByText(/No player predictions yet/i)).toBeInTheDocument();
+  expect(
+    screen.getByText(/need each player's own recent history/i)
+  ).toBeInTheDocument();
 
-  expect(screen.getAllByText('no players with usable history')).toHaveLength(2);
+  // THE API'S OWN WORDS SURVIVE as the meta line, so nothing the service
+  // said is lost - it is said once rather than twice with no context.
+  expect(screen.getByText('no players with usable history')).toBeInTheDocument();
+
+  // Still no player rows, which is the half of the old assertion that was
+  // always about the data rather than about the defect.
   expect(screen.queryAllByRole('listitem')).toHaveLength(0);
 });
 
