@@ -855,6 +855,169 @@ def plant_early_season_unclassified() -> None:
            f"{len(fields)} field(s): {[f.split(':')[0] for f in fields]}")
 
 
+def _capture_against_a_pre_nhl_image() -> tuple:
+    """Run a real G.capture() with the HTTP layer answering as a pre-NHL image.
+
+    Shared by the check and its plant so the plant exercises the SAME code
+    path. A plant that only compares two constants proves nothing about the
+    capture; this one makes the capture itself produce the old body.
+    """
+    def fake_curl(method, url, body=None):
+        if url.endswith("/health") and ":8000" in url:
+            # A PRE-NHL IMAGE: no `nhl` key at all.
+            return {"status": "ok", "data_as_of": "2026-10-30",
+                    "days_behind": 1, "stale": False,
+                    "models_loaded": {"team": 7, "nfl": 3},
+                    "served_data": {"snapshot": "s1", "table_sha256": {}},
+                    "availability": {},
+                    "wnba": {"data_as_of": "2026-09-24"},
+                    "gleague": {"data_as_of": "2026-03-28"},
+                    "nfl": {"data_as_of": "2026-10-29"}}
+        if "/schedule/nhl" in url:
+            # EXACTLY WHAT AN IMAGE WITHOUT THE ROUTE RETURNS.
+            return {"detail": "Not Found"}
+        if "/schedule/nfl" in url:
+            return []
+        if url.endswith("/api/health"):
+            return {"status": "ok"}
+        if "/api/games/schedule" in url:
+            return []
+        return {"__raw__": ""}
+
+    original_curl, original_hashes = G.curl, G.model_hashes
+    G.curl = fake_curl
+    G.model_hashes = lambda: {}
+    try:
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            captured = G.capture()
+    finally:
+        G.curl, G.model_hashes = original_curl, original_hashes
+    return captured, out.getvalue()
+
+
+def old_image_404_is_recorded_as_absent() -> None:
+    """A capture against an image with no /schedule/nhl route records a CODE.
+
+    INTERCEPTED, NOT LIVE. Pointing this at the running stack would prove
+    nothing repeatable - the answer depends on which image happens to be up -
+    and running it against the old image on purpose would mean a deploy. So
+    the gate's own HTTP layer is replaced: every URL answers the way it would
+    against a pre-NHL image, with `/schedule/nhl` returning FastAPI's 404
+    body.
+
+    WHAT THIS CATCHES. Before commit 19 the recorded body was the prose "no
+    predictable matchup" - the same string the WNBA gets for eight months of
+    the year - so a capture against an image with no NHL route and one
+    against an image whose NHL is merely between seasons were byte-identical,
+    and the gate reported PASS across a deploy that added a whole league.
+    """
+    captured, printed = _capture_against_a_pre_nhl_image()
+    body = captured["bodies"].get("nhl.inference.none")
+    leagues = captured["context"]["leagues"]
+
+    record("a 404 on /schedule/nhl records the NHL as absent, with a CODE",
+           body == {"__skipped__": G.INFERENCE_ENDPOINT_ABSENT},
+           f"body {body!r}")
+    record("the code is in the context too, so a reader finds it",
+           (leagues.get("nhl") or {}).get("inference_skip_code")
+           == G.INFERENCE_ENDPOINT_ABSENT,
+           f"context code "
+           f"{(leagues.get('nhl') or {}).get('inference_skip_code')!r}")
+    record("the capture SAYS SO rather than skipping quietly",
+           G.INFERENCE_ENDPOINT_ABSENT in printed
+           and "INFERENCE HALF ABSENT" in printed,
+           printed.strip().splitlines()[-1][:80] if printed.strip() else "")
+    record("the capture completes - an absent league is not a crash",
+           isinstance(captured, dict) and "bodies" in captured
+           and "context" in captured,
+           f"{len(captured.get('bodies') or {})} body/bodies captured")
+
+    # AND THE DISTINCTION THAT DID NOT EXIST BEFORE: a league that IS served
+    # and simply has nothing predictable must record a DIFFERENT code, or the
+    # two states are still indistinguishable.
+    record("an EMPTY list records a different code from an ABSENT endpoint",
+           G.INFERENCE_ENDPOINT_ABSENT != G.INFERENCE_NONE_PREDICTABLE,
+           f"{G.INFERENCE_ENDPOINT_ABSENT!r} vs "
+           f"{G.INFERENCE_NONE_PREDICTABLE!r}")
+
+
+def the_switch_pair_cannot_compare_the_nhl() -> None:
+    """THE DEPLOY THIS GATE IS RUN ACROSS: absent before, captured after.
+
+    That is not a regression and not a pass. One side has no body for the
+    league at all, so the honest verdict is CANNOT COMPARE with a named
+    reason - and the reason has to say WHICH state, because `requested`
+    already differs here and only says "the requested matchups differ",
+    which reads like a schedule change rather than a whole league arriving.
+    """
+    before = {"snapshot": "s1", "data_as_of": "2026-10-30",
+              "table_sha256": {"a": "1"}, "model_sha256": "m",
+              "availability_state": None, "availability_report": None,
+              "refresh_verdict": {"outcome": "advanced",
+                                  "last_verdict_at": "t"},
+              "backend_fixtures": [], "backend_skip_code": None,
+              "backend_skip_reason": None,
+              "inference_skip_code": G.INFERENCE_ENDPOINT_ABSENT,
+              "requested": []}
+    after = dict(before, inference_skip_code=None,
+                 requested=[{"home": 1, "away": 2, "date": "2026-11-03"}])
+    comparable, reasons, _notes, mutated = G.league_comparability(
+        before, after)
+    named = [r for r in reasons if "inference half" in r]
+    record("absent -> captured is CANNOT COMPARE, not REGRESSED",
+           not comparable and not mutated,
+           f"comparable {comparable}, mutated {mutated}")
+    record("and the reason NAMES the state, not just the matchups",
+           len(named) == 1 and G.INFERENCE_ENDPOINT_ABSENT in named[0]
+           and "captured" in named[0],
+           named[0] if named else f"reasons {reasons}")
+
+    # THE CONTROL: both sides captured, nothing else moved -> comparable.
+    both = dict(before, inference_skip_code=None)
+    comparable, reasons, _n, mutated = G.league_comparability(both, both)
+    record("CONTROL both sides captured -> comparable",
+           comparable and not reasons and not mutated,
+           f"reasons {reasons}")
+
+
+def plant_absent_reads_as_empty() -> None:
+    """PLANT: put the gate back the way it was and watch the check go red.
+
+    Before commit 19 `nhl_matchups` returned a bare [] and the capture wrote
+    the prose "no predictable matchup" - the SAME string the WNBA gets for
+    eight months of the year. So a capture against an image with no NHL route
+    and one against an image whose NHL is merely between seasons were
+    byte-identical, and the gate reported PASS across a deploy that added a
+    whole league.
+
+    The plant collapses the absent code onto the empty one, which is that
+    state exactly, and re-runs the REAL capture through the REAL code path.
+    The check above must then be unable to tell the two states apart.
+    """
+    original = G.INFERENCE_ENDPOINT_ABSENT
+    G.INFERENCE_ENDPOINT_ABSENT = G.INFERENCE_NONE_PREDICTABLE
+    try:
+        captured, printed = _capture_against_a_pre_nhl_image()
+    finally:
+        G.INFERENCE_ENDPOINT_ABSENT = original
+
+    body = captured["bodies"].get("nhl.inference.none")
+    indistinguishable = body == {"__skipped__": G.INFERENCE_NONE_PREDICTABLE}
+    silent = "INFERENCE HALF ABSENT" not in printed
+    record("PLANT the absent code collapsed -> the capture cannot tell a "
+           "missing endpoint from an empty slate",
+           indistinguishable and silent,
+           f"body {body!r}; capture stayed quiet: {silent}")
+
+    # AND THE GUARD AGAINST AN INEFFECTIVE PLANT. If reverting changed
+    # nothing the plant is a harness bug, not a passing check.
+    unplanted, _printed = _capture_against_a_pre_nhl_image()
+    record("PLANT guard the plant really moved the body",
+           unplanted["bodies"].get("nhl.inference.none") != body,
+           f"unplanted {unplanted['bodies'].get('nhl.inference.none')!r} "
+           f"vs planted {body!r}")
+
+
 def run_compare(before, after):
     """Drive the gate's own `compare` on two in-memory captures.
 
@@ -964,6 +1127,9 @@ def main() -> int:
     plant_reason_in_the_compared_body()
     print()
     early_season_is_context()
+    old_image_404_is_recorded_as_absent()
+    the_switch_pair_cannot_compare_the_nhl()
+    plant_absent_reads_as_empty()
     plant_early_season_unclassified()
 
     passed = sum(1 for _n, ok_, _d in RESULTS if ok_)

@@ -367,22 +367,43 @@ def nfl_matchups(count=2) -> list:
     return chosen
 
 
-def nhl_matchups(count=2) -> list:
-    """Two predictable NHL fixtures with four distinct teams.
+def nhl_matchups(count=2) -> tuple:
+    """(fixtures, skip_code) - two predictable NHL fixtures, four teams.
 
     FROM THE SERVICE, for nfl_matchups' reason: the dependency rule is
     evaluated against the served history, so the only honest source for
     "which fixtures can be predicted right now" is the service doing the
     serving. Asking it is also what lets this survive the season advancing.
 
-    RETURNS [] WHEN THE NHL IS NOT SERVED AT ALL, which is a real state
-    rather than an error: the tables are optional, so a snapshot built
-    before phase 3 answers 503 with `nhl_not_served` and the gate records a
-    league with nothing to compare instead of failing.
+    RETURNS NO FIXTURES AND A CODE WHEN THERE ARE NONE, and the code is the
+    point: three different states look the same from here and only one of
+    them is ordinary.
+
+      none_predictable   served, and nothing is predictable today
+      not_served_from_this_snapshot   a snapshot built before phase 3; the
+                                      tables are optional so this is a state
+                                      rather than an error
+      endpoint_absent    an IMAGE with no /schedule/nhl route at all - what
+                         the pre-NHL image answers, and what a capture taken
+                         across the phase 3 deploy sees on its first half
+
+    The old version returned a bare [] for all three and the caller wrote one
+    sentence for all three, so a capture against an image that cannot serve
+    the NHL and one against an image whose NHL is merely between seasons were
+    byte-identical.
     """
     fixtures = curl("GET", f"{INFERENCE}/schedule/nhl?predictable_only=true")
     if not isinstance(fixtures, list):
-        return []
+        # NOT A LIST MEANS THE ENDPOINT DID NOT ANSWER WITH ONE, and which
+        # way it failed is the thing the old code threw away. `curl` returns
+        # the parsed body, so a 404 from an image without the route arrives
+        # as {"detail": "Not Found"} and a 503 from a snapshot with no NHL
+        # tables as {"detail": ..., "code": "nhl_not_served"}. Both are
+        # dicts; only one means "this build cannot serve the NHL".
+        detail = fixtures if isinstance(fixtures, dict) else {}
+        if detail.get("code") == "nhl_not_served":
+            return [], INFERENCE_NOT_SERVED
+        return [], INFERENCE_ENDPOINT_ABSENT
 
     chosen, used = [], set()
     for fixture in sorted(fixtures, key=lambda f: (f.get("game_date") or "",
@@ -394,7 +415,7 @@ def nhl_matchups(count=2) -> list:
         used.update((home, away))
         if len(chosen) == count:
             break
-    return chosen
+    return chosen, (None if chosen else INFERENCE_NONE_PREDICTABLE)
 
 
 # Every differing field is printed. A CAP WOULD HAVE TO ANNOUNCE ITSELF, and
@@ -448,6 +469,22 @@ SKIP_NONE_PREDICTABLE = "none_predictable"
 SKIP_NO_DISTINCT_PAIR = "no_distinct_pair"
 SKIP_FEWER_THAN_REQUESTED = "fewer_than_requested"
 SKIP_SCHEDULE_UNREADABLE = "schedule_unreadable"
+
+# THE INFERENCE HALF'S OWN CODES, and the first of them is why they exist.
+# `nhl_matchups()` asks /schedule/nhl; against an image that has no such
+# route the 404's body is a dict, so the list comes back empty and the old
+# code recorded the prose "no predictable matchup" - the SAME string the
+# WNBA gets for eight months of the year. A capture against an image with no
+# NHL route and one against an image whose NHL is between seasons were
+# byte-identical, so the gate would report PASS across a deploy that added a
+# whole league.
+#
+# ABSENT AND EMPTY ARE DIFFERENT WORDS because they are different states:
+# the first says this image cannot serve the league at all, the second says
+# it can and has nothing to offer today.
+INFERENCE_ENDPOINT_ABSENT = "endpoint_absent"
+INFERENCE_NONE_PREDICTABLE = "none_predictable"
+INFERENCE_NOT_SERVED = "not_served_from_this_snapshot"
 
 
 def backend_fixtures(schedule, league: str, date, count: int = 2) -> tuple:
@@ -572,14 +609,17 @@ def capture() -> dict:
             # DATE. The other three keep fixed pairs and derive only the
             # date, because any pair of their teams is predictable on
             # cutoff + 1.
-            derived = (nfl_matchups() if league == "nfl"
-                       else nhl_matchups())
+            if league == "nfl":
+                derived, inference_skip = nfl_matchups(), None
+            else:
+                derived, inference_skip = nhl_matchups()
             pairs = [(home, away) for home, away, _d in derived]
             dates = [d for _h, _a, d in derived]
         else:
             date = predictable_date(inference_health, league)
             pairs = list(pairs or [])
             dates = [date] * len(pairs)
+            inference_skip = None
 
         context["leagues"][league] = {
             "data_as_of": block.get("data_as_of"),
@@ -649,11 +689,20 @@ def capture() -> dict:
                 {"homeTeamId": home, "awayTeamId": away, "gameDate": date})
 
         if not pairs:
-            # Nothing predictable. True for the WNBA most of the year and for
-            # the NFL between seasons, and reported rather than failed.
-            bodies[f"{league}.inference.none"] = {
-                "__skipped__": "no predictable matchup"}
+            # NOTHING PREDICTABLE IS A STATE WITH A CODE, not a sentence.
+            # True for the WNBA most of the year and for the NFL between
+            # seasons - and now distinguishable from an image whose endpoint
+            # does not exist at all, which read identically before.
+            code = inference_skip or INFERENCE_NONE_PREDICTABLE
+            bodies[f"{league}.inference.none"] = {"__skipped__": code}
+            context["leagues"][league]["inference_skip_code"] = code
+            if code != INFERENCE_NONE_PREDICTABLE:
+                # LOUDLY, like the backend half. A league that silently
+                # stops being captured is a guard that silently stops
+                # guarding.
+                print(f"  {league}: INFERENCE HALF ABSENT [{code}]")
             continue
+        context["leagues"][league]["inference_skip_code"] = None
 
         for index, ((home, away), date) in enumerate(zip(pairs, dates)):
             if date is None:
@@ -770,6 +819,17 @@ def league_comparability(before: dict, after: dict) -> tuple:
             f"the backend half's availability changed "
             f"({before.get('backend_skip_code') or 'captured'} -> "
             f"{after.get('backend_skip_code') or 'captured'})")
+    # AND THE INFERENCE HALF'S, FOR THE BACKEND HALF'S REASON. The deploy
+    # this gate is run across adds a league: before it, /schedule/nhl does
+    # not exist and the NHL records `endpoint_absent`; after it, the league
+    # is captured. `requested` already differs in that case, but it says
+    # "the requested matchups differ", which reads like a schedule change -
+    # so the state gets its own named reason.
+    if before.get("inference_skip_code") != after.get("inference_skip_code"):
+        reasons.append(
+            f"the inference half's availability changed "
+            f"({before.get('inference_skip_code') or 'captured'} -> "
+            f"{after.get('inference_skip_code') or 'captured'})")
     if before.get("availability_state") != after.get("availability_state"):
         reasons.append(f"availability {before.get('availability_state')} -> "
                        f"{after.get('availability_state')}")
