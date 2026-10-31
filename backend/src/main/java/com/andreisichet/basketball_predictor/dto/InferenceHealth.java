@@ -14,7 +14,8 @@ public record InferenceHealth(
         boolean stale,
         LeagueFreshness wnba,
         LeagueFreshness gleague,
-        NflFreshness nfl) {
+        NflFreshness nfl,
+        NhlFreshness nhl) {
     /**
      * The WNBA's own cutoff, which is a different date from the NBA's.
      *
@@ -56,6 +57,36 @@ public record InferenceHealth(
      * {@code synthetic} is true only in CI, where the real CC BY-SA tables
      * cannot exist and an invented set is served so the container boots.
      */
+    /**
+     * The NHL's block, and it is the first that can say IT IS NOT SERVED.
+     *
+     * <p>The NHL's five tables are OPTIONAL in a snapshot, so a service
+     * booted on one built before phase 3 answers {@code served: false} with
+     * {@code reason_code: not_yet_served} and nothing else. That is a state,
+     * not a fault - it is what lets a new image boot on an old snapshot - so
+     * every other field here is an object type and may be absent.
+     *
+     * <p>DECLARES FEWER FIELDS THAN THE WIRE SENDS, deliberately, exactly as
+     * {@code NflFreshness} does. The wire also carries the quarantine, the
+     * standings class, the per-market served flags, the blocked-fixture
+     * counts and the winner's full caveat. Jackson's tolerance for unknown
+     * properties is proven by the running system rather than only by this
+     * comment; what the backend forwards is what a client has a use for
+     * today, and phase 4's frontend is what will want the caveat's reader
+     * form.
+     */
+    public record NhlFreshness(
+            boolean served,
+            @JsonProperty("reason_code") String reasonCode,
+            @JsonProperty("data_as_of") LocalDate dataAsOf,
+            @JsonProperty("days_behind") Integer daysBehind,
+            Boolean stale,
+            @JsonProperty("predictable_fixtures") Integer predictableFixtures,
+            Integer fixtures,
+            @JsonProperty("prediction_rule") String predictionRule,
+            String source) {
+    }
+
     public record NflFreshness(
             @JsonProperty("data_as_of") LocalDate dataAsOf,
             @JsonProperty("days_behind") int daysBehind,

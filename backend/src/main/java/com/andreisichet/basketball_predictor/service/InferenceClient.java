@@ -17,6 +17,7 @@ import com.andreisichet.basketball_predictor.dto.InferenceHealth;
 import com.andreisichet.basketball_predictor.dto.InferencePlayerPropsResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceGleagueResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceNflResponse;
+import com.andreisichet.basketball_predictor.dto.InferenceNhlResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceQuarterHalfResponse;
 import com.andreisichet.basketball_predictor.dto.InferenceRequest;
 import com.andreisichet.basketball_predictor.dto.InferenceResponse;
@@ -83,6 +84,47 @@ public class InferenceClient {
     /** The three NFL models: winner, margin and total. */
     public InferenceNflResponse predictNfl(InferenceRequest body) {
         return post("/predict/nfl", body, InferenceNflResponse.class);
+    }
+
+    public InferenceNhlResponse predictNhl(InferenceRequest body) {
+        return post("/predict/nhl", body, InferenceNhlResponse.class);
+    }
+
+    /**
+     * Unplayed NHL fixtures.
+     *
+     * <p>TAKES NO daysAhead, for the NFL's reason: these come out of the
+     * served snapshot rather than a live API, so the list is whatever
+     * remains of the season and a horizon would be a parameter the endpoint
+     * ignores. Date filtering still happens downstream in ScheduleService.
+     *
+     * <p>ASKS FOR EVERY FIXTURE, NOT ONLY THE PREDICTABLE ONES. The sync
+     * needs a Game row for each fixture so the browse view can show it; the
+     * {@code predictable} flag decides whether a PREDICTION can be made, and
+     * that is a different question asked later. Filtering here would make
+     * tomorrow's fixtures invisible until their teams' previous games
+     * landed.
+     */
+    public List<InferenceScheduledGame> fetchNhlSchedule() {
+        try {
+            List<InferenceScheduledGame> fixtures = client.get()
+                    .uri("/schedule/nhl")
+                    .retrieve()
+                    .body(SCHEDULE_TYPE);
+            return fixtures == null ? List.of() : fixtures;
+        } catch (RestClientResponseException error) {
+            // A 503 WITH `nhl_not_served` ARRIVES HERE, and it is a real
+            // refusal rather than a cold start: the snapshot carries no NHL
+            // tables. `rejected` keeps the cause, and InferenceReadiness
+            // matches on ResourceAccessException rather than on the mapped
+            // status, so this is not retried seven times as if the service
+            // were still starting.
+            throw rejected("NHL schedule lookup failed", error);
+        } catch (UnknownContentTypeException error) {
+            throw unreadable(error);
+        } catch (RestClientException error) {
+            throw unreachable(error);
+        }
     }
 
     /**

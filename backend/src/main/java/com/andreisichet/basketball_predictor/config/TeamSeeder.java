@@ -41,6 +41,12 @@ public class TeamSeeder implements CommandLineRunner {
         seed(WNBA, WNBA_TEAMS, false);
         seed(GLEAGUE, GLEAGUE_TEAMS, true);
         seed(NFL, NFL_TEAMS, true);
+        // NAMES ARE RECONCILED, like the G League's and the NFL's.
+        // Nineteen NHL franchises have been renamed under a stable id
+        // in the corpus era - Utah alone moved from "Utah Hockey Club"
+        // to "Utah Mammoth" between its first and second seasons - so a
+        // database seeded last season must pick the new name up.
+        seed(NHL, NHL_TEAMS, true);
     }
 
     private void seed(String league, List<Team> teams, boolean reconcileNames) {
@@ -125,6 +131,10 @@ public class TeamSeeder implements CommandLineRunner {
         checkDisjoint(NBA, NBA_TEAMS, NFL, NFL_TEAMS);
         checkDisjoint(WNBA, WNBA_TEAMS, NFL, NFL_TEAMS);
         checkDisjoint(GLEAGUE, GLEAGUE_TEAMS, NFL, NFL_TEAMS);
+        checkDisjoint(NBA, NBA_TEAMS, NHL, NHL_TEAMS);
+        checkDisjoint(WNBA, WNBA_TEAMS, NHL, NHL_TEAMS);
+        checkDisjoint(GLEAGUE, GLEAGUE_TEAMS, NHL, NHL_TEAMS);
+        checkDisjoint(NFL, NFL_TEAMS, NHL, NHL_TEAMS);
     }
 
     private void checkDisjoint(String leftName, List<Team> left,
@@ -149,6 +159,7 @@ public class TeamSeeder implements CommandLineRunner {
     private static final String WNBA = "WNBA";
     private static final String GLEAGUE = "GLEAGUE";
     private static final String NFL = "NFL";
+    private static final String NHL = "NHL";
 
     private static Team nba(long id, String name, String abbreviation) {
         return new Team(id, name, abbreviation, NBA);
@@ -160,6 +171,10 @@ public class TeamSeeder implements CommandLineRunner {
 
     private static Team gleague(long id, String name, String abbreviation) {
         return new Team(id, name, abbreviation, GLEAGUE);
+    }
+
+    private static Team nhl(long id, String name, String abbreviation) {
+        return new Team(id, name, abbreviation, NHL);
     }
 
     private static Team nfl(long id, String name, String abbreviation) {
@@ -333,4 +348,56 @@ public class TeamSeeder implements CommandLineRunner {
             wnba(1611661328L, "Seattle Storm", "SEA"),
             wnba(1611661332L, "Toronto Tempo", "TOR"),
             wnba(1611661322L, "Washington Mystics", "WAS"));
+
+    /**
+     * The 32 NHL franchises a fixture can name, from the AUTHORED franchise
+     * table - {@code nhl_franchises}, which phase 1 wrote because the source
+     * carries no stable team id, exactly as the NFL's does.
+     *
+     * <p>THIRTY-TWO, NOT THE THIRTY-THREE IN THE IDENTITY TABLE, AND THE
+     * MISSING ONE IS DELIBERATE. Arizona (1614000032) relocated to Utah
+     * (1614000033) in 2024, and {@code nhl_features.RELOCATIONS} merges
+     * Arizona's history into Utah's BEFORE any id leaves the pipeline - so
+     * no fixture, no schedule row and no prediction can ever name Arizona.
+     * Seeding it would add a {@code team} row nothing can reference, which
+     * is the shape {@code nba_game_id} is already recorded for: a field that
+     * looks like an identifier and answers nothing.
+     *
+     * <p>The ids sit clear of the four ranges already in use and
+     * {@link #assertNoIdCollision()} checks all ten pairs rather than
+     * assuming it.
+     */
+    private static final List<Team> NHL_TEAMS = List.of(
+            nhl(1614000001L, "Anaheim Ducks", "ANA"),
+            nhl(1614000002L, "Boston Bruins", "BOS"),
+            nhl(1614000003L, "Buffalo Sabres", "BUF"),
+            nhl(1614000004L, "Calgary Flames", "CGY"),
+            nhl(1614000005L, "Carolina Hurricanes", "CAR"),
+            nhl(1614000006L, "Chicago Blackhawks", "CHI"),
+            nhl(1614000007L, "Colorado Avalanche", "COL"),
+            nhl(1614000008L, "Columbus Blue Jackets", "CBJ"),
+            nhl(1614000009L, "Dallas Stars", "DAL"),
+            nhl(1614000010L, "Detroit Red Wings", "DET"),
+            nhl(1614000011L, "Edmonton Oilers", "EDM"),
+            nhl(1614000012L, "Florida Panthers", "FLA"),
+            nhl(1614000013L, "Los Angeles Kings", "LAK"),
+            nhl(1614000014L, "Minnesota Wild", "MIN"),
+            nhl(1614000015L, "Montreal Canadiens", "MTL"),
+            nhl(1614000016L, "Nashville Predators", "NSH"),
+            nhl(1614000017L, "New Jersey Devils", "NJD"),
+            nhl(1614000018L, "New York Islanders", "NYI"),
+            nhl(1614000019L, "New York Rangers", "NYR"),
+            nhl(1614000020L, "Ottawa Senators", "OTT"),
+            nhl(1614000021L, "Philadelphia Flyers", "PHI"),
+            nhl(1614000022L, "Pittsburgh Penguins", "PIT"),
+            nhl(1614000023L, "San Jose Sharks", "SJS"),
+            nhl(1614000024L, "St. Louis Blues", "STL"),
+            nhl(1614000025L, "Tampa Bay Lightning", "TBL"),
+            nhl(1614000026L, "Toronto Maple Leafs", "TOR"),
+            nhl(1614000027L, "Vancouver Canucks", "VAN"),
+            nhl(1614000028L, "Washington Capitals", "WSH"),
+            nhl(1614000029L, "Winnipeg Jets", "WPG"),
+            nhl(1614000030L, "Vegas Golden Knights", "VGK"),
+            nhl(1614000031L, "Seattle Kraken", "SEA"),
+            nhl(1614000033L, "Utah Mammoth", "UTA"));
 }

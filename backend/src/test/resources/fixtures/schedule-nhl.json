@@ -1,0 +1,74 @@
+[
+  {
+    "game_id": "2026\u201327_2026-10-30_1614000017_1614000030",
+    "season": "2026\u201327",
+    "game_date": "2026-10-30",
+    "home_team_id": 1614000030,
+    "away_team_id": 1614000017,
+    "home": "Vegas Golden Knights",
+    "away": "New Jersey Devils",
+    "predictable": true,
+    "reason_code": null,
+    "reason": null
+  },
+  {
+    "game_id": "2026\u201327_2026-10-30_1614000029_1614000012",
+    "season": "2026\u201327",
+    "game_date": "2026-10-30",
+    "home_team_id": 1614000012,
+    "away_team_id": 1614000029,
+    "home": "Florida Panthers",
+    "away": "Winnipeg Jets",
+    "predictable": true,
+    "reason_code": null,
+    "reason": null
+  },
+  {
+    "game_id": "2026\u201327_2026-10-30_1614000031_1614000004",
+    "season": "2026\u201327",
+    "game_date": "2026-10-30",
+    "home_team_id": 1614000004,
+    "away_team_id": 1614000031,
+    "home": "Calgary Flames",
+    "away": "Seattle Kraken",
+    "predictable": true,
+    "reason_code": null,
+    "reason": null
+  },
+  {
+    "game_id": "2026\u201327_2026-10-31_1614000003_1614000013",
+    "season": "2026\u201327",
+    "game_date": "2026-10-31",
+    "home_team_id": 1614000013,
+    "away_team_id": 1614000003,
+    "home": "Los Angeles Kings",
+    "away": "Buffalo Sabres",
+    "predictable": true,
+    "reason_code": null,
+    "reason": null
+  },
+  {
+    "game_id": "2026\u201327_2026-10-31_1614000004_1614000007",
+    "season": "2026\u201327",
+    "game_date": "2026-10-31",
+    "home_team_id": 1614000007,
+    "away_team_id": 1614000004,
+    "home": "Colorado Avalanche",
+    "away": "Calgary Flames",
+    "predictable": false,
+    "reason_code": "previous_game_pending",
+    "reason": "the away side has 1 earlier fixture(s) with no result yet, the latest on 2026-10-30; its previous game is not in history"
+  },
+  {
+    "game_id": "2026\u201327_2026-10-31_1614000006_1614000002",
+    "season": "2026\u201327",
+    "game_date": "2026-10-31",
+    "home_team_id": 1614000002,
+    "away_team_id": 1614000006,
+    "home": "Boston Bruins",
+    "away": "Chicago Blackhawks",
+    "predictable": true,
+    "reason_code": null,
+    "reason": null
+  }
+]

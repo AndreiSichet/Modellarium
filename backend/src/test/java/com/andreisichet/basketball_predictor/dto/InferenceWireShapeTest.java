@@ -17,6 +17,7 @@ import org.springframework.boot.test.autoconfigure.json.JsonTest;
 import com.andreisichet.basketball_predictor.model.GleaguePrediction;
 import com.andreisichet.basketball_predictor.service.ScheduleSyncStatus;
 import com.andreisichet.basketball_predictor.model.NflPrediction;
+import com.andreisichet.basketball_predictor.model.NhlPrediction;
 import com.andreisichet.basketball_predictor.model.WnbaPrediction;
 
 import tools.jackson.core.type.TypeReference;
@@ -274,6 +275,199 @@ class InferenceWireShapeTest {
             // captured fixture, a CC BY-SA table reached a checkout - which
             // is a licence problem rather than a test failure.
             assertThat(health.nfl().synthetic()).isFalse();
+        }
+    }
+
+    @Nested
+    class Nhl {
+        @Test
+        void deserialisesTwoServedMarketsAndOneDeclaredRefusal() {
+            InferenceNhlResponse response = mapper.readValue(
+                    Fixture.read("predict-nhl.json"),
+                    InferenceNhlResponse.class);
+
+            assertThat(response.dataAsOf())
+                    .isEqualTo(LocalDate.of(2026, 10, 29));
+            assertThat(response.stale()).isFalse();
+            assertThat(response.home()).isEqualTo("Vegas Golden Knights");
+            assertThat(response.away()).isEqualTo("New Jersey Devils");
+
+            // THE SEASON LABEL IS A STRING WITH AN EN DASH, not an int. The
+            // NFL's season is a year; the NHL's spans two and the source
+            // writes "2026-27" with U+2013. Parsing it to a number would
+            // throw away which half a date belongs to, which is the one
+            // thing the label is for.
+            assertThat(response.season()).isEqualTo("2026\u201327");
+
+            assertThat(response.markets()).containsOnlyKeys(
+                    "winner", "puck_line", "totals");
+
+            InferenceNhlResponse.Market winner =
+                    response.markets().get("winner");
+            assertThat(winner.served()).isTrue();
+            assertThat(winner.value())
+                    .isCloseTo(0.5597966728779806, within(1e-12));
+            // ELO ALONE, AND THE FAMILY SAYS SO. There is no artifact for
+            // this market - the parameters ARE the model - so a client that
+            // wanted to show "which model" gets "elo" rather than a file
+            // name that does not exist.
+            assertThat(winner.family()).isEqualTo("elo");
+
+            // THE CAVEAT TRAVELS WITH THE FIGURE, ALWAYS. The winner's test
+            // interval against a constant INCLUDES ZERO, so the number is
+            // true and incomplete without this sentence. It carries no
+            // digits on purpose: a caveat with a figure in it expires at the
+            // next retrain while still looking authoritative.
+            assertThat(winner.caveat()).isNotBlank();
+            assertThat(winner.caveat()).doesNotMatch(".*\\d.*");
+
+            InferenceNhlResponse.Market puckLine =
+                    response.markets().get("puck_line");
+            assertThat(puckLine.served()).isTrue();
+            assertThat(puckLine.value())
+                    .isCloseTo(0.3277162226756754, within(1e-12));
+            assertThat(puckLine.definition()).isEqualTo("HOME_MARGIN >= 2");
+
+            // TOTALS ARE DECLARED UNSERVED, NOT ABSENT, and this is the
+            // assertion that makes that a contract. A constant predictor
+            // beat the fitted model on test, so the market says so with a
+            // stable code; a client cannot then mistake "we do not offer
+            // this" for "this response forgot it".
+            InferenceNhlResponse.Market totals =
+                    response.markets().get("totals");
+            assertThat(totals.served()).isFalse();
+            assertThat(totals.value()).isNull();
+            assertThat(totals.reasonCode())
+                    .isEqualTo("no_skill_over_constant");
+            assertThat(totals.detail()).contains("constant predictor");
+
+            assertThat(response.predictionRule())
+                    .isEqualTo("both teams' previous games in history");
+            assertThat(response.source())
+                    .isEqualTo("English Wikipedia, CC BY-SA 4.0");
+        }
+
+        @Test
+        void mapsThroughToTheClientDtoCarryingTheRefusalAndTheCaveat() {
+            InferenceNhlResponse inference = mapper.readValue(
+                    Fixture.read("predict-nhl.json"),
+                    InferenceNhlResponse.class);
+
+            NhlPrediction saved = new NhlPrediction();
+            saved.setHomeWinProbability(
+                    inference.markets().get("winner").value());
+            saved.setHomeWinsByTwoOrMore(
+                    inference.markets().get("puck_line").value());
+            saved.setDataAsOf(inference.dataAsOf());
+            saved.setStale(inference.stale());
+
+            NhlSummaryDto.Prediction dto = NhlSummaryDto.Prediction.of(
+                    saved, inference,
+                    inference.markets().get("winner"),
+                    inference.markets().get("puck_line"),
+                    inference.markets().get("totals"));
+
+            assertThat(dto.homeWinProbability())
+                    .isCloseTo(0.5597966728779806, within(1e-12));
+            assertThat(dto.homeWinsByTwoOrMore())
+                    .isCloseTo(0.3277162226756754, within(1e-12));
+            assertThat(dto.winnerModel()).isEqualTo("elo");
+            assertThat(dto.winnerCaveat()).isNotBlank();
+            assertThat(dto.puckLineDefinition())
+                    .isEqualTo("HOME_MARGIN >= 2");
+            assertThat(dto.totalsServed()).isFalse();
+            assertThat(dto.totalsReasonCode())
+                    .isEqualTo("no_skill_over_constant");
+            assertThat(dto.predictionRule())
+                    .isEqualTo("both teams' previous games in history");
+            assertThat(dto.source())
+                    .isEqualTo("English Wikipedia, CC BY-SA 4.0");
+        }
+
+        @Test
+        void theScheduleCarriesAPerRowPredictableFlagAndItsReason() {
+            List<InferenceScheduledGame> fixtures = mapper.readValue(
+                    Fixture.read("schedule-nhl.json"),
+                    mapper.getTypeFactory().constructCollectionType(
+                            List.class, InferenceScheduledGame.class));
+
+            assertThat(fixtures).isNotEmpty();
+            // THE SYNC READS ONLY WHAT IT NEEDS, which is the pair and the
+            // date; the richer fields - predictable, its reason code, the
+            // names - are on the wire for a client that asks inference
+            // directly. This asserts the sync's own view still
+            // deserialises, which is the half that can break the browse
+            // page.
+            assertThat(fixtures.get(0).homeTeamId()).isNotNull();
+            assertThat(fixtures.get(0).awayTeamId()).isNotNull();
+            assertThat(fixtures.get(0).gameDate()).isNotNull();
+        }
+    }
+
+    @Nested
+    class NhlHealth {
+        @Test
+        void deserialisesTheNhlBlockWithItsOwnRuleAndItsRefusals() {
+            InferenceHealth health = mapper.readValue(
+                    Fixture.read("health-nhl.json"), InferenceHealth.class);
+
+            assertThat(health.nhl()).isNotNull();
+            assertThat(health.nhl().served()).isTrue();
+            assertThat(health.nhl().dataAsOf())
+                    .isEqualTo(LocalDate.of(2026, 10, 29));
+            assertThat(health.nhl().predictionRule())
+                    .isEqualTo("both teams' previous games in history");
+            assertThat(health.nhl().source())
+                    .isEqualTo("English Wikipedia, CC BY-SA 4.0");
+
+            // THE DEPENDENCY RULE REFUSES MOST OF A SEASON AT ANY MOMENT,
+            // and that is the rule working rather than a fault: a fixture is
+            // answerable once BOTH teams' previous games are in history, so
+            // the window is the next day or two.
+            assertThat(health.nhl().predictableFixtures())
+                    .isNotNull().isPositive();
+            assertThat(health.nhl().fixtures())
+                    .isGreaterThan(health.nhl().predictableFixtures());
+
+            // models_loaded GAINS nhl: 1 FOR TWO SERVED MARKETS, because the
+            // winner is Elo alone and has no artifact. CI asserts this dict
+            // at exact equality, so a change here moves with that assertion.
+            assertThat(health.modelsLoaded()).containsEntry("nhl", 1);
+        }
+
+        @Test
+        void aBackendOlderThanTheWireStillReadsEveryOtherLeague() {
+            // JACKSON'S TOLERANCE, PROVEN RATHER THAN ASSUMED. The wire
+            // carries the quarantine, the standings class, the per-market
+            // served flags and the winner's full caveat; NhlFreshness
+            // declares none of them. If that tolerance ever broke, every
+            // league's block would stop deserialising, not just the NHL's.
+            InferenceHealth health = mapper.readValue(
+                    Fixture.read("health-nhl.json"), InferenceHealth.class);
+
+            assertThat(health.status()).isEqualTo("ok");
+            assertThat(health.wnba()).isNotNull();
+            assertThat(health.gleague()).isNotNull();
+            assertThat(health.nfl()).isNotNull();
+        }
+
+        @Test
+        void anInferenceWithNoNhlKeyIsNotServedRatherThanFalselyServed() {
+            // THE OLD-IMAGE CASE, AND IT IS A DIFFERENT STATE FROM "the
+            // snapshot has no tables". A backend newer than the inference
+            // service receives no `nhl` key at all, and the DTO must say so
+            // with its own code - reporting `served: false` beside a row of
+            // nulls would be indistinguishable from a league that is merely
+            // behind.
+            InferenceHealth health = mapper.readValue(
+                    Fixture.read("health.json"), InferenceHealth.class);
+            assertThat(health.nhl()).isNull();
+
+            HealthDto.NhlFreshnessDto dto =
+                    HealthDto.NhlFreshnessDto.from(health.nhl());
+            assertThat(dto.served()).isFalse();
+            assertThat(dto.reasonCode()).isEqualTo("absent_from_inference");
+            assertThat(dto.dataAsOf()).isNull();
         }
     }
 

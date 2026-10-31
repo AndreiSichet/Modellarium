@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.andreisichet.basketball_predictor.dto.GameSummaryDto;
 import com.andreisichet.basketball_predictor.dto.GleagueSummaryDto;
 import com.andreisichet.basketball_predictor.dto.NflSummaryDto;
+import com.andreisichet.basketball_predictor.dto.NhlSummaryDto;
 import com.andreisichet.basketball_predictor.dto.PlayerPropsResponseDto;
 import com.andreisichet.basketball_predictor.dto.PredictionRequest;
 import com.andreisichet.basketball_predictor.dto.QuarterHalfSummaryDto;
@@ -15,6 +16,7 @@ import com.andreisichet.basketball_predictor.dto.WnbaSummaryDto;
 import com.andreisichet.basketball_predictor.service.PlayerPropPredictionService;
 import com.andreisichet.basketball_predictor.service.GleaguePredictionService;
 import com.andreisichet.basketball_predictor.service.NflPredictionService;
+import com.andreisichet.basketball_predictor.service.NhlPredictionService;
 import com.andreisichet.basketball_predictor.service.PredictionService;
 import com.andreisichet.basketball_predictor.service.QuarterHalfPredictionService;
 import com.andreisichet.basketball_predictor.service.WnbaPredictionService;
@@ -28,6 +30,7 @@ public class PredictionController {
     private final WnbaPredictionService wnbaPredictionService;
     private final GleaguePredictionService gleaguePredictionService;
     private final NflPredictionService nflPredictionService;
+    private final NhlPredictionService nhlPredictionService;
 
     public PredictionController(
             PredictionService predictionService,
@@ -35,13 +38,15 @@ public class PredictionController {
             PlayerPropPredictionService playerPropPredictionService,
             WnbaPredictionService wnbaPredictionService,
             GleaguePredictionService gleaguePredictionService,
-            NflPredictionService nflPredictionService) {
+            NflPredictionService nflPredictionService,
+            NhlPredictionService nhlPredictionService) {
         this.predictionService = predictionService;
         this.quarterHalfPredictionService = quarterHalfPredictionService;
         this.playerPropPredictionService = playerPropPredictionService;
         this.wnbaPredictionService = wnbaPredictionService;
         this.gleaguePredictionService = gleaguePredictionService;
         this.nflPredictionService = nflPredictionService;
+        this.nhlPredictionService = nhlPredictionService;
     }
 
     @PostMapping
@@ -96,6 +101,25 @@ public class PredictionController {
     @PostMapping("/nfl")
     public NflSummaryDto createNfl(@RequestBody PredictionRequest request) {
         return nflPredictionService.predict(request);
+    }
+
+    /**
+     * The NHL's two served markets for one fixture.
+     *
+     * <p>TWO, AND THE THIRD IS DECLARED RATHER THAN MISSING. Totals are not
+     * served for the NHL - a constant predictor beat the fitted model on
+     * test - so the response carries {@code totalsServed: false} with the
+     * code {@code no_skill_over_constant} instead of leaving a gap.
+     *
+     * <p>THE SAME DEPENDENCY RULE AS THE NFL'S, and the same exemption: a
+     * fixture is predictable once both teams' previous games are in
+     * history, and MAX_DAYS_AHEAD must not be applied. Most future fixtures
+     * are refused at any moment with a code naming which side is waiting,
+     * and the inference service's message passes through unchanged.
+     */
+    @PostMapping("/nhl")
+    public NhlSummaryDto createNhl(@RequestBody PredictionRequest request) {
+        return nhlPredictionService.predict(request);
     }
 
     @PostMapping("/gleague")

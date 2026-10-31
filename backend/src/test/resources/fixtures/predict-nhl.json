@@ -1,0 +1,42 @@
+{
+  "home_team_id": 1614000030,
+  "away_team_id": 1614000017,
+  "game_date": "2026-10-30",
+  "data_as_of": "2026-10-29",
+  "stale": false,
+  "days_behind": 2,
+  "season": "2026\u201327",
+  "home": "Vegas Golden Knights",
+  "away": "New Jersey Devils",
+  "markets": {
+    "winner": {
+      "served": true,
+      "value": 0.5597966728779806,
+      "family": "elo",
+      "definition": null,
+      "caveat": "Weak signal - team ratings only, and barely better than guessing across our test seasons.",
+      "reason_code": null,
+      "detail": null
+    },
+    "puck_line": {
+      "served": true,
+      "value": 0.3277162226756754,
+      "family": "linear",
+      "definition": "HOME_MARGIN >= 2",
+      "caveat": null,
+      "reason_code": null,
+      "detail": null
+    },
+    "totals": {
+      "served": false,
+      "value": null,
+      "family": null,
+      "definition": null,
+      "caveat": null,
+      "reason_code": "no_skill_over_constant",
+      "detail": "Totals are not served for the NHL: a constant predictor beats the fitted model on test."
+    }
+  },
+  "prediction_rule": "both teams' previous games in history",
+  "source": "English Wikipedia, CC BY-SA 4.0"
+}

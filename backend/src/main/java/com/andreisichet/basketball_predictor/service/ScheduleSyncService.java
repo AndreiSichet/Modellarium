@@ -147,6 +147,20 @@ public class ScheduleSyncService {
                 ignoredHorizon -> inferenceClient.fetchNflSchedule());
     }
 
+    /**
+     * THE NHL, AND IT CAN LEGITIMATELY HAVE NOTHING TO CACHE. Its tables are
+     * optional in a snapshot, so a service booted on one that predates phase
+     * 3 answers 503 with {@code nhl_not_served} - which is a state, not a
+     * fault. {@code syncLeague} already turns an empty or failed fetch into
+     * an outcome rather than an exception, and {@code InferenceReadiness}
+     * classifies on the cause chain, so a declared refusal is not mistaken
+     * for a cold start and retried seven times.
+     */
+    public SyncOutcome syncNhl() {
+        return syncLeague("NHL",
+                ignoredHorizon -> inferenceClient.fetchNhlSchedule());
+    }
+
     private SyncOutcome syncLeague(
             String league, IntFunction<List<InferenceScheduledGame>> fetch) {
         List<InferenceScheduledGame> fixtures;

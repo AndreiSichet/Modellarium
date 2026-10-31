@@ -174,7 +174,8 @@ public class ScheduleSyncJob {
                 new League("WNBA", "WNBA", scheduleSyncService::syncWnba),
                 new League("G League", "GLEAGUE",
                         scheduleSyncService::syncGleague),
-                new League("NFL", "NFL", scheduleSyncService::syncNfl));
+                new League("NFL", "NFL", scheduleSyncService::syncNfl),
+                new League("NHL", "NHL", scheduleSyncService::syncNhl));
     }
 
     /**

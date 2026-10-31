@@ -133,9 +133,33 @@ class ScheduleSyncJobTest {
         public List<InferenceScheduledGame> fetchNflSchedule() {
             return answer("NFL");
         }
+
+        /**
+         * THE NHL, AND LEAVING IT OUT COST EIGHT RED TESTS. Without this
+         * override the real method ran against http://localhost:1, the
+         * connection was refused, InferenceReadiness correctly read that as
+         * NOT READY, and the job retried the NHL seven times and gave up -
+         * so every assertion about "ok on attempt 2" failed for a league the
+         * test had never meant to exercise. An unscripted league succeeds
+         * with no fixtures, which is what the other four do by default.
+         */
+        @Override
+        public List<InferenceScheduledGame> fetchNhlSchedule() {
+            return answer("NHL");
+        }
     }
 
-    private static final String[] LEAGUES = {"NBA", "WNBA", "GLEAGUE", "NFL"};
+    /**
+     * EVERY LEAGUE THE JOB SYNCS, and it has to stay in step with
+     * ScheduleSyncJob's own list. When the NHL was added there and not here,
+     * `neverReadyGivesUpAtTheCapAndSaysSo` scripted four leagues as refused
+     * while the fifth quietly succeeded - so the job recorded a success and
+     * `lastSuccessAt` was a timestamp where the test expected null. The
+     * assertion was right and the fixture was stale, which is the better way
+     * round.
+     */
+    private static final String[] LEAGUES =
+            {"NBA", "WNBA", "GLEAGUE", "NFL", "NHL"};
 
     /** What InferenceClient.unreachable() produces for a refused connection. */
     private static ResponseStatusException refused() {

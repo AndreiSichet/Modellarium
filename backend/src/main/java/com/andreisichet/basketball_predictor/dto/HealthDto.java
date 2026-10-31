@@ -16,6 +16,7 @@ public record HealthDto(
         LeagueFreshnessDto wnba,
         LeagueFreshnessDto gleague,
         NflFreshnessDto nfl,
+        NhlFreshnessDto nhl,
         ScheduleSyncDto scheduleSync) {
     /**
      * Whether this backend actually cached the fixtures it is serving.
@@ -80,6 +81,34 @@ public record HealthDto(
      * rediscovered: the regression gate still names added fields per body, so
      * if this ever becomes needed the asymmetry is visible.
      */
+    public record NhlFreshnessDto(
+            boolean served,
+            String reasonCode,
+            LocalDate dataAsOf,
+            Integer daysBehind,
+            Boolean stale,
+            Integer predictableFixtures,
+            Integer fixtures,
+            String predictionRule,
+            String source) {
+        static NhlFreshnessDto from(InferenceHealth.NhlFreshness source) {
+            // ABSENT IS NOT UNSERVED. A null block means the inference
+            // service sent no `nhl` key at all - an OLDER image than this
+            // backend - and that is reported as not served with its own
+            // code rather than as a false `served` beside nulls, which a
+            // client could not tell from a league that is simply behind.
+            return source == null
+                    ? new NhlFreshnessDto(false, "absent_from_inference",
+                            null, null, null, null, null, null, null)
+                    : new NhlFreshnessDto(
+                            source.served(), source.reasonCode(),
+                            source.dataAsOf(), source.daysBehind(),
+                            source.stale(), source.predictableFixtures(),
+                            source.fixtures(), source.predictionRule(),
+                            source.source());
+        }
+    }
+
     public record NflFreshnessDto(
             LocalDate dataAsOf,
             int daysBehind,
@@ -126,6 +155,7 @@ public record HealthDto(
                 LeagueFreshnessDto.from(health.wnba()),
                 LeagueFreshnessDto.from(health.gleague()),
                 NflFreshnessDto.from(health.nfl()),
+                NhlFreshnessDto.from(health.nhl()),
                 ScheduleSyncDto.from(scheduleSync));
     }
 }

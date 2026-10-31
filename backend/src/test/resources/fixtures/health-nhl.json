@@ -1,0 +1,189 @@
+{
+  "status": "ok",
+  "models_loaded": {
+    "team": 7,
+    "quarter_half": 6,
+    "player_props": 10,
+    "wnba": 3,
+    "gleague": 3,
+    "nfl": 3,
+    "nhl": 1
+  },
+  "data_as_of": "2026-10-30",
+  "days_behind": 1,
+  "stale": false,
+  "wnba": {
+    "data_as_of": "2026-09-24",
+    "days_behind": 37,
+    "stale": true
+  },
+  "gleague": {
+    "data_as_of": "2026-03-28",
+    "days_behind": 217,
+    "stale": true
+  },
+  "nfl": {
+    "data_as_of": "2026-10-29",
+    "days_behind": 2,
+    "stale": false,
+    "missing_results": 0,
+    "missing_result_ids": [],
+    "predictable_fixtures": 13,
+    "fixtures": 164,
+    "quarantine": {
+      "state": "none",
+      "count": 0,
+      "note": "no disagreements set aside",
+      "games": []
+    },
+    "prediction_rule": "both teams' previous games in history",
+    "source": "English Wikipedia, CC BY-SA 4.0",
+    "synthetic": false
+  },
+  "nhl": {
+    "served": true,
+    "data_as_of": "2026-10-29",
+    "days_behind": 2,
+    "stale": false,
+    "missing_results": 3,
+    "missing_result_ids": [
+      "2026\u201327_2026-10-30_1614000017_1614000030",
+      "2026\u201327_2026-10-30_1614000029_1614000012",
+      "2026\u201327_2026-10-30_1614000031_1614000004"
+    ],
+    "fixtures": 1131,
+    "predictable_fixtures": 14,
+    "blocked_fixtures": {
+      "previous_game_pending": 1117
+    },
+    "prediction_rule": "both teams' previous games in history",
+    "prediction_rule_note": "the dependency rule, as for the NFL. MAX_DAYS_AHEAD must NOT be applied to the NHL.",
+    "quarantine": {
+      "state": "present",
+      "count": 3,
+      "games": [
+        {
+          "season": "2026\u201327",
+          "date": "2026-10-24",
+          "copy_a": "2026\u201327 Nashville Predators season says home 1614000022, 3-2, OT",
+          "copy_b": "2026\u201327 Pittsburgh Penguins season says home 1614000022, 3-2, REG",
+          "reason": "the two copies disagree",
+          "left_quarantine": 0
+        },
+        {
+          "season": "2026\u201327",
+          "date": "2026-10-30",
+          "copy_a": "2026\u201327 Winnipeg Jets season says home 1614000012, 5-2, REG",
+          "copy_b": "(no second copy yet)",
+          "reason": "only one article carries this game",
+          "left_quarantine": 0
+        },
+        {
+          "season": "2026\u201327",
+          "date": "2026-10-30",
+          "copy_a": "2026\u201327 New Jersey Devils season says home 1614000030, 2-5, REG",
+          "copy_b": "(no second copy yet)",
+          "reason": "only one article carries this game",
+          "left_quarantine": 0
+        }
+      ]
+    },
+    "standings": {
+      "season": "2026\u201327",
+      "class": "standings_probable_error",
+      "classes": [
+        "standings_probable_error"
+      ],
+      "detail": "result_label on OTT; 8 team(s) short of the standings page (articles lagging); OTT localises to LAK 6-5 OTT (OT)",
+      "conflicts": 0,
+      "teams_flagged": 9
+    },
+    "markets": {
+      "puck_line": {
+        "served": true
+      },
+      "totals": {
+        "served": false,
+        "reason_code": "no_skill_over_constant",
+        "detail": "Totals are not served for the NHL: a constant predictor beats the fitted model on test."
+      },
+      "winner": {
+        "served": true
+      }
+    },
+    "winner": {
+      "family": "elo",
+      "artifact": null,
+      "caveat": {
+        "short": "Weak signal - team ratings only, and barely better than guessing across our test seasons.",
+        "reader": "These NHL win probabilities come from team ratings alone. Across the two seasons we held back for testing they beat a simple base-rate guess only slightly, and in one of those seasons not at all - so treat them as a weak signal rather than a forecast.",
+        "confirmed_on_test": false
+      }
+    },
+    "source": "English Wikipedia, CC BY-SA 4.0"
+  },
+  "availability": {
+    "nba": {
+      "state": "not_applicable",
+      "detail": "no availability features in the team feature set since A3 (2026-10-23); the player-prop board still reads the injury report to exclude listed-Out players, so the sidecar is live but no team prediction depends on it",
+      "still_used_by": [
+        "player_props_roster_filter"
+      ]
+    },
+    "wnba": {
+      "state": "not_applicable",
+      "detail": "no availability features in this league's feature set"
+    },
+    "gleague": {
+      "state": "not_applicable",
+      "detail": "no availability features in this league's feature set"
+    },
+    "nfl": {
+      "state": "not_applicable",
+      "detail": "no availability features in this league's feature set"
+    }
+  },
+  "refresh": {
+    "state": "not_a_volume",
+    "last_verdict_at": null,
+    "hours_since": null,
+    "outcome": null,
+    "leagues": {},
+    "note": "DATA_DIR is a plain data root, not a volume, so no refresh job maintains a record here"
+  },
+  "served_data": {
+    "root": "C:\\Users\\User\\AppData\\Local\\Temp\\claude\\c--Users-User-Desktop-basketball-predictor-data-pipeline\\e4ffbd03-bee7-44bb-9015-3fc857905c5c\\scratchpad\\root_new",
+    "snapshot": "root_new",
+    "created": "2026-10-31T07:21:44.397211+00:00",
+    "source": "daily_refresh (SNAPSHOT.json claims '2026-10-31T0715'; the directory name wins)",
+    "stamp_disagrees": "2026-10-31T0715",
+    "table_sha256": {
+      "nba": {
+        "games_final.csv": "f4c9dbc3f06e249abc278bc3030fa59526ecde2b9bbf1b13e9eada3af27e6e81",
+        "player_boxscores_with_rolling.csv": "2d15b8a16cc89d9e5b7cab1460bedfe3b6f240401608cf19aca4245f9c97fb28",
+        "quarter_half_raw.csv": "ca91ad6d7f0972b2937a91d1ba6031c0a896dd8c0fd0e5ee5b68407c9bd0d140"
+      },
+      "wnba": {
+        "wnba_games_final.csv": "6045763fde8bf91fb33cc63b366ac7ad3899a0675ee959edf536ed796089e374"
+      },
+      "gleague": {
+        "gleague_games_final.csv": "9f5566ab21ca28ab5a188c2767d317add5eca044d3f4ac28aa23901b9c91bff9",
+        "gleague_showcase_games.csv": "1f73807a642832643a3495968fe20be05c14ab48952d0c0819e6e9852f858850"
+      },
+      "nfl": {
+        "nfl_games_final.csv": "20cb5bf47ba5b7b457e0d839d0fb489013ea41126f24dd9abe303c6c5b394965",
+        "nfl_fixtures.csv": "2314c3c47b7193e527add5817cc524b529959810414464c8fe842dfd249b3fe2",
+        "nfl_franchise_identity.csv": "0f0a5402b8fb3fdb8c7e0a1a96db253934cb9a5cd6a9340cbc4977b3e6fd1e3c",
+        "nfl_quarantine.csv": "ffb778d0f512c56db34f7907e6c0574d01491803b0988205afb99a93649e0884"
+      },
+      "other": {
+        "nhl_games_final.csv": "489de45b90103038f1b38858d92db6ef8c9f2d5f7061ac5dc429381ae4e639df",
+        "nhl_fixtures.csv": "a4a9ebbec9a477795f711fc118c05b3974c146addd02099ce5aab003115afef9",
+        "nhl_franchise_identity.csv": "651e5865d86e7b27739b0ab06d8b69b49a543d243eaaeb1176c366f0ec7f2e60",
+        "nhl_quarantine.csv": "0225e1263ce3f73bcd1223239ff2d91dd589c9e38bafbf6bd3d1b34032e54f6b",
+        "nhl_standings_report.csv": "297f68b552422ca712b9e91e00c28be88cf726ece0e1fa6def9203e71510361f"
+      }
+    },
+    "table_hash_seconds": 0.138
+  }
+}
