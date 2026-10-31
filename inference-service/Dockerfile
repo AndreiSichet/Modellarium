@@ -163,6 +163,29 @@ COPY ml-training/nfl/live_nfl_features.py ./ml-training/nfl/
 COPY data-pipeline/nfl/preprocessing/build_nfl_model_dataset.py      data-pipeline/nfl/preprocessing/nfl_divisions.py      data-pipeline/nfl/preprocessing/nfl_franchises.py      data-pipeline/nfl/preprocessing/parse_nfl_wikitext.py      data-pipeline/nfl/preprocessing/make_synthetic_nfl_tables.py      ./data-pipeline/nfl/preprocessing/
 COPY ml-training/models_nfl/ ./ml-training/models_nfl/
 
+# ---------------------------------------------------------------- the NHL
+#
+# TWO LINES AND NO data-pipeline MODULE, which is worth noticing rather than
+# copying by rote. Every other league's serving path imports pipeline
+# builders - the WNBA's rolling features, the G League's Elo, the NFL's
+# parser - because its features are rebuilt by code that lives in
+# data-pipeline. The NHL's are not: `nhl_features.py` is the SINGLE
+# definition that both training and serving call, which is what makes
+# `verify_nhl_no_leakage` a test of the serving path at all. So the image
+# needs the two files under ml-training/nhl/ and nothing else.
+#
+# BOTH PATHS ARE TRACKED, CHECKED IN THIS SAME CHANGE with
+# `git check-ignore -v` - the rule that has bitten five times, because
+# `docker build` reads the filesystem while `actions/checkout` sees only what
+# is committed. models_nhl/ is 36 KB, so no LFS.
+#
+# NO NHL TABLE IS COPIED AND NONE EXISTS TO COPY. The corpus is CC BY-SA and
+# gitignored; serving reads it from the mounted volume, where the five tables
+# are OPTIONAL - so this image boots on a snapshot that predates them.
+COPY ml-training/nhl/live_nhl_features.py ml-training/nhl/nhl_features.py \
+     ./ml-training/nhl/
+COPY ml-training/models_nhl/ ./ml-training/models_nhl/
+
 WORKDIR /app/inference-service
 
 EXPOSE 8000

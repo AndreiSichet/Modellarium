@@ -19,6 +19,7 @@ ML_TRAINING_DIR = Path(__file__).resolve().parents[1] / "ml-training"
 _PIPELINE_DIR = Path(__file__).resolve().parents[1] / "data-pipeline"
 for _directory in (ML_TRAINING_DIR, ML_TRAINING_DIR / "wnba",
                    ML_TRAINING_DIR / "gleague", ML_TRAINING_DIR / "nfl",
+                   ML_TRAINING_DIR / "nhl",
                    _PIPELINE_DIR / "nfl" / "preprocessing"):
     if str(_directory) not in sys.path:
         sys.path.insert(0, str(_directory))
@@ -63,6 +64,16 @@ from live_nfl_features import (  # noqa: E402
     predictable_fixtures as nfl_predictable_fixtures,
     upcoming as nfl_upcoming,
 )
+from live_nhl_features import (  # noqa: E402
+    NotScoreable as NhlNotScoreable,
+    SOURCE_ATTRIBUTION as NHL_SOURCE,
+    freshness as nhl_freshness_from_state,
+    get_live_features as get_live_nhl_features,
+    load_state as load_nhl_state,
+    missing_results as nhl_missing_results,
+    predictable_fixtures as nhl_predictable_fixtures,
+    standings_class as nhl_standings_class,
+)
 from live_wnba_features import (  # noqa: E402
     NotScoreable as WnbaNotScoreable,
     get_live_features as get_live_wnba_features,
@@ -76,6 +87,7 @@ PP_MODELS_DIR = ML_TRAINING_DIR / "models_player_props"
 WNBA_MODELS_DIR = ML_TRAINING_DIR / "models_wnba"
 GLEAGUE_MODELS_DIR = ML_TRAINING_DIR / "models_gleague"
 NFL_MODELS_DIR = ML_TRAINING_DIR / "models_nfl"
+NHL_MODELS_DIR = ML_TRAINING_DIR / "models_nhl"
 
 NEWLINE = chr(10)
 
@@ -364,6 +376,68 @@ class NflFixture(BaseModel):
     venue: str
 
 
+class NhlMarket(BaseModel):
+    """One NHL market, or a declared refusal to serve it.
+
+    `served` CARRIES THE FALSE CASE, which no other league's market model
+    needs. Totals are not served for the NHL at all - a constant predictor
+    beat the fitted model on test - so the market has to be able to say so
+    rather than be absent. A client that cannot tell "we do not offer this"
+    from "this response forgot it" will eventually show one as the other.
+
+    `caveat` is the winner's, from the manifest. Its test interval against a
+    constant INCLUDES ZERO, so the figure travels with the sentence saying
+    the gain is not established on test. That is the WNBA-moneyline lesson
+    applied in the other direction: the WNBA withdrew a caveat whose interval
+    spanned zero, and here the INTERVAL spanning zero is exactly what the
+    caveat is about.
+    """
+
+    served: bool
+    value: float | None = None
+    family: str | None = None
+    definition: str | None = None
+    caveat: str | None = None
+    reason_code: str | None = None
+    detail: str | None = None
+
+
+class NhlFixture(BaseModel):
+    game_id: str
+    season: str
+    game_date: date
+    home_team_id: int
+    away_team_id: int
+    home: str | None
+    away: str | None
+    # Under the DEPENDENCY rule, not a date rule: true once BOTH teams'
+    # previous games are in history. `MAX_DAYS_AHEAD` must not be applied to
+    # the NHL - measured, the date rule offers 0% of a season the morning
+    # before where this offers 71%.
+    predictable: bool
+    # WHY NOT, when it is not. The schedule flag and /predict's refusal come
+    # from the same function, so this code is the one /predict would raise.
+    reason_code: str | None = None
+    reason: str | None = None
+
+
+class NhlResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    home_team_id: int
+    away_team_id: int
+    game_date: date
+    data_as_of: date
+    stale: bool
+    days_behind: int
+    season: str
+    home: str | None
+    away: str | None
+    markets: dict[str, NhlMarket]
+    prediction_rule: str
+    source: str
+
+
 class NflResponse(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
@@ -628,6 +702,57 @@ def load_nfl_models() -> tuple:
     return models, manifest
 
 
+def load_nhl_models() -> tuple:
+    """The NHL's artifacts and manifest, with the same exactness as the rest.
+
+    ONE ARTIFACT FOR TWO SERVED MARKETS, which is a fact about the league and
+    not an oversight. The winner ships as **Elo alone** - it won the
+    validation selection outright, so the manifest's `elo` block IS that
+    model and there is no file. The puck line ships `puck_line.joblib`. So
+    `models_loaded["nhl"]` is 1 while two markets answer, and a reader
+    comparing it with the NFL's 3 should find this comment.
+
+    `manifest.json` AND `provenance.json` ARE EXCLUDED BY NAME, and that is a
+    recorded trap rather than a precaution: putting `provenance.json` beside
+    `models/` made `load_models()` read it as an unregistered model and exit
+    3 with "present but unregistered: ['provenance', 'trained_through']".
+
+    THE COMPARISON STAYS EXACT EQUALITY. A missing artifact and an extra one
+    must both fail - that is the guard which caught `models/*.json` never
+    having been committed at all - so this is not relaxed to a subset test
+    just because the NHL happens to declare one file.
+    """
+    manifest_path = NHL_MODELS_DIR / "manifest.json"
+    if not manifest_path.is_file():
+        raise RuntimeError(
+            f"{manifest_path} is missing. It carries the fitted Elo "
+            f"parameters, the puck line's feature list and the winner's "
+            f"caveat, and the NHL cannot be served without them."
+        )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    expected = {entry["artifact"] for entry in manifest["targets"].values()
+                if entry.get("artifact")}
+    on_disk = {path.name for path in NHL_MODELS_DIR.iterdir()
+               if path.suffix in (".joblib", ".json")
+               and path.name not in ("manifest.json", "provenance.json")}
+    if on_disk != expected:
+        raise RuntimeError(
+            "models_nhl/ does not match manifest.json." + NEWLINE
+            + f"  missing from disk: {sorted(expected - on_disk) or 'none'}"
+            + NEWLINE
+            + f"  present but unregistered: "
+              f"{sorted(on_disk - expected) or 'none'}"
+        )
+
+    models = {}
+    for market, entry in sorted(manifest["targets"].items()):
+        if not entry.get("artifact"):
+            continue
+        models[market] = joblib.load(NHL_MODELS_DIR / entry["artifact"])
+    return models, manifest
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # RESOLVED BEFORE ANY TABLE IS READ, so a missing volume is one clear
@@ -685,6 +810,15 @@ async def lifespan(_app: FastAPI):
     state.nfl_known_team_ids = state.nfl_state["known_team_ids"]
     state.nfl_models, state.nfl_manifest = load_nfl_models()
 
+    # THE NHL. Its artifacts are in the image and its TABLES ARE OPTIONAL, so
+    # `load_nhl_state` returns a state that SAYS it is not served rather than
+    # raising when a snapshot predates phase 3. That is what lets this image
+    # boot on any of the snapshots now on the volume - the NFL's phase 4
+    # taught the other order the hard way, where requiring tables the
+    # snapshot lacked took the service down.
+    state.nhl_models, state.nhl_manifest = load_nhl_models()
+    state.nhl_state = load_nhl_state(manifest=state.nhl_manifest)
+
     print(
         f"Serving data from {state.data_root} "
         f"(snapshot {state.snapshot.get('snapshot') or 'unstamped'})."
@@ -715,6 +849,24 @@ async def lifespan(_app: FastAPI):
         f"{len(state.gleague_known_team_ids)} teams, "
         f"data as of {state.gleague_data_as_of.date()}."
     )
+    if state.nhl_state.get("served"):
+        nhl_cutoff, nhl_behind, _nhl_stale = nhl_freshness_from_state(
+            state.nhl_state)
+        nhl_slate = nhl_predictable_fixtures(state.nhl_state)
+        print(
+            f"NHL: {len(state.nhl_models)} artifact(s) "
+            f"({', '.join(sorted(state.nhl_models)) or 'none'}), "
+            f"winner serves from Elo alone with no artifact, "
+            f"{len(state.nhl_state['games']):,} team-game rows, "
+            f"{sum(1 for row in nhl_slate if row['predictable'])} of "
+            f"{len(nhl_slate)} future fixtures predictable, "
+            f"data as of {nhl_cutoff}."
+        )
+    else:
+        print(
+            "NHL: not served from this snapshot - it carries no NHL tables, "
+            "which are optional by design. models_nhl/ is loaded and ready."
+        )
     print(
         f"NFL: {len(state.nfl_models)} models "
         f"({', '.join(sorted(state.nfl_models))}), "
@@ -820,6 +972,10 @@ def health():
             "wnba": len(state.wnba_models),
             "gleague": len(state.gleague_models),
             "nfl": len(state.nfl_models),
+            # ONE, FOR TWO SERVED MARKETS. The winner is Elo alone and has no
+            # artifact; see load_nhl_models. CI asserts this dict at exact
+            # equality, so the number and that comment move together.
+            "nhl": len(state.nhl_models),
         },
         "data_as_of": state.data_as_of.date().isoformat(),
         "days_behind": days_behind,
@@ -886,6 +1042,7 @@ def health():
             "source": NFL_SOURCE,
             "synthetic": bool(state.nfl_state.get("synthetic")),
         },
+        "nhl": nhl_health_block(),
         # WHETHER AVAILABILITY IS ACTUALLY WORKING. Four of the NBA's 38
         # features come from the live injury report, and every way of not
         # having one used to resolve to NaN silently.
@@ -960,6 +1117,11 @@ REFUSAL_SEASON_OPENER = "season_opener"
 REFUSAL_NO_USABLE_HISTORY = "no_usable_history"
 REFUSAL_SYNTHETIC_DATA = "synthetic_data_refused"
 REFUSAL_UNCLASSIFIED = "unclassified"
+# THE NHL'S TABLES ARE OPTIONAL, so "not served from this snapshot" is a
+# state a caller must be able to branch on. 503 rather than 400: the request
+# is well formed and the service is healthy - the DATA is absent, which is
+# the server's situation and not the client's mistake.
+REFUSAL_NHL_NOT_SERVED = "nhl_not_served"
 
 
 class Refusal(HTTPException):
@@ -970,8 +1132,14 @@ class Refusal(HTTPException):
     handler below.
     """
 
-    def __init__(self, detail: str, code: str, **fields):
-        super().__init__(status_code=400, detail=detail)
+    def __init__(self, detail: str, code: str, status_code: int = 400,
+                 **fields):
+        # STATUS DEFAULTS TO 400 SO EVERY EXISTING CALL IS UNTOUCHED. The
+        # NHL needs 503 for "this snapshot carries no NHL tables", which is
+        # the server's situation rather than the client's mistake, and
+        # `status_code` is declared before **fields so it cannot be
+        # swallowed into them.
+        super().__init__(status_code=status_code, detail=detail)
         self.code = code
         self.fields = {k: v for k, v in fields.items() if v is not None}
 
@@ -1895,6 +2063,190 @@ def predict_nfl(request: PredictionRequest):
         markets=markets,
         home_win_interpretation=state.nfl_manifest["winner_qualifier"],
         source=NFL_SOURCE,
+    )
+
+
+def nhl_health_block() -> dict:
+    """What /health says about the NHL, including that it may not be served.
+
+    THE NOT-SERVED CASE IS A STATE, NOT AN OMISSION. Every snapshot on the
+    volume today predates phase 3, so this block has to be able to say "no
+    NHL tables here" without looking like a fault - that is the whole
+    purpose of the tables being optional, and a monitor needs to tell it
+    apart from a league that is broken.
+    """
+    if not state.nhl_state.get("served"):
+        return {
+            "served": False,
+            "reason_code": "not_yet_served",
+            "detail": "this snapshot carries no NHL tables; they are "
+                      "optional, so the service boots and the other leagues "
+                      "are unaffected",
+            "models_ready": len(state.nhl_models),
+            "source": NHL_SOURCE,
+        }
+
+    cutoff, days_behind, stale = nhl_freshness_from_state(state.nhl_state)
+    slate = nhl_predictable_fixtures(state.nhl_state)
+    missing = nhl_missing_results(state.nhl_state)
+    quarantine = state.nhl_state["quarantine"]
+    standings = nhl_standings_class(state.nhl_state)
+    manifest = state.nhl_manifest
+
+    blocked = {}
+    for row in slate:
+        if not row["predictable"]:
+            blocked[row["reason_code"]] = blocked.get(row["reason_code"],
+                                                      0) + 1
+
+    markets = {}
+    for name, entry in sorted(manifest["targets"].items()):
+        block = {"served": bool(entry.get("ships"))}
+        if not entry.get("ships"):
+            # THE REASON CODE IS THE POINT. Totals are declared unserved
+            # because a constant beat the model on test, and a caller is owed
+            # the code - `no_skill_over_constant` - rather than silence.
+            shape = entry.get("health_shape_for_phase_3") or {}
+            block["reason_code"] = shape.get("reason_code")
+            block["detail"] = shape.get("detail")
+        markets[name] = block
+
+    winner_caveat = (manifest["targets"]["winner"].get("caveat") or {})
+    return {
+        "served": True,
+        "data_as_of": cutoff.isoformat(),
+        "days_behind": days_behind,
+        "stale": stale,
+        # THE NHL'S OWN FINALITY RULE, not the NFL's kickoff heuristic: a
+        # game's US date has ended at midnight Pacific on D+1, so a fixture
+        # past that with no result is MISSING rather than pending.
+        "missing_results": len(missing),
+        "missing_result_ids": [row["game_id"] for row in missing[:10]],
+        "fixtures": len(slate),
+        "predictable_fixtures": sum(1 for row in slate
+                                    if row["predictable"]),
+        "blocked_fixtures": blocked,
+        "prediction_rule": "both teams' previous games in history",
+        "prediction_rule_note":
+            "the dependency rule, as for the NFL. MAX_DAYS_AHEAD must NOT be "
+            "applied to the NHL.",
+        "quarantine": {
+            "state": quarantine["state"],
+            "count": quarantine["count"],
+            "games": quarantine["games"][:10],
+        },
+        # THE OPEN SEASON'S STANDINGS CROSS-CHECK IS ADVISORY, and its class
+        # is a fact a reader is owed: an editor's half-finished edit shows up
+        # here as `standings_self_inconsistent` rather than as a league that
+        # stopped advancing.
+        "standings": standings,
+        "markets": markets,
+        "winner": {
+            "family": manifest["targets"]["winner"]["family"],
+            "artifact": manifest["targets"]["winner"]["artifact"],
+            "caveat": {"short": winner_caveat.get("short"),
+                       "reader": winner_caveat.get("reader"),
+                       "confirmed_on_test":
+                           winner_caveat.get("confirmed_on_test")},
+        },
+        "source": NHL_SOURCE,
+    }
+
+
+@app.get("/schedule/nhl", response_model=list[NhlFixture])
+def schedule_nhl(
+    predictable_only: bool = Query(
+        False,
+        description="only fixtures both teams' previous games are in "
+                    "history for",
+    ),
+):
+    """Unplayed NHL fixtures from the served tables, each with its flag.
+
+    THE FLAG COMES FROM THE SAME FUNCTION THAT REFUSES. `predictable` and
+    /predict/nhl's refusal both call `blocking_reason`, so a row marked true
+    here cannot be refused there and the reverse. A second rule engine for
+    the schedule is how the two drift, which is the NFL's design and the
+    reason it is copied rather than improved on.
+
+    RETURNS BLOCKED FIXTURES TOO, with their code. A caller filtering to the
+    answerable set can ask for it; a caller that only ever saw the answerable
+    ones could not tell a blocked fixture from one that does not exist.
+    """
+    if not state.nhl_state.get("served"):
+        raise Refusal("This snapshot carries no NHL tables, so no NHL "
+                      "fixture can be served from it.",
+                      REFUSAL_NHL_NOT_SERVED, status_code=503)
+    rows = nhl_predictable_fixtures(state.nhl_state)
+    if predictable_only:
+        rows = [row for row in rows if row["predictable"]]
+    return [
+        NhlFixture(
+            game_id=row["game_id"], season=row["season"],
+            game_date=row["game_date"],
+            home_team_id=row["home_id"], away_team_id=row["away_id"],
+            home=row["home"], away=row["away"],
+            predictable=row["predictable"],
+            reason_code=row["reason_code"], reason=row["reason"],
+        )
+        for row in rows
+    ]
+
+
+@app.post("/predict/nhl", response_model=NhlResponse)
+def predict_nhl(request: PredictionRequest):
+    """The NHL's two served markets for one fixture, and totals' refusal.
+
+    REFUSES BY CODE, NOT BY MESSAGE. `live_nhl_features.NotScoreable` carries
+    a structured code - `season_opener`, `previous_game_pending`,
+    `date_out_of_range`, `unknown_team`, `same_team` - and it is rendered
+    through `Refusal` so a caller keys on the code and reads the sentence.
+    The gate's false REGRESSED is why those are two separate things.
+
+    NO MAX_DAYS_AHEAD. The three basketball leagues bound a request to
+    `dataAsOf + 1`; applying that here would throw away the dependency rule's
+    whole advantage - 71% of a season available the morning before against
+    the date rule's 0%.
+    """
+    if not state.nhl_state.get("served"):
+        raise Refusal("This snapshot carries no NHL tables, so the NHL "
+                      "cannot be predicted from it.",
+                      REFUSAL_NHL_NOT_SERVED, status_code=503)
+    try:
+        result = get_live_nhl_features(
+            request.home_team_id, request.away_team_id,
+            request.game_date, state.nhl_state,
+        )
+    except NhlNotScoreable as error:
+        raise Refusal(str(error), error.code, **error.fields) from error
+    except (ValueError, KeyError) as error:
+        raise Refusal(f"Could not build features: {error}",
+                      REFUSAL_UNCLASSIFIED) from error
+
+    cutoff, days_behind, stale = nhl_freshness_from_state(state.nhl_state)
+    markets = {}
+    for name, block in result["markets"].items():
+        value = None
+        if name == "winner":
+            value = result["predictions"].get("home_win_probability")
+        elif name == "puck_line":
+            value = result["predictions"].get("home_wins_by_2_or_more")
+        markets[name] = NhlMarket(
+            served=bool(block.get("served")), value=value,
+            family=block.get("family"), definition=block.get("definition"),
+            caveat=block.get("caveat"), reason_code=block.get("reason_code"),
+            detail=block.get("detail"),
+        )
+
+    return NhlResponse(
+        home_team_id=request.home_team_id,
+        away_team_id=request.away_team_id,
+        game_date=request.game_date,
+        data_as_of=cutoff, stale=stale, days_behind=days_behind,
+        season=result["season"], home=result["home"], away=result["away"],
+        markets=markets,
+        prediction_rule="both teams' previous games in history",
+        source=result["source"],
     )
 
 
