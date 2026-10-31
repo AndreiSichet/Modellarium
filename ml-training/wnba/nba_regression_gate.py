@@ -105,13 +105,21 @@ MATCHUPS = {
     # predictable fixtures with four distinct teams - the same "two matchups,
     # four teams" shape the other three have, for the reason recorded above it.
     "nfl": None,
+    # THE NHL IS DERIVED AT CAPTURE TIME TOO, for exactly the NFL's
+    # reason. It is served under the dependency rule - both teams'
+    # previous games in history - so which pairs are predictable
+    # changes every day: measured 2026-10-31, 14 of 1,131 future
+    # fixtures. A fixed pair here would go stale within a day and the
+    # gate would report a refusal as a regression.
+    "nhl": None,
 }
 
 PREDICT_PATH = {"nba": "/predict", "wnba": "/predict/wnba",
                 "gleague": "/predict/gleague", "nfl": "/predict/nfl"}
 BACKEND_PATH = {"nba": "/api/predictions", "wnba": "/api/predictions/wnba",
                 "gleague": "/api/predictions/gleague",
-                "nfl": "/api/predictions/nfl"}
+                "nfl": "/api/predictions/nfl",
+                "nhl": "/api/predictions/nhl"}
 
 # Per-call identifiers and timestamps. NOT dataAsOf and NOT stale: those are
 # CONTEXT - they are exactly what tells you a baseline came from different data,
@@ -141,6 +149,16 @@ VOLATILE = {"predictedAt", "id", "gameId", "predicted_at"}
 # the pair and diff the other.
 CONTEXT_ONLY = {
     "daysBehind", "days_behind",
+    # THE NHL'S BLOCKED-FIXTURE COUNTS MOVE EVERY DAY BY DESIGN. Under the
+    # dependency rule a fixture becomes answerable the moment both teams'
+    # previous games land, so `predictable_fixtures` and the
+    # `blocked_fixtures` histogram change on every refresh - and on no code
+    # change at all. Diffing them would make the gate red on the clock
+    # rather than the code, which it has already done four times.
+    "predictable_fixtures", "predictableFixtures",
+    "blocked_fixtures", "blockedFixtures",
+    "missing_results", "missing_result_ids",
+    "missingResults", "missingResultIds",
     "home_games_played", "away_games_played", "full_window_date",
     "homeGamesPlayed", "awayGamesPlayed", "fullWindowDate",
 }
@@ -349,6 +367,36 @@ def nfl_matchups(count=2) -> list:
     return chosen
 
 
+def nhl_matchups(count=2) -> list:
+    """Two predictable NHL fixtures with four distinct teams.
+
+    FROM THE SERVICE, for nfl_matchups' reason: the dependency rule is
+    evaluated against the served history, so the only honest source for
+    "which fixtures can be predicted right now" is the service doing the
+    serving. Asking it is also what lets this survive the season advancing.
+
+    RETURNS [] WHEN THE NHL IS NOT SERVED AT ALL, which is a real state
+    rather than an error: the tables are optional, so a snapshot built
+    before phase 3 answers 503 with `nhl_not_served` and the gate records a
+    league with nothing to compare instead of failing.
+    """
+    fixtures = curl("GET", f"{INFERENCE}/schedule/nhl?predictable_only=true")
+    if not isinstance(fixtures, list):
+        return []
+
+    chosen, used = [], set()
+    for fixture in sorted(fixtures, key=lambda f: (f.get("game_date") or "",
+                                                   f.get("game_id") or "")):
+        home, away = fixture.get("home_team_id"), fixture.get("away_team_id")
+        if home in used or away in used:
+            continue
+        chosen.append((home, away, fixture.get("game_date")))
+        used.update((home, away))
+        if len(chosen) == count:
+            break
+    return chosen
+
+
 # Every differing field is printed. A CAP WOULD HAVE TO ANNOUNCE ITSELF, and
 # the version before 2026-10-29 did not: `fields[:6]` on the CANNOT COMPARE
 # branch and `fields[:8]` on REGRESSED, with a heading that counted BODIES
@@ -519,8 +567,13 @@ def capture() -> dict:
 
         # The NFL's pairs AND date come from its own schedule; the other three
         # keep fixed pairs and a date derived from their cutoff.
-        if league == "nfl":
-            derived = nfl_matchups()
+        if league in ("nfl", "nhl"):
+            # BOTH DEPENDENCY-RULE LEAGUES DERIVE THEIR PAIRS AND THEIR
+            # DATE. The other three keep fixed pairs and derive only the
+            # date, because any pair of their teams is predictable on
+            # cutoff + 1.
+            derived = (nfl_matchups() if league == "nfl"
+                       else nhl_matchups())
             pairs = [(home, away) for home, away, _d in derived]
             dates = [d for _h, _a, d in derived]
         else:
