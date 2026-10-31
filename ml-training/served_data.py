@@ -164,18 +164,22 @@ LAST_REFRESH_FILE = "last_refresh.json"
 
 # TWO THRESHOLDS, NOT ONE, AND BOTH ARE MEASURED RATHER THAN CHOSEN.
 #
-# The cron fires at 07:00 daily, but it only QUEUES - the runner is on a
-# machine that sleeps, so the job runs shortly after the host next wakes.
-# Measured 17-21 October 2026, the 07:00 slot actually executed at 13:38,
-# 12:28, 16:22 and 19:10 (CLAUDE.md s6). So consecutive runs legitimately sit
+# The cron QUEUES rather than runs - the runner is on a machine that sleeps,
+# so the job runs shortly after the host next wakes. Measured 17-21 October
+# 2026, while the slot was at 07:00, it actually executed at 13:38, 12:28,
+# 16:22 and 19:10 (CLAUDE.md s6); measured again over the 30 days to 31
+# October, GitHub created the SCHEDULED runs 4 to 9 hours after the nominal
+# time. The slot moved to 08:30 on 3 November 2026 and the thresholds below
+# did NOT need to, because both are DURATIONS between runs and neither reads
+# the clock. So consecutive runs legitimately sit
 # up to about 36 hours apart, and a single 26-hour alarm would have cried wolf
 # on an ordinary week - the same failure mode as a gate going red on the clock
 # rather than the code, which this project has recorded four times.
 #
 # So the two facts are separated instead of merged:
 #
-#   LATE      past one cron interval plus a couple of hours. The 07:00 slot
-#             was missed; on this runner that usually means a sleeping laptop
+#   LATE      past one cron interval plus a couple of hours. A slot was
+#             missed; on this runner that usually means a sleeping laptop
 #             and is NOT actionable on its own.
 #   OVERDUE   past the worst legitimate gap with margin. A whole cron slot
 #             produced nothing, which no amount of host sleep explains - the
@@ -187,6 +191,18 @@ LAST_REFRESH_FILE = "last_refresh.json"
 # and the state is the reading of it.
 REFRESH_LATE_HOURS = 26
 REFRESH_OVERDUE_HOURS = 40
+
+# WHEN THE CRON QUEUES, AS ONE STRING WITH TWO READERS. It was written out as
+# a literal "07:00" in this file and again in daily_refresh.py, and both
+# strings reach a person - one through /health's refresh block, one through
+# the daily job's summary. Two copies of a time that was about to change is
+# the derive-never-hardcode rule's own shape, so there is one now and
+# daily_refresh imports it beside REFRESH_LATE_HOURS.
+#
+# IT DESCRIBES THE CRON, WHICH IS THE FALLBACK. The reliable trigger is the
+# `Modellarium start refresh` scheduled task; measured, GitHub's own
+# scheduler has been firing this cron 4 to 9 hours late.
+REFRESH_SCHEDULE_UTC = "08:30"
 
 # Which league each served table belongs to, so /health can report them grouped
 # the way every other per-league field already is.
@@ -382,9 +398,9 @@ def read_last_refresh(volume: Path = None, now=None) -> dict:
     elif hours >= REFRESH_LATE_HOURS:
         state = "late"
         note = (f"no verdict for {hours:.1f}h, past {REFRESH_LATE_HOURS}h. "
-                f"The cron QUEUES at 07:00 and the self-hosted runner starts "
-                f"when the host wakes, so this is usually a sleeping machine "
-                f"rather than a fault")
+                f"The cron QUEUES at {REFRESH_SCHEDULE_UTC} UTC and the "
+                f"self-hosted runner starts when the host wakes, so this is "
+                f"usually a sleeping machine rather than a fault")
     else:
         state = "ok"
         note = f"last verdict {hours:.1f}h ago"

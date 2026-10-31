@@ -45,7 +45,8 @@ sys.path.insert(0, str(HERE))
 import pandas as pd  # noqa: E402
 import drift_report  # noqa: E402
 from served_data import (  # noqa: E402
-    OPTIONAL_FILES, POINTER_FILE, REFRESH_LATE_HOURS, REPO_DATA_ROOT,
+    OPTIONAL_FILES, POINTER_FILE, REFRESH_LATE_HOURS,
+    REFRESH_SCHEDULE_UTC, REPO_DATA_ROOT,
     REQUIRED_FILES, SNAPSHOTS_DIR, missing_files, read_last_refresh,
     resolve_root, write_last_refresh, write_snapshot_metadata)
 
@@ -1504,9 +1505,10 @@ def previous_run_lines(volume: Path) -> list:
         lines.append("")
         lines.append(
             f"> **Late: {hours:.1f} h since the previous run, past the "
-            f"{REFRESH_LATE_HOURS} h threshold.** The cron QUEUES at 07:00 "
-            f"and this runner starts when the host wakes, so a gap of around "
-            f"half a day is ordinary here; this one is longer than that.")
+            f"{REFRESH_LATE_HOURS} h threshold.** The cron QUEUES at "
+            f"{REFRESH_SCHEDULE_UTC} UTC and this runner starts when the "
+            f"host wakes, so a gap of around half a day is ordinary here; "
+            f"this one is longer than that.")
     if outcome in ("failed", "partial", "drift-report-failed"):
         lines.append("")
         lines.append(

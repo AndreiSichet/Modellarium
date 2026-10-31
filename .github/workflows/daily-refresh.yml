@@ -6,14 +6,32 @@ name: daily data refresh
 # pipeline and rebuilding by hand, which yields predictions for exactly one
 # day at a time.
 #
-# MID-MORNING IN ROMANIA, which is 07:00 UTC (09:00 EET / 10:00 EEST). NBA
-# games finish in the early hours of European time, so results are settled by
-# then. GitHub's cron can fire late; that is acceptable here, because a
-# refresh running at 08:00 instead of 07:00 changes nothing about the day it
-# finds.
+# 08:30 UTC, AND THE NHL IS WHY. A game's US date has ended in the latest US
+# zone it could be played in at midnight Pacific, which is D+1 07:00 UTC in
+# PDT and 08:00 UTC in PST. US DST ended on 1 November 2026, so a 07:15 run
+# cleared that boundary all October and misses it from November on - at which
+# point the NHL's data_as_of would sit permanently at D-2. Measured on a
+# replayed 2025-26: the dependency rule leaves 248 fixtures never predictable
+# at 07:15 and 20 at 08:30, and those 20 are a named class - season openers
+# where one side has no previous game. 14:00 adds nothing over 08:30.
+#
+# THE OTHER THREE LEAGUES COST NOTHING, MEASURED 2026-10-31 rather than
+# assumed. Across the retained snapshots no GAME_DATE in any league ever
+# gained rows in a later snapshot, including two NBA nights first captured by
+# a 07:15 run - so nba_api already carries the previous night complete by
+# 07:15, data_as_of is the same at both times, and the date rule's
+# `data_as_of + 1` set is identical. An NFL Monday kickoff ends about 04:30
+# UTC, which is past the >5h rule at either time.
+#
+# THIS LINE IS THE FALLBACK, NOT THE TRIGGER. Measured over the 30 days to 31
+# October: GitHub created the SCHEDULED runs 4 to 9 hours after the nominal
+# time (11:15-16:17 UTC for a 07:00 cron), while the `Modellarium start
+# refresh` task's workflow_dispatch runs fired on time, every one finishing
+# inside an hour. So the task's start time is what actually moved the refresh;
+# this is here so the fallback does not contradict it.
 on:
   schedule:
-    - cron: "0 7 * * *"
+    - cron: "30 8 * * *"
   workflow_dispatch:
     inputs:
       full_refetch:
