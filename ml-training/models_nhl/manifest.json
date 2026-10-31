@@ -1,0 +1,248 @@
+{
+  "league": "NHL",
+  "built": "2026-10-30T18:53:10.239453+00:00",
+  "attribution": "Game results derived from English Wikipedia, CC BY-SA 4.0. No NHL table is committed.",
+  "seasons_trained_on": [
+    "2013\u201314",
+    "2014\u201315",
+    "2015\u201316",
+    "2016\u201317",
+    "2017\u201318",
+    "2018\u201319",
+    "2019\u201320",
+    "2020\u201321",
+    "2021\u201322",
+    "2022\u201323",
+    "2023\u201324"
+  ],
+  "test_seasons": [
+    "2024\u201325",
+    "2025\u201326"
+  ],
+  "regime": "carry_rolling+carry_rest+impute",
+  "prediction_rule": "dependency",
+  "prediction_rule_note": "A fixture is predictable once BOTH teams' previous games are in history. MAX_DAYS_AHEAD must NOT be applied to the NHL - same rule and same exemption as the NFL's. Measured on 2025-26 at an 08:30 UTC refresh: 1,292 of 1,312 predictable against the date rule's 1,242.",
+  "requires_refresh_at": "08:30 UTC",
+  "requires_refresh_note": "An NHL result is final at midnight Pacific on D+1, which is 07:00 UTC in PDT and 08:00 UTC in PST. At 07:15 the dependency rule leaves 248 fixtures never predictable; at 08:30 it leaves 20, and those 20 are season openers where one side has no previous game.",
+  "elo": {
+    "k": 6.0,
+    "home_advantage": 30.0,
+    "carryover": 0.9,
+    "baseline": 1500.0,
+    "fitted_on": [
+      "2013\u201314",
+      "2014\u201315",
+      "2015\u201316",
+      "2016\u201317",
+      "2017\u201318",
+      "2018\u201319",
+      "2019\u201320",
+      "2020\u201321",
+      "2021\u201322",
+      "2022\u201323"
+    ],
+    "selected_on": [
+      "2023\u201324"
+    ],
+    "validation_log_loss": 0.6599834703195476,
+    "parameter_spans": {
+      "k": 0.026479014853266203,
+      "home_advantage": 0.009602245030688406,
+      "carryover": 0.015560495399103424
+    }
+  },
+  "features": [
+    "HOME_ELO",
+    "AWAY_ELO",
+    "ELO_DIFF",
+    "HOME_REST_DAYS",
+    "HOME_IS_BACK_TO_BACK",
+    "HOME_IS_THIRD_IN_FOUR",
+    "HOME_ROLL5_GOALS_FOR",
+    "HOME_ROLL5_GOALS_AGAINST",
+    "HOME_ROLL5_GOAL_DIFF",
+    "HOME_ROLL5_WIN_SHARE",
+    "HOME_ROLL10_GOALS_FOR",
+    "HOME_ROLL10_GOALS_AGAINST",
+    "HOME_ROLL10_GOAL_DIFF",
+    "HOME_ROLL10_WIN_SHARE",
+    "AWAY_REST_DAYS",
+    "AWAY_IS_BACK_TO_BACK",
+    "AWAY_IS_THIRD_IN_FOUR",
+    "AWAY_ROLL5_GOALS_FOR",
+    "AWAY_ROLL5_GOALS_AGAINST",
+    "AWAY_ROLL5_GOAL_DIFF",
+    "AWAY_ROLL5_WIN_SHARE",
+    "AWAY_ROLL10_GOALS_FOR",
+    "AWAY_ROLL10_GOALS_AGAINST",
+    "AWAY_ROLL10_GOAL_DIFF",
+    "AWAY_ROLL10_WIN_SHARE"
+  ],
+  "targets": {
+    "winner": {
+      "family": "elo",
+      "ships": true,
+      "artifact": null,
+      "artifact_note": "THERE IS NO FILE. Elo alone was the best candidate outright on validation - not a tie broken by the simpler-object rule - so the parameters under `elo` ARE this model. A caller computes 1 / (1 + 10 ** (-(home_elo + home_advantage - away_elo) / 400)).",
+      "label": "HOME_WIN",
+      "metric": "log_loss",
+      "requires_elo": true,
+      "requires_complete_features": false,
+      "selection": {
+        "chosen": "elo_alone",
+        "reason": "elo_alone was the best candidate outright",
+        "candidates": {
+          "elo_alone": 0.6599834703195476,
+          "logistic_elo": 0.6600168298932672,
+          "logistic_all": 0.6625312756474037,
+          "xgb_shallow": 0.6643335123372355,
+          "xgb_deeper": 0.6690288364935157
+        },
+        "folds_agree": true,
+        "fold_gap": 0.0017556800858989918,
+        "fold_standard_error": 0.005120004134026829
+      },
+      "test": {
+        "n": 2624,
+        "model": 0.6815571682309334,
+        "brier": 0.24428628680090325,
+        "accuracy": 0.546875,
+        "no_skill": 0.6895753253030147,
+        "no_skill_base_rate": 0.5399310758166017
+      }
+    },
+    "puck_line": {
+      "family": "linear",
+      "ships": true,
+      "artifact": "puck_line.joblib",
+      "pipeline": "StandardScaler -> LogisticRegression",
+      "features": [
+        "HOME_ELO",
+        "AWAY_ELO",
+        "ELO_DIFF"
+      ],
+      "features_note": "THREE COLUMNS, NOT TWENTY-FIVE. `logistic_all` on the full set was indistinguishable from this on validation and on the folds, so the rolling form and rest features earn nothing here either. No imputer: these three are never null, checked at finalize time.",
+      "label": "PUCK_LINE",
+      "label_definition": "HOME_MARGIN >= 2",
+      "label_note": "2+ rather than 1+ because an NHL margin is never 0 - there are no ties in this era - so 'wins by 1+' is the winner market under another name.",
+      "metric": "log_loss",
+      "requires_elo": true,
+      "requires_complete_features": false,
+      "selection": {
+        "chosen": "logistic_elo",
+        "reason": "logistic_elo beats base_rate with the 95% interval excluding zero ([-0.035054, -0.013495])",
+        "candidates": {
+          "base_rate": 0.6406697726675732,
+          "logistic_elo": 0.6166980338328197,
+          "logistic_all": 0.6178857185477536,
+          "xgb_shallow": 0.6196886432184731,
+          "xgb_deeper": 0.6185147319314757
+        },
+        "bootstrap_vs_base_rate": {
+          "observed": -0.023971738834753453,
+          "sd": 0.005590941702025518,
+          "ci_low": -0.03505444581366633,
+          "ci_high": -0.013494538566996308,
+          "crosses_zero": false
+        },
+        "folds_agree": true,
+        "fold_gap": 0.00015377269872440813,
+        "fold_standard_error": 0.003408789263228478
+      },
+      "test": {
+        "n": 2624,
+        "model": 0.6251787048971742,
+        "brier": 0.2170660820192109,
+        "accuracy": 0.6688262195121951,
+        "evaluated_weights_model": 0.6251866588932273,
+        "evaluated_weights_note": "The training-only model the validation verdict was actually reached about. Reported beside the shipped refit because the retrain gate's rule is that promotion ships the EVALUATED candidate; here the untouched test seasons give an independent reading of both.",
+        "no_skill": 0.6325429793659708,
+        "no_skill_base_rate": 0.3169763260413545
+      }
+    },
+    "totals": {
+      "family": null,
+      "artifact": null,
+      "ships": false,
+      "label": "TOTAL_GOALS",
+      "metric": "rmse",
+      "reason": "NOT SERVED. Section 5's baselines measured LinearRegression losing to a constant on MAE (+0.74% on test) and tying it on RMSE (+0.29%), so there is no skill to ship. Declared rather than shipped weak.",
+      "measured": {
+        "linear_mae_test": 1.8474,
+        "best_constant_mae_test": 1.833916,
+        "linear_rmse_test": 2.297909,
+        "best_constant_rmse_test": 2.291288,
+        "note": "A constant BEATS the linear model on MAE and ties it on RMSE, so there is no skill to ship. Section 5's figures, carried here so the declaration is checkable without re-running anything."
+      },
+      "health_shape_for_phase_3": {
+        "served": false,
+        "reason_code": "no_skill_over_constant",
+        "detail": "Totals are not served for the NHL: a constant predictor beats the fitted model on test.",
+        "note": "The shape only. Phase 3 wires it into /health; nothing serves the NHL yet and models_loaded is unchanged."
+      }
+    }
+  },
+  "test_season_balance": {
+    "2024\u201325": {
+      "sd": 0.09822563227796959,
+      "min": 0.24390243902439024,
+      "max": 0.6829268292682927,
+      "teams": 32,
+      "winner_log_loss": 0.6686458505746563,
+      "winner_no_skill": 0.6853142072764582,
+      "winner_gain": 0.01666835670180189,
+      "puck_line_log_loss": 0.6436430873067772,
+      "puck_line_no_skill": 0.6496820461926652,
+      "puck_line_gain": 0.006038958885888013,
+      "puck_line_base_rate": 0.35365853658536583
+    },
+    "2025\u201326": {
+      "sd": 0.08175053462068246,
+      "min": 0.3048780487804878,
+      "max": 0.6707317073170732,
+      "teams": 32,
+      "winner_log_loss": 0.6944684858872107,
+      "winner_no_skill": 0.6921697185997162,
+      "winner_gain": -0.002298767287494452,
+      "puck_line_log_loss": 0.6067143224875712,
+      "puck_line_no_skill": 0.6117657216418991,
+      "puck_line_gain": 0.005051399154327951,
+      "puck_line_base_rate": 0.3010670731707317
+    }
+  },
+  "test_season_balance_note": "Elo's gain over no skill correlates with a season's win-share spread at r = 0.9261 over thirteen seasons. These figures are frozen beside the test numbers so a future movement can be attributed to the league's competitive balance or to the model, rather than being ambiguous between them. 2025-26 is the second-flattest of the thirteen.",
+  "utah_description_only": {
+    "franchise_id": 1614000033,
+    "decision": "carry",
+    "decision_basis": "STRUCTURAL, made without an error comparison, because every season containing the 2024 relocation is a TEST season.",
+    "note": "These figures describe what happened. They are NOT why the carry was chosen and must never be quoted as if they were - the choice was made before any test season was scored, and scoring it to justify the choice would be exactly the test-data reasoning the decision avoided.",
+    "seasons": {
+      "2024\u201325": {
+        "n": 82,
+        "winner_log_loss": 0.692500417721451,
+        "no_skill": 0.691956940265724,
+        "accuracy": 0.5121951219512195,
+        "elo_entering_season": 1443.715443663703
+      },
+      "2025\u201326": {
+        "n": 82,
+        "winner_log_loss": 0.7144282868322149,
+        "no_skill": 0.6928497090635345,
+        "accuracy": 0.4634146341463415,
+        "elo_entering_season": 1465.738298086541
+      }
+    },
+    "utah_fixtures": {
+      "n": 164,
+      "winner_log_loss": 0.7034643522768329,
+      "no_skill": 0.6930728182169718,
+      "accuracy": 0.4878048780487805
+    },
+    "other_fixtures": {
+      "n": 2460,
+      "winner_log_loss": 0.6800966892945403,
+      "no_skill": 0.6889957521049194,
+      "accuracy": 0.5508130081300813
+    }
+  }
+}

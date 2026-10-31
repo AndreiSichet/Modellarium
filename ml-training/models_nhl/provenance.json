@@ -1,0 +1,462 @@
+{
+  "note": "NO NHL TABLE IS COMMITTED - the corpus is derived from English Wikipedia and is CC BY-SA 4.0, which is a licence boundary and not a tidiness one. Its sha256 is recorded here BECAUSE it is not committed: that is the only way to tell later whether the table these numbers were produced from is the table a rebuild produces.",
+  "written_at": "2026-10-30T18:53:10.577828+00:00",
+  "league": "NHL",
+  "code": {
+    "commit": "9904360d9efff83010df3232649e30f210f6fdd2",
+    "tracked_dirty": []
+  },
+  "corpus": {
+    "path": "C:\\Users\\User\\AppData\\Local\\Temp\\claude\\c--Users-User-Desktop-basketball-predictor-data-pipeline\\e4ffbd03-bee7-44bb-9015-3fc857905c5c\\scratchpad\\nhl_completed\\nhl_games_final.csv",
+    "sha256": "c05d257a1007d8ebb28f12b8df9741edee6282e4af17d99d3437473ff7bd6107",
+    "committed": false,
+    "licence": "CC BY-SA 4.0, English Wikipedia",
+    "rows": 31944,
+    "games": 15972,
+    "seasons": [
+      "2013\u201314",
+      "2014\u201315",
+      "2015\u201316",
+      "2016\u201317",
+      "2017\u201318",
+      "2018\u201319",
+      "2019\u201320",
+      "2020\u201321",
+      "2021\u201322",
+      "2022\u201323",
+      "2023\u201324",
+      "2024\u201325",
+      "2025\u201326"
+    ]
+  },
+  "split": {
+    "training": [
+      "2013\u201314",
+      "2014\u201315",
+      "2015\u201316",
+      "2016\u201317",
+      "2017\u201318",
+      "2018\u201319",
+      "2019\u201320",
+      "2020\u201321",
+      "2021\u201322",
+      "2022\u201323"
+    ],
+    "validation": [
+      "2023\u201324"
+    ],
+    "test": [
+      "2024\u201325",
+      "2025\u201326"
+    ],
+    "defined_in": "ml-training/nhl/nhl_features.py (TEST_SEASONS, VALIDATION_SEASONS)"
+  },
+  "regime": "carry_rolling+carry_rest+impute",
+  "elo": {
+    "k": 6.0,
+    "home_advantage": 30.0,
+    "carryover": 0.9,
+    "baseline": 1500.0,
+    "fitted_on": [
+      "2013\u201314",
+      "2014\u201315",
+      "2015\u201316",
+      "2016\u201317",
+      "2017\u201318",
+      "2018\u201319",
+      "2019\u201320",
+      "2020\u201321",
+      "2021\u201322",
+      "2022\u201323"
+    ],
+    "selected_on": [
+      "2023\u201324"
+    ],
+    "validation_log_loss": 0.6599834703195476,
+    "parameter_spans": {
+      "k": 0.026479014853266203,
+      "home_advantage": 0.009602245030688406,
+      "carryover": 0.015560495399103424
+    }
+  },
+  "features": [
+    "HOME_ELO",
+    "AWAY_ELO",
+    "ELO_DIFF",
+    "HOME_REST_DAYS",
+    "HOME_IS_BACK_TO_BACK",
+    "HOME_IS_THIRD_IN_FOUR",
+    "HOME_ROLL5_GOALS_FOR",
+    "HOME_ROLL5_GOALS_AGAINST",
+    "HOME_ROLL5_GOAL_DIFF",
+    "HOME_ROLL5_WIN_SHARE",
+    "HOME_ROLL10_GOALS_FOR",
+    "HOME_ROLL10_GOALS_AGAINST",
+    "HOME_ROLL10_GOAL_DIFF",
+    "HOME_ROLL10_WIN_SHARE",
+    "AWAY_REST_DAYS",
+    "AWAY_IS_BACK_TO_BACK",
+    "AWAY_IS_THIRD_IN_FOUR",
+    "AWAY_ROLL5_GOALS_FOR",
+    "AWAY_ROLL5_GOALS_AGAINST",
+    "AWAY_ROLL5_GOAL_DIFF",
+    "AWAY_ROLL5_WIN_SHARE",
+    "AWAY_ROLL10_GOALS_FOR",
+    "AWAY_ROLL10_GOALS_AGAINST",
+    "AWAY_ROLL10_GOAL_DIFF",
+    "AWAY_ROLL10_WIN_SHARE"
+  ],
+  "feature_count": 25,
+  "excluded_features": {
+    "goalie_of_record": "Decided BY the game - A3's trap. A CONFIRMED STARTING goalie would be pre-game and is the most predictive piece of NHL information there is, but Phase 0b found no source under this project's data rules.",
+    "standings": "Season-to-date aggregates whose value AT THE TIME of an early game cannot be recovered from the article as it stands now.",
+    "derived_end_disputed": "Reconciliation notes about how a row was built, not facts about the teams.",
+    "puck_drop_time": "Phase 1 measured that no article carries a usable one.",
+    "own_score_margin_result_game_end": "The outcome, and the targets."
+  },
+  "selection": {
+    "script": "ml-training/nhl/select_nhl_models.py",
+    "bootstrap": {
+      "resamples": 2000,
+      "seed": 20261030
+    },
+    "markets": {
+      "winner": {
+        "target": "HOME_WIN",
+        "reference": "elo_alone",
+        "ship_rule": "a tie with Elo alone ships Elo alone",
+        "chosen": "elo_alone",
+        "reason": "elo_alone was the best candidate outright",
+        "ships": true,
+        "best_on_validation": "elo_alone",
+        "folds_agree": true,
+        "fold_seasons": [
+          "2019\u201320",
+          "2020\u201321",
+          "2021\u201322",
+          "2022\u201323"
+        ],
+        "fold_rank_best": "logistic_all",
+        "fold_gap": 0.0017556800858989918,
+        "fold_standard_error": 0.005120004134026829,
+        "fold_disagreement_material": false,
+        "bootstrap_vs_reference": {
+          "logistic_elo": {
+            "observed": 3.3359573719526914e-05,
+            "sd": 0.0003610109172086471,
+            "ci_low": -0.0006691224697407017,
+            "ci_high": 0.0007344828209665894,
+            "crosses_zero": true
+          },
+          "logistic_all": {
+            "observed": 0.002547805327856034,
+            "sd": 0.002145858806273194,
+            "ci_low": -0.0015238006392902736,
+            "ci_high": 0.00684477974562463,
+            "crosses_zero": true
+          },
+          "xgb_shallow": {
+            "observed": 0.00435004201768785,
+            "sd": 0.002272650871145314,
+            "ci_low": -0.00020552816811896234,
+            "ci_high": 0.008665436070116179,
+            "crosses_zero": true
+          },
+          "xgb_deeper": {
+            "observed": 0.009045366173968117,
+            "sd": 0.0030717232947832457,
+            "ci_low": 0.0029941502472784847,
+            "ci_high": 0.014973113307144546,
+            "crosses_zero": false
+          }
+        }
+      },
+      "puck_line": {
+        "target": "PUCK_LINE",
+        "reference": "base_rate",
+        "ship_rule": "a tie with the base rate ships nothing",
+        "chosen": "logistic_elo",
+        "reason": "logistic_elo beats base_rate with the 95% interval excluding zero ([-0.035054, -0.013495])",
+        "ships": true,
+        "best_on_validation": "logistic_elo",
+        "folds_agree": true,
+        "fold_seasons": [
+          "2019\u201320",
+          "2020\u201321",
+          "2021\u201322",
+          "2022\u201323"
+        ],
+        "fold_rank_best": "logistic_all",
+        "fold_gap": 0.00015377269872440813,
+        "fold_standard_error": 0.003408789263228478,
+        "fold_disagreement_material": false,
+        "bootstrap_vs_reference": {
+          "logistic_elo": {
+            "observed": -0.023971738834753453,
+            "sd": 0.005590941702025518,
+            "ci_low": -0.03505444581366633,
+            "ci_high": -0.013494538566996308,
+            "crosses_zero": false
+          },
+          "logistic_all": {
+            "observed": -0.02278405411981954,
+            "sd": 0.005862717168216115,
+            "ci_low": -0.03454815813274796,
+            "ci_high": -0.011532182635119155,
+            "crosses_zero": false
+          },
+          "xgb_deeper": {
+            "observed": -0.02215504073609753,
+            "sd": 0.005197492761119909,
+            "ci_low": -0.03225696037975632,
+            "ci_high": -0.011886260287031925,
+            "crosses_zero": false
+          },
+          "xgb_shallow": {
+            "observed": -0.020981129449100133,
+            "sd": 0.005143105439728106,
+            "ci_low": -0.03082234239758039,
+            "ci_high": -0.010638396784822117,
+            "crosses_zero": false
+          }
+        }
+      },
+      "totals": {
+        "target": "TOTAL_GOALS",
+        "ships": false,
+        "chosen": null,
+        "reason": "NOT SERVED. Section 5's baselines measured LinearRegression losing to a constant on MAE (+0.74% on test) and tying it on RMSE (+0.29%), so there is no skill to ship. Declared rather than shipped weak."
+      }
+    }
+  },
+  "calibration": {
+    "winner": {
+      "bins": [
+        {
+          "bin": "[0.0, 0.1)",
+          "n": 0,
+          "mean_predicted": null,
+          "observed": null,
+          "gap": null
+        },
+        {
+          "bin": "[0.1, 0.2)",
+          "n": 0,
+          "mean_predicted": null,
+          "observed": null,
+          "gap": null
+        },
+        {
+          "bin": "[0.2, 0.3)",
+          "n": 34,
+          "mean_predicted": 0.27654323378040463,
+          "observed": 0.2647058823529412,
+          "gap": 0.01183735142746345
+        },
+        {
+          "bin": "[0.3, 0.4)",
+          "n": 189,
+          "mean_predicted": 0.362834296231378,
+          "observed": 0.3915343915343915,
+          "gap": -0.02870009530301354
+        },
+        {
+          "bin": "[0.4, 0.5)",
+          "n": 657,
+          "mean_predicted": 0.45570637954257576,
+          "observed": 0.5342465753424658,
+          "gap": -0.07854019579989002
+        },
+        {
+          "bin": "[0.5, 0.6)",
+          "n": 1006,
+          "mean_predicted": 0.5493986229726677,
+          "observed": 0.5129224652087475,
+          "gap": 0.036476157763920214
+        },
+        {
+          "bin": "[0.6, 0.7)",
+          "n": 589,
+          "mean_predicted": 0.6444366584590306,
+          "observed": 0.6417657045840407,
+          "gap": 0.0026709538749899453
+        },
+        {
+          "bin": "[0.7, 0.8)",
+          "n": 143,
+          "mean_predicted": 0.7365607810591873,
+          "observed": 0.6293706293706294,
+          "gap": 0.10719015168855794
+        },
+        {
+          "bin": "[0.8, 0.9)",
+          "n": 6,
+          "mean_predicted": 0.8098726177285506,
+          "observed": 0.8333333333333334,
+          "gap": -0.0234607156047828
+        },
+        {
+          "bin": "[0.9, 1.0)",
+          "n": 0,
+          "mean_predicted": null,
+          "observed": null,
+          "gap": null
+        }
+      ],
+      "ece": 0.042364656680372086,
+      "reliability": 0.002744747249365459,
+      "resolution": 0.005810363758251091,
+      "uncertainty": 0.2482105552405562,
+      "reliability_share": 0.3208312840034257,
+      "brier_from_decomposition": 0.2451449387316706,
+      "base_rate": 0.5423018292682927
+    },
+    "puck_line": {
+      "bins": [
+        {
+          "bin": "[0.0, 0.1)",
+          "n": 0,
+          "mean_predicted": null,
+          "observed": null,
+          "gap": null
+        },
+        {
+          "bin": "[0.1, 0.2)",
+          "n": 176,
+          "mean_predicted": 0.1698250552865074,
+          "observed": 0.19318181818181818,
+          "gap": -0.023356762895310773
+        },
+        {
+          "bin": "[0.2, 0.3)",
+          "n": 969,
+          "mean_predicted": 0.2570239891077649,
+          "observed": 0.29411764705882354,
+          "gap": -0.03709365795105862
+        },
+        {
+          "bin": "[0.3, 0.4)",
+          "n": 1035,
+          "mean_predicted": 0.3438493847978476,
+          "observed": 0.336231884057971,
+          "gap": 0.007617500739876604
+        },
+        {
+          "bin": "[0.4, 0.5)",
+          "n": 378,
+          "mean_predicted": 0.43694167557541014,
+          "observed": 0.43386243386243384,
+          "gap": 0.0030792417129762994
+        },
+        {
+          "bin": "[0.5, 0.6)",
+          "n": 64,
+          "mean_predicted": 0.5339889939281673,
+          "observed": 0.4375,
+          "gap": 0.09648899392816734
+        },
+        {
+          "bin": "[0.6, 0.7)",
+          "n": 2,
+          "mean_predicted": 0.6094293771585475,
+          "observed": 0.0,
+          "gap": 0.6094293771585475
+        },
+        {
+          "bin": "[0.7, 0.8)",
+          "n": 0,
+          "mean_predicted": null,
+          "observed": null,
+          "gap": null
+        },
+        {
+          "bin": "[0.8, 0.9)",
+          "n": 0,
+          "mean_predicted": null,
+          "observed": null,
+          "gap": null
+        },
+        {
+          "bin": "[0.9, 1.0)",
+          "n": 0,
+          "mean_predicted": null,
+          "observed": null,
+          "gap": null
+        }
+      ],
+      "ece": 0.021530779658211745,
+      "reliability": 0.0010791150210367776,
+      "resolution": 0.003658230428855063,
+      "uncertainty": 0.22019639886042536,
+      "reliability_share": 0.22778896587780295,
+      "brier_from_decomposition": 0.21761728345260709,
+      "base_rate": 0.3273628048780488
+    }
+  },
+  "test_season_balance": {
+    "2024\u201325": {
+      "sd": 0.09822563227796959,
+      "min": 0.24390243902439024,
+      "max": 0.6829268292682927,
+      "teams": 32,
+      "winner_log_loss": 0.6686458505746563,
+      "winner_no_skill": 0.6853142072764582,
+      "winner_gain": 0.01666835670180189,
+      "puck_line_log_loss": 0.6436430873067772,
+      "puck_line_no_skill": 0.6496820461926652,
+      "puck_line_gain": 0.006038958885888013,
+      "puck_line_base_rate": 0.35365853658536583
+    },
+    "2025\u201326": {
+      "sd": 0.08175053462068246,
+      "min": 0.3048780487804878,
+      "max": 0.6707317073170732,
+      "teams": 32,
+      "winner_log_loss": 0.6944684858872107,
+      "winner_no_skill": 0.6921697185997162,
+      "winner_gain": -0.002298767287494452,
+      "puck_line_log_loss": 0.6067143224875712,
+      "puck_line_no_skill": 0.6117657216418991,
+      "puck_line_gain": 0.005051399154327951,
+      "puck_line_base_rate": 0.3010670731707317
+    }
+  },
+  "utah_description_only": {
+    "franchise_id": 1614000033,
+    "decision": "carry",
+    "decision_basis": "STRUCTURAL, made without an error comparison, because every season containing the 2024 relocation is a TEST season.",
+    "note": "These figures describe what happened. They are NOT why the carry was chosen and must never be quoted as if they were - the choice was made before any test season was scored, and scoring it to justify the choice would be exactly the test-data reasoning the decision avoided.",
+    "seasons": {
+      "2024\u201325": {
+        "n": 82,
+        "winner_log_loss": 0.692500417721451,
+        "no_skill": 0.691956940265724,
+        "accuracy": 0.5121951219512195,
+        "elo_entering_season": 1443.715443663703
+      },
+      "2025\u201326": {
+        "n": 82,
+        "winner_log_loss": 0.7144282868322149,
+        "no_skill": 0.6928497090635345,
+        "accuracy": 0.4634146341463415,
+        "elo_entering_season": 1465.738298086541
+      }
+    },
+    "utah_fixtures": {
+      "n": 164,
+      "winner_log_loss": 0.7034643522768329,
+      "no_skill": 0.6930728182169718,
+      "accuracy": 0.4878048780487805
+    },
+    "other_fixtures": {
+      "n": 2460,
+      "winner_log_loss": 0.6800966892945403,
+      "no_skill": 0.6889957521049194,
+      "accuracy": 0.5508130081300813
+    }
+  },
+  "serving": {
+    "served": false,
+    "note": "NOTHING SERVES THE NHL. It is outside daily_refresh.LEAGUES, models_loaded is unchanged, and the frontend knows nothing about it. Phase 3 is where that changes."
+  }
+}
