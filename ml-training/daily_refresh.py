@@ -302,13 +302,34 @@ def cutoffs(root: Path) -> dict:
             for league, spec in LEAGUES.items()}
 
 
+def child_env(extra: dict = None) -> dict:
+    """The environment a child step runs under, with its stdout set to utf-8.
+
+    WITHOUT THIS THE CHILD WRITES cp1252 AND THE PARENT DECODES utf-8. On
+    Windows a child's stdout defaults to the console codepage, so a season
+    label like "2026-27" with a U+2013 en dash goes out as byte 0x96 -
+    which is not valid utf-8, becomes U+FFFD under the parent's
+    errors="replace", and then cannot be written to the parent's own cp1252
+    stdout at all. Measured 2026-10-31: the staged rehearsal died with
+    UnicodeEncodeError about a character neither process produced.
+
+    The NHL is the first league whose output is not pure ASCII, so this was
+    latent in every subprocess call here until now.
+    """
+    base = dict(os.environ)
+    base["PYTHONIOENCODING"] = "utf-8"
+    if extra:
+        base.update(extra)
+    return base
+
+
 def run_step(script: Path, timeout: int, env: dict = None) -> list:
     print(f"    {script.name} ...", end=" ", flush=True)
     started = time.monotonic()
     done = subprocess.run([sys.executable, "-W", "ignore", str(script)],
                           capture_output=True, text=True, encoding="utf-8",
                           errors="replace", timeout=timeout, cwd=PROJECT,
-                          env=env)
+                          env=child_env(env))
     elapsed = time.monotonic() - started
     if done.returncode != 0:
         print(f"FAILED ({elapsed:.0f}s)")
@@ -407,7 +428,7 @@ def validate(staging: Path) -> dict:
     done = subprocess.run(
         [sys.executable, "-W", "ignore", str(probe), str(staging)],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
-        cwd=PROJECT, timeout=900)
+        cwd=PROJECT, timeout=900, env=child_env())
     print((done.stdout or "").rstrip())
     if done.returncode != 0:
         raise RuntimeError(
@@ -628,6 +649,19 @@ def swap_and_verify(volume: Path, previous: str, identifier: str,
     else:
         print("  THE SERVICE IS STILL NOT SERVING. Manual attention needed.")
     return EXIT_FAILED
+
+
+# THE PARENT'S OWN STREAMS, MADE VISIBLE RATHER THAN FATAL. The workflow
+# redirects these to a file, so they are cp1252, and one unencodable
+# character would take the whole run down at the print instead of at the
+# fault. backslashreplace shows it as an escape - the opposite of
+# errors="replace", which manufactures U+FFFD and is exactly how a
+# cp1252/utf-8 mismatch became a fatal error two steps later.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="backslashreplace")
+    except (AttributeError, ValueError):
+        pass
 
 
 def main() -> int:
@@ -1280,7 +1314,7 @@ def smoke_per_league(staging: Path) -> dict:
         [sys.executable, "-W", "ignore", str(probe), str(staging),
          "--json", str(results_path)],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
-        cwd=PROJECT, timeout=900)
+        cwd=PROJECT, timeout=900, env=child_env())
     print((done.stdout or "").rstrip())
 
     if not results_path.is_file():
