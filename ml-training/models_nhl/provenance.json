@@ -1,10 +1,15 @@
 {
   "note": "NO NHL TABLE IS COMMITTED - the corpus is derived from English Wikipedia and is CC BY-SA 4.0, which is a licence boundary and not a tidiness one. Its sha256 is recorded here BECAUSE it is not committed: that is the only way to tell later whether the table these numbers were produced from is the table a rebuild produces.",
-  "written_at": "2026-10-30T18:53:10.577828+00:00",
+  "written_at": "2026-10-31T09:53:27.209186+00:00",
   "league": "NHL",
   "code": {
-    "commit": "9904360d9efff83010df3232649e30f210f6fdd2",
-    "tracked_dirty": []
+    "commit": "24bbe33dcfa755b1ed739703eeb56c6b88c5c18a",
+    "tracked_dirty": [
+      "l-training/models_nhl/manifest.json",
+      "ml-training/models_nhl/provenance.json",
+      "ml-training/nhl/finalize_nhl_models.py",
+      "ml-training/nhl/verify_nhl_selection.py"
+    ]
   },
   "corpus": {
     "path": "C:\\Users\\User\\AppData\\Local\\Temp\\claude\\c--Users-User-Desktop-basketball-predictor-data-pipeline\\e4ffbd03-bee7-44bb-9015-3fc857905c5c\\scratchpad\\nhl_completed\\nhl_games_final.csv",

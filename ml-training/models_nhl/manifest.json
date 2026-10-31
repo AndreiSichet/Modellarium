@@ -1,6 +1,6 @@
 {
   "league": "NHL",
-  "built": "2026-10-30T18:53:10.239453+00:00",
+  "built": "2026-10-31T09:53:26.874496+00:00",
   "attribution": "Game results derived from English Wikipedia, CC BY-SA 4.0. No NHL table is committed.",
   "seasons_trained_on": [
     "2013\u201314",
@@ -108,7 +108,187 @@
         "brier": 0.24428628680090325,
         "accuracy": 0.546875,
         "no_skill": 0.6895753253030147,
-        "no_skill_base_rate": 0.5399310758166017
+        "no_skill_base_rate": 0.5399310758166017,
+        "interval_vs_no_skill": {
+          "observed": -0.008018157072081311,
+          "ci_low": -0.015819061849106537,
+          "ci_high": 0.00014524516221876894,
+          "crosses_zero": true,
+          "validation_observed": null
+        }
+      },
+      "caveat": {
+        "established_on": "validation",
+        "confirmed_on_test": false,
+        "short": "Weak signal - team ratings only, and barely better than guessing across our test seasons.",
+        "reader": "These NHL win probabilities come from team ratings alone. Across the two seasons we held back for testing they beat a simple base-rate guess only slightly, and in one of those seasons not at all - so treat them as a weak signal rather than a forecast.",
+        "for_maintainers": "The model was chosen on the validation season, where it won outright. On the two test seasons its paired 95% interval against a constant INCLUDES ZERO, so the gain is not established there. That is not a defect and not a reason to withdraw it - the decision rule was validation and it was applied - but the interval travels with the figure wherever it is quoted."
+      },
+      "calibration": {
+        "calibrator": null,
+        "ships_calibrated": false,
+        "reason": "neither Platt nor isotonic cleared the rule on validation, so the winner SHIPS UNCALIBRATED. Recorded rather than retried with a third family: the rule was fixed before the numbers, and picking a family until one passes is how a threshold stops meaning anything.",
+        "rule": "ships only if validation's ECE interval excludes zero on the improving side and its log-loss interval does not exclude zero on the worsening side",
+        "families_tried": [
+          "isotonic",
+          "platt"
+        ],
+        "bins": 10,
+        "isotonic_clip": [
+          0.001,
+          0.999
+        ],
+        "bootstrap": {
+          "resamples": 2000,
+          "seed": 20261031
+        },
+        "null_test": {
+          "training pooled": {
+            "n": 12036,
+            "observed_ece": 0.004856640129151548,
+            "null_median": 0.007195251143919498,
+            "null_p95": 0.012169174458211028,
+            "p_null_at_least_observed": 0.83625,
+            "real_miscalibration": false
+          },
+          "validation": {
+            "n": 1312,
+            "observed_ece": 0.013295303181746944,
+            "null_median": 0.023690791106675893,
+            "null_p95": 0.0392241934771585,
+            "p_null_at_least_observed": 0.94225,
+            "real_miscalibration": false
+          },
+          "test pooled": {
+            "n": 2624,
+            "observed_ece": 0.042364656680372086,
+            "null_median": 0.016519404518404453,
+            "null_p95": 0.027100586190081717,
+            "p_null_at_least_observed": 0.00025,
+            "real_miscalibration": true
+          },
+          "test 2024\u201325": {
+            "n": 1312,
+            "observed_ece": 0.03871037271242347,
+            "null_median": 0.023898940155621717,
+            "null_p95": 0.039533401627447444,
+            "p_null_at_least_observed": 0.0575,
+            "real_miscalibration": false
+          },
+          "test 2025\u201326": {
+            "n": 1312,
+            "observed_ece": 0.059596909469774396,
+            "null_median": 0.021671384062863557,
+            "null_p95": 0.03793278562371107,
+            "p_null_at_least_observed": 0.0,
+            "real_miscalibration": true
+          }
+        },
+        "validation": {
+          "before": {
+            "ece": 0.013295303181746944,
+            "reliability": 0.0006100990218768262,
+            "resolution": 0.013207369814177073,
+            "reliability_share": 0.04415418113952215,
+            "base_rate": 0.5411585365853658,
+            "log_loss": 0.6599834703195476,
+            "brier": 0.23395459693002918,
+            "accuracy": 0.6036585365853658
+          },
+          "platt": {
+            "ece": 0.015604951649028044,
+            "reliability": 0.0007018823916639599,
+            "resolution": 0.013619331280020628,
+            "reliability_share": 0.049009979723415316,
+            "base_rate": 0.5411585365853658,
+            "log_loss": 0.6599917103349031,
+            "brier": 0.23396378119886893,
+            "accuracy": 0.6021341463414634,
+            "ece_interval": {
+              "observed": 0.0023096484672811,
+              "sd": 0.005025720396518136,
+              "ci_low": -0.008095306460341886,
+              "ci_high": 0.011328909968165947,
+              "improves": false,
+              "worsens": false,
+              "crosses_zero": true
+            },
+            "log_loss_interval": {
+              "observed": 8.240015355487351e-06,
+              "sd": 0.0003346956894420103,
+              "ci_low": -0.0006450797024050825,
+              "ci_high": 0.0006460566570232937,
+              "improves": false,
+              "worsens": false,
+              "crosses_zero": true
+            },
+            "clears_rule": false
+          },
+          "isotonic": {
+            "ece": 0.0198392471300249,
+            "reliability": 0.0005050471491805467,
+            "resolution": 0.015028490785091839,
+            "reliability_share": 0.0325133367116732,
+            "base_rate": 0.5411585365853658,
+            "log_loss": 0.6583086476927003,
+            "brier": 0.23331670193495507,
+            "accuracy": 0.5967987804878049,
+            "ece_interval": {
+              "observed": 0.006543943948277958,
+              "sd": 0.009622342156885092,
+              "ci_low": -0.01601282255662344,
+              "ci_high": 0.020535680672274025,
+              "improves": false,
+              "worsens": false,
+              "crosses_zero": true
+            },
+            "log_loss_interval": {
+              "observed": -0.001674822626847372,
+              "sd": 0.0015124411094573468,
+              "ci_low": -0.0046211508971279545,
+              "ci_high": 0.0012147339806583277,
+              "improves": false,
+              "worsens": false,
+              "crosses_zero": true
+            },
+            "clears_rule": false
+          }
+        },
+        "test_description_only": {
+          "before": {
+            "ece": 0.042364656680372086,
+            "reliability": 0.002744747249365459,
+            "resolution": 0.005810363758251091,
+            "reliability_share": 0.3208312840034257,
+            "base_rate": 0.5423018292682927,
+            "log_loss": 0.6815571682309334,
+            "brier": 0.24428628680090325,
+            "accuracy": 0.546875
+          },
+          "platt": {
+            "ece": 0.044742189310865745,
+            "reliability": 0.0029140415103534613,
+            "resolution": 0.005725154420255983,
+            "reliability_share": 0.3373047137441057,
+            "base_rate": 0.5423018292682927,
+            "log_loss": 0.6822471083811695,
+            "brier": 0.24460487626697133,
+            "accuracy": 0.5476371951219512,
+            "shipped": false
+          },
+          "isotonic": {
+            "ece": 0.046154739484031225,
+            "reliability": 0.0034837115189556536,
+            "resolution": 0.005276034779072586,
+            "reliability_share": 0.3976954811739027,
+            "base_rate": 0.5423018292682927,
+            "log_loss": 0.6850279105550875,
+            "brier": 0.24568825076054393,
+            "accuracy": 0.5480182926829268,
+            "shipped": false
+          }
+        },
+        "note": "A CALIBRATOR WAS TRIED AND REJECTED BY THE RULE, which is a result and not an omission. The rule was fixed before the numbers. Read `null_test` first: raw Elo's ECE is INSIDE a perfectly-calibrated null on the training seasons and on validation, so there was nothing for a calibrator to learn - and both families made ECE and log loss WORSE on validation and on test."
       }
     },
     "puck_line": {
@@ -157,7 +337,14 @@
         "evaluated_weights_model": 0.6251866588932273,
         "evaluated_weights_note": "The training-only model the validation verdict was actually reached about. Reported beside the shipped refit because the retrain gate's rule is that promotion ships the EVALUATED candidate; here the untouched test seasons give an independent reading of both.",
         "no_skill": 0.6325429793659708,
-        "no_skill_base_rate": 0.3169763260413545
+        "no_skill_base_rate": 0.3169763260413545,
+        "interval_vs_no_skill": {
+          "observed": -0.007364274468796617,
+          "ci_low": -0.014393731794336192,
+          "ci_high": -0.0003398788335021331,
+          "crosses_zero": false,
+          "validation_observed": -0.023971738834753453
+        }
       }
     },
     "totals": {

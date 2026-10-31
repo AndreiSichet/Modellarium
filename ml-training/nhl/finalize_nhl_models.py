@@ -161,6 +161,11 @@ def main():
     parser.add_argument("--table", type=Path, default=None)
     parser.add_argument("--elo-json", type=Path, required=True)
     parser.add_argument("--selection-json", type=Path, required=True)
+    parser.add_argument("--calibration-json", type=Path, default=None,
+                        help="calibrate_nhl_winner.py's output. Its verdict "
+                             "is RECORDED, not recomputed - retyping a "
+                             "number is how a record stops matching what it "
+                             "describes.")
     parser.add_argument("--out", type=Path, default=MODELS_DIR)
     args = parser.parse_args()
 
@@ -169,6 +174,9 @@ def main():
            "home_advantage": elo_payload["home_advantage"],
            "carryover": elo_payload["carryover"]}
     selection = json.loads(args.selection_json.read_text(encoding="utf-8"))
+    calibration = (json.loads(
+        args.calibration_json.read_text(encoding="utf-8"))
+        if args.calibration_json else None)
 
     games = F.load_games(args.table)
     frame = F.build_features(games, elo=elo, carry_rolling=True,
@@ -289,6 +297,37 @@ def main():
             "accuracy": accuracy(y_test_winner, predicted),
             "no_skill": log_loss(y_test_winner, no_skill),
             "no_skill_base_rate": base_rate,
+            # FILLED IN BELOW, once the test bootstrap has run. It is in the
+            # manifest because a frozen 0.6816 quoted without it is a true
+            # number that misleads: on test this model is NOT distinguishable
+            # from a constant at 95%.
+            "interval_vs_no_skill": None,
+        },
+        "caveat": {
+            "established_on": "validation",
+            "confirmed_on_test": False,
+            # SHORT ENOUGH FOR A BADGE, and it carries no number, so it
+            # cannot go stale when the model is retrained.
+            "short": "Weak signal - team ratings only, and barely better "
+                     "than guessing across our test seasons.",
+            # READER-FACING, for Phase 4. Plain language, no jargon, no
+            # figure that expires. A user is owed the honest version of
+            # "this is the best we have and it is not much".
+            "reader": "These NHL win probabilities come from team ratings "
+                      "alone. Across the two seasons we held back for "
+                      "testing they beat a simple base-rate guess only "
+                      "slightly, and in one of those seasons not at all - "
+                      "so treat them as a weak signal rather than a "
+                      "forecast.",
+            "for_maintainers": "The model was chosen on the validation "
+                               "season, where it won outright. On the two "
+                               "test seasons its paired 95% interval "
+                               "against a constant INCLUDES ZERO, so the "
+                               "gain is not established there. That is not "
+                               "a defect and not a reason to withdraw it - "
+                               "the decision rule was validation and it was "
+                               "applied - but the interval travels with the "
+                               "figure wherever it is quoted.",
         },
     }
     report["calibration"]["winner"] = reliability(y_test_winner, predicted)
@@ -415,6 +454,49 @@ def main():
                     "serves the NHL yet and models_loaded is unchanged.",
         },
     }
+
+    # ================================================================
+    # the calibration verdict - RECORDED, not recomputed
+    # ================================================================
+    if calibration is not None:
+        chosen_calibrator = calibration.get("chosen")
+        record = {
+            "calibrator": chosen_calibrator,
+            "ships_calibrated": chosen_calibrator is not None,
+            "reason": calibration.get("reason"),
+            "rule": calibration.get("rule"),
+            "families_tried": sorted(
+                name for name in calibration.get("validation", {})
+                if name != "before"),
+            "bins": calibration.get("bins"),
+            "isotonic_clip": calibration.get("isotonic_clip"),
+            "bootstrap": calibration.get("bootstrap"),
+            "null_test": calibration.get("null_test"),
+            "validation": {
+                name: {k: v for k, v in block.items() if k != "bins"}
+                for name, block in calibration.get("validation", {}).items()},
+            "test_description_only": {
+                name: {k: v for k, v in block.items() if k != "bins"}
+                for name, block in calibration.get("test", {}).items()},
+            "note": "A CALIBRATOR WAS TRIED AND REJECTED BY THE RULE, which "
+                    "is a result and not an omission. The rule was fixed "
+                    "before the numbers. Read `null_test` first: raw Elo's "
+                    "ECE is INSIDE a perfectly-calibrated null on the "
+                    "training seasons and on validation, so there was "
+                    "nothing for a calibrator to learn - and both families "
+                    "made ECE and log loss WORSE on validation and on test.",
+        }
+        manifest["targets"]["winner"]["calibration"] = record
+        state = ("the " + chosen_calibrator if chosen_calibrator
+                 else "UNCALIBRATED")
+        print()
+        print(f"CALIBRATION: the winner ships {state}")
+        print(f"  {calibration.get('reason')}")
+    else:
+        print()
+        print("CALIBRATION: no --calibration-json given; the manifest will "
+              "carry no calibration record, which is NOT the same as "
+              "'uncalibrated by decision'")
 
     # ================================================================
     # frozen numbers, with each test season's competitive balance
@@ -573,6 +655,17 @@ def main():
         print(f"  {market:<11}vs no skill on test {observed:>+10.6f}  "
               f"[{lo:+.6f}, {hi:+.6f}]  {verdict}")
     report["test_confirmation"] = confirmations
+    # THE INTERVAL GOES INTO THE MANIFEST, not just the console. The whole
+    # point of recording it is that the next reader of the frozen number
+    # finds it without re-running anything.
+    if "winner" in confirmations:
+        manifest["targets"]["winner"]["test"]["interval_vs_no_skill"] = \
+            confirmations["winner"]
+        manifest["targets"]["winner"]["caveat"]["confirmed_on_test"] = (
+            not confirmations["winner"]["crosses_zero"])
+    if "puck_line" in confirmations and "puck_line" in manifest["targets"]:
+        manifest["targets"]["puck_line"]["test"][
+            "interval_vs_no_skill"] = confirmations["puck_line"]
 
     # ================================================================
     # calibration tables
