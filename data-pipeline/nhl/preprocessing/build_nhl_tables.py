@@ -60,8 +60,33 @@ def season_dir(year):
     return "%d-%02d" % (year, (year + 1) % 100)
 
 
-def load_season(year):
-    """(rows, standings, unreadable) for one season."""
+def advisory_years(today=None):
+    """Which seasons may have an ADVISORY standings check: the current one.
+
+    KEYED ON THE CURRENT SEASON, NOT ON `open_seasons()`, which is the
+    quarantine's recorded lesson: `open_seasons()` returns the current season
+    AND THE ONE BEFORE, so a disagreement in a finished 2025-26 would have
+    been quietly set aside instead of failing. One season is eligible, and
+    the verifier asserts the previous one is not.
+    """
+    return {F.seasons_through(today)[-1]}
+
+
+def load_season(year, strict=None, today=None):
+    """(rows, standings, unreadable) for one season.
+
+    `strict=None` DECIDES FOR ITSELF, and it needs two things to agree before
+    it relaxes anything:
+
+      * the season is the CURRENT one (`advisory_years`), and
+      * its standings page does not say `complete`.
+
+    BOTH, not either. The page's stamp is a content signal and the clock is a
+    clock signal, and requiring both means a finished season whose template
+    somebody edited to carry a date cannot become lenient, while the current
+    season whose page already says `complete` stays strict. Either alone would
+    be weaker than the pair.
+    """
     directory = RAW / season_dir(year)
     manifest = json.loads(
         (directory / "manifest.json").read_text(encoding="utf-8"))
@@ -87,9 +112,19 @@ def load_season(year):
         unreadable += bad
     texts = {t: (directory / v["file"]).read_text(encoding="utf-8")
              for t, v in manifest["pages"].items() if t.startswith("Template:")}
-    standings = S.read_season(texts)
-    S.require_complete(F.season_label(year), standings,
-                       F.abbrev_index(year).keys())
+    # THE STAMP IS READ WITHOUT PARSING THE FIELDS, which is the whole reason
+    # the decision can be made here: `S.stamps_say_complete` is a regex over
+    # `update=` and does not care whether the numbers agree. Without that the
+    # builder would have to parse the fields to learn whether it was allowed
+    # to parse them leniently.
+    if strict is None:
+        says_complete = S.stamps_say_complete(texts)
+        strict = says_complete or year not in advisory_years(today)
+    standings = S.read_season(texts, strict=strict)
+    standings["strict"] = strict
+    standings["completeness_problems"] = S.require_complete(
+        F.season_label(year), standings, F.abbrev_index(year).keys(),
+        strict=strict)
     return rows, standings, unreadable
 
 
@@ -429,6 +464,7 @@ def main(argv=None):
                or F.seasons_through())
     games, fixtures, repairs, quarantine, residual = [], [], [], [], []
     report = []
+    standings_report = []
 
     for year in seasons:
         label = F.season_label(year)
@@ -485,6 +521,18 @@ def main(argv=None):
                     % (label, len(unresolved),
                        [(d["date"], d["reason"]) for d in unresolved][:4]))
             note = "%d repaired, %d residual" % (len(fixed), len(unresolved))
+            # A COMPLETED SEASON GETS A ROW TOO, and it always reads
+            # `reconciled`, because anything else raised above. Recorded so
+            # the report covers every season rather than only the troubled
+            # one - a table that lists only failures cannot be used to show
+            # that the rest are fine.
+            standings_report.append(dict(
+                SEASON=label, STATE="complete",
+                STRICT=int(standings["strict"]),
+                CLASS=S.CLASS_RECONCILED, CLASSES=S.CLASS_RECONCILED,
+                DETAIL="strict check passed", CONFLICTS=0,
+                TEAMS_FLAGGED=0,
+                UPDATE="|".join(sorted(set(standings["update"].values())))))
         else:
             # OPEN SEASON: quarantine, not failure.
             settled = []
@@ -508,7 +556,26 @@ def main(argv=None):
                     left_quarantine=0))
             flagged = diffs(team_totals([s[:5] for s in settled]),
                             stated(standings, abbrevs))
-            note = _advisory(flagged, year, standings)
+            # THE RAW DELTAS, NOT THEIR SIGNS. `S.shape_of` needs the
+            # magnitudes to tell a cancelling result-label difference from a
+            # changed score, and the first version of this call threw them
+            # away - which would have made every mislabelled result and
+            # every altered score read as the same "mixed sign".
+            by_abbrev = {F.abbrev_for(fid, year): d
+                         for fid, d in flagged.items()}
+            primary, classes, detail = S.classify(
+                standings.get("conflicts") or [],
+                standings.get("completeness_problems") or [], by_abbrev)
+            located = _localise(by_abbrev, settled, year)
+            if located:
+                detail = "%s; %s" % (detail, located)
+            standings_report.append(dict(
+                SEASON=label, STATE="OPEN", STRICT=int(standings["strict"]),
+                CLASS=primary, CLASSES="|".join(classes), DETAIL=detail,
+                CONFLICTS=len(standings.get("conflicts") or []),
+                TEAMS_FLAGGED=len(flagged),
+                UPDATE="|".join(sorted(set(standings["update"].values())))))
+            note = "%s - %s" % (primary, detail)
 
         emit_games(settled, label, games)
         for row in unplayed:
@@ -538,6 +605,12 @@ def main(argv=None):
     _write(out_dir / "nhl_repairs.csv", repairs)
     _write(out_dir / "nhl_quarantine.csv", quarantine)
     _write(out_dir / "nhl_end_disputes.csv", END_DISPUTES)
+    # THE STANDINGS REPORT IS A TABLE, not a line of stdout, because section
+    # 3 has to carry it into the snapshot and `/health` has to show it. One
+    # row per season, with a stable CLASS a comparison can key on and a
+    # DETAIL for reading - the gate's false REGRESSED is the recorded reason
+    # those are two columns and not one.
+    _write(out_dir / "nhl_standings_report.csv", standings_report)
 
     print("NHL tables -> %s" % out_dir)
     print()
@@ -552,6 +625,16 @@ def main(argv=None):
     print("  repairs      %6d" % len(repairs))
     print("  quarantine   %6d" % len(quarantine))
     print("  residual     %6d" % len(residual))
+    print()
+    print("STANDINGS CHECK PER SEASON")
+    print("  %-9s %-9s %-7s %-30s %s"
+          % ("season", "state", "strict", "class", "detail"))
+    for row in standings_report:
+        print("  %-9s %-9s %-7s %-30s %s"
+              % (row["SEASON"], row["STATE"],
+                 "yes" if row["STRICT"] else "ADVISORY",
+                 row["CLASS"], row["DETAIL"][:64]))
+    print()
     print("  end disputes %6d  (OT vs SO; the standings cannot see these)"
           % len(END_DISPUTES))
     if DISCOVERED:
@@ -573,26 +656,40 @@ def _say(row):
     return "home %d, %d-%d, %s" % (home, hg, ag, row["game_end"])
 
 
-def _advisory(flagged, year, standings):
-    """The open season's standings check is advisory, and classified.
+def _localise(by_abbrev, settled, year):
+    """Name the game behind a RESULT-LABEL difference, where one game can be.
 
-    All-negative across several teams is the standings page lagging the game
-    logs; a mixed-sign difference on one team is a probable error. Round 4
-    measured both signatures on 2026-27.
+    THE SPEC ASKS FOR THIS AND IT IS CHEAP. A result-label difference means
+    the same games are counted with one of them typed differently - so the
+    candidates are that team's games whose end marker is OT or SO, and when
+    there is exactly one the report can name it instead of naming the team.
+    Measured on 2026-27: OTT's `l -1 / otl +1` with gf and ga agreeing at
+    44/44 localises to LAK 6-5 OTT on 2026-10-29, end OT - the article calls
+    it an overtime loss and the standings page counts it as a regulation one.
     """
-    if not flagged:
-        return "standings reconcile"
-    signs = {f: {k: (1 if v > 0 else -1) for k, v in d.items()}
-             for f, d in flagged.items()}
-    all_negative = all(all(s < 0 for s in d.values()) for d in signs.values())
-    stamp = sorted(set(standings["update"].values()))
-    if all_negative and len(flagged) > 1:
-        return ("ADVISORY: %d team(s), all-negative -> the standings page "
-                "(%s) lags the game logs" % (len(flagged), stamp[0]))
-    mixed = [F.abbrev_for(f, year) for f, d in signs.items()
-             if len({s for s in d.values()}) > 1]
-    return ("ADVISORY: %d team(s) differ; mixed-sign on %s -> probable real "
-            "error" % (len(flagged), mixed or "none"))
+    notes = []
+    for abbrev, delta in sorted(by_abbrev.items()):
+        if S.shape_of(delta) != S.SHAPE_RESULT_LABEL:
+            continue
+        fid = F.abbrev_index(year).get(abbrev)
+        candidates = []
+        for home, away, hg, ag, end, *_rest in settled:
+            if fid not in (home, away) or end not in ("OT", "SO"):
+                continue
+            loser = away if hg > ag else home
+            # The disagreement is about a LOSS type when otl moved, so the
+            # candidate is a game this team LOST in OT or SO.
+            if delta.get("otl", 0) != 0 and loser != fid:
+                continue
+            candidates.append("%s %d-%d %s (%s)"
+                              % (F.abbrev_for(home, year), hg, ag,
+                                 F.abbrev_for(away, year), end))
+        if len(candidates) == 1:
+            notes.append("%s localises to %s" % (abbrev, candidates[0]))
+        elif candidates:
+            notes.append("%s has %d candidate game(s)"
+                         % (abbrev, len(candidates)))
+    return "; ".join(notes)
 
 
 def _write(path, rows):

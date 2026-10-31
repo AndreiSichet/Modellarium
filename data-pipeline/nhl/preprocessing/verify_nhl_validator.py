@@ -90,6 +90,52 @@ class Harness:
         path.write_text(changed, encoding="utf-8", newline="\n")
         return path
 
+    def template_path(self, year):
+        """The season's standings template file in the throwaway copy.
+
+        GLOBBED, NOT CONSTRUCTED. The template's title shape has changed
+        across the corpus - one whole-league page from 2020-21, one per
+        division before that, one per conference in 2019-20 - so building the
+        slug from a guessed title would work on the open season and fail on
+        2016-17. The manifest is what knows, and a season with several
+        templates returns all of them.
+        """
+        name = "%d-%02d" % (year, (year + 1) % 100)
+        found = sorted((self.raw / name).glob("Template_*.wikitext"))
+        if not found:
+            raise PlantDidNothing(
+                "no standings template in the %s copy" % name)
+        return found
+
+    def edit_template(self, year, old, new, count=-1):
+        """Replace text in the season's standings template(s).
+
+        COUNT=0 IS REFUSED, AND THAT IS NOT PEDANTRY. `str.replace(a, b, 0)`
+        replaces NOTHING, so a plant written with `count=0` meaning "all"
+        edits no bytes and the only symptom is a PlantDidNothing from a
+        confusing place. It cost one red plant here. -1 means all, which is
+        the default.
+        """
+        if count == 0:
+            raise PlantDidNothing(
+                "edit_template was called with count=0, which replaces "
+                "nothing. Pass -1 for every occurrence.")
+        touched = []
+        for path in self.template_path(year):
+            text = path.read_text(encoding="utf-8")
+            if old not in text:
+                continue
+            changed = text.replace(old, new, count)
+            if changed == text:
+                continue
+            path.write_text(changed, encoding="utf-8", newline="\n")
+            touched.append(path)
+        if not touched:
+            raise PlantDidNothing(
+                "the plant's target text is in no %d-%02d template: %r"
+                % (year, (year + 1) % 100, old[:60]))
+        return touched
+
     def drop(self, year, team):
         path = self.path(year, team)
         if not path.is_file():
@@ -366,6 +412,195 @@ def plant_in_progress(h):
                just_after, old_rule_said_in_progress))
 
 
+def plant_open_season_self_inconsistent(h):
+    """(q) a self-inconsistent standings page in the OPEN season BUILDS.
+
+    THE REAL ONE IS GONE, WHICH IS WHY THIS IS PLANTED. On 2026-10-30
+    `Template:2026-27 NHL standings` carried LAK in two sub-tables, Pacific
+    saying `4-6-2, gf 34, ga 42` and Western Wild Card saying
+    `3-6-2, gf 28, ga 37` - one 6-5 win written into one and not the other,
+    and it made every 2026-27 game unbuildable. **Measured again 2026-10-31:
+    an editor has fixed it**, both sub-tables now read 4-6-2 / 34 / 42. So a
+    check against the live page would have silently stopped testing anything
+    the moment it was repaired, which is the stale-exception failure this
+    project already records for `KNOWN_UNUSABLE_GAMES`. The disagreement is
+    therefore re-planted exactly as it was measured.
+
+    THE SEASON MUST BUILD. That is the whole point of section 1: the failure
+    is season-level, so refusing it costs every game in the season rather
+    than one.
+    """
+    build = h.modules["build"]
+    S = sys.modules["nhl_standings"]
+    year = h.seasons[-1]
+    # One sub-table's copy of LAK, put back to what the half-finished edit
+    # left behind. `count=1` so only the FIRST occurrence moves, which is
+    # what makes the page disagree with itself.
+    h.edit_template(year, "win_LAK=4", "win_LAK=3", count=1)
+    h.edit_template(year, "gf_LAK=34", "gf_LAK=28", count=1)
+    h.edit_template(year, "ga_LAK=42", "ga_LAK=37", count=1)
+
+    rows, standings, _bad = build.load_season(year)
+    conflicts = standings.get("conflicts") or []
+    fields = sorted({"%s_%s" % (c["field"], c["team"]) for c in conflicts})
+    primary, classes, _detail = S.classify(
+        conflicts, standings.get("completeness_problems") or [], {})
+
+    # And the whole build, which is what a refresh would run.
+    import io as _io
+    import contextlib
+    buffer = _io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        code = build.main(["--seasons", str(year), "--out", str(h.out)])
+    games = (h.out / "nhl_games_final.csv").read_text(encoding="utf-8")
+    report = (h.out / "nhl_standings_report.csv").read_text(encoding="utf-8")
+
+    return (primary == S.CLASS_SELF_INCONSISTENT
+            and not standings["strict"]
+            and len(conflicts) == 3
+            and code == 0
+            and games.count("\n") > 100
+            and S.CLASS_SELF_INCONSISTENT in report,
+            "advisory=%s, %d conflicted field(s) %s, class %r, build exit "
+            "%s, games_final %d line(s), the report names the class: %s"
+            % (not standings["strict"], len(conflicts), fields, primary,
+               code, games.count("\n"),
+               S.CLASS_SELF_INCONSISTENT in report))
+
+
+def plant_completed_season_self_inconsistent(h):
+    """(r) the SAME disagreement in a COMPLETED season is still FATAL.
+
+    THE PAIR THAT MAKES THE ASYMMETRY REAL. A leniency that cannot be shown
+    to be absent somewhere is not a leniency, it is a hole - the quarantine's
+    recorded lesson, where the first implementation keyed on `open_seasons()`
+    and would have excused a disagreement in a finished 2025 season.
+
+    THE DUPLICATE HAS TO BE APPENDED, and that is a fact about the corpus
+    rather than a shortcut. A completed season before 2020-21 uses one
+    template PER DIVISION and each states a team once, so there is no
+    repeated sub-table to make disagree - the `#switch` page with wild-card
+    repeats is a 2020-21-onwards shape. Measured: all four 2014-15 division
+    templates state every field exactly once. So the plant writes a second,
+    conflicting copy of one field, which is what the open season's page does
+    to itself naturally.
+
+    BOTH HALVES IN ONE PLANT. The same edit is then made to the OPEN season
+    and must NOT be fatal. Asserting only the fatal half would pass against
+    a build that was strict everywhere, which is the state section 1 exists
+    to change.
+    """
+    import re
+    build = h.modules["build"]
+    S = sys.modules["nhl_standings"]
+    FIELD = re.compile(r"\|(win|gf|ga)_([A-Z]{2,4})\s*=\s*(\d+)")
+
+    def duplicate_one_field(year):
+        """Append a conflicting second copy of the first field on the page."""
+        path = h.template_path(year)[0]
+        found = FIELD.search(path.read_text(encoding="utf-8"))
+        if found is None:
+            raise PlantDidNothing("no standings field in %s" % path.name)
+        line = found.group(0)
+        bumped = "%s\n|%s_%s=%d" % (line, found.group(1), found.group(2),
+                                    int(found.group(3)) + 7)
+        h.edit_template(year, line, bumped, count=1)
+        return "%s_%s" % (found.group(1), found.group(2))
+
+    completed_year = h.seasons[0]
+    completed_field = duplicate_one_field(completed_year)
+    raised = None
+    try:
+        build.load_season(completed_year)
+    except S.StandingsDisagree as error:
+        raised = str(error)
+    except Exception as error:                                  # noqa: BLE001
+        raised = "%s: %s" % (type(error).__name__, error)
+
+    open_year = h.seasons[-1]
+    open_field = duplicate_one_field(open_year)
+    open_raised, open_standings = None, None
+    try:
+        _rows, open_standings, _bad = build.load_season(open_year)
+    except Exception as error:                                  # noqa: BLE001
+        open_raised = "%s: %s" % (type(error).__name__, error)
+
+    conflicts = (open_standings or {}).get("conflicts") or []
+    return (raised is not None and "both" in raised
+            and open_raised is None and bool(conflicts),
+            "completed %d (%s): %s | open %d (%s): %s, %d conflict(s) "
+            "reported"
+            % (completed_year, completed_field,
+               (raised or "RAISED NOTHING")[:54], open_year, open_field,
+               open_raised or "built", len(conflicts)))
+
+
+def plant_open_season_lag(h):
+    """(s) a LAGGING standings table in the open season is classified as lag.
+
+    WHAT LAG ACTUALLY LOOKS LIKE, AND THE DIRECTION WAS WRONG IN THE CODE
+    THIS REPLACES. `diffs` is computed MINUS stated, and `computed` covers
+    only games both articles carry and agree on - so a page that is AHEAD of
+    the articles makes the differences NEGATIVE. The removed `_advisory`
+    called all-negative "the standings page lags the game logs", which is
+    backwards; measured on 2026-27, 8 of 9 negative teams were short of a
+    game the page already counted.
+
+    The real season is classified `standings_probable_error` because of OTT's
+    result-label difference, so the plant ALSO repairs that - otherwise the
+    more serious class wins and this would be testing precedence rather than
+    lag.
+    """
+    build = h.modules["build"]
+    S = sys.modules["nhl_standings"]
+    year = h.seasons[-1]
+
+    # Repair OTT's result-label difference so lag is the only signal left.
+    h.edit_template(year, "OTloss_OTT=0", "OTloss_OTT=1",
+                    count=-1)
+    # And push several teams' page totals ahead of their articles.
+    moved = 0
+    for abbrev in ("ANA", "BOS", "BUF", "CGY"):
+        for field, bump in (("win", 2), ("gf", 9), ("ga", 4)):
+            needle = "%s_%s=" % (field, abbrev)
+            import re
+            for path in h.template_path(year):
+                text = path.read_text(encoding="utf-8")
+                found = re.search(re.escape(needle) + r"(\d+)", text)
+                if not found:
+                    continue
+                value = int(found.group(1))
+                h.edit_template(year, "%s%d" % (needle, value),
+                                "%s%d" % (needle, value + bump), count=-1)
+                moved += 1
+                break
+    if not moved:
+        raise PlantDidNothing("no team's page total could be moved")
+
+    rows, standings, _bad = build.load_season(year)
+    played = [r for r in rows if r["played"]]
+    pairs, _singles = build.pair_rows(played)
+    settled = []
+    for a, b in pairs:
+        if build.agree(a, b):
+            home, away, hg, ag = build.sides(a)
+            settled.append((home, away, hg, ag, a["game_end"]))
+    abbrevs = F.abbrev_index(year)
+    flagged = build.diffs(build.team_totals(settled),
+                          build.stated(standings, abbrevs))
+    by_abbrev = {F.abbrev_for(f, year): d for f, d in flagged.items()}
+    shapes = {t: S.shape_of(d) for t, d in by_abbrev.items()}
+    primary, classes, detail = S.classify(
+        standings.get("conflicts") or [],
+        standings.get("completeness_problems") or [], by_abbrev)
+
+    every_missing = all(s == S.SHAPE_GAMES_MISSING for s in shapes.values())
+    return (primary == S.CLASS_LAG and every_missing and len(by_abbrev) > 1,
+            "%d flagged team(s), shapes %s, class %r (%s)"
+            % (len(by_abbrev), sorted(set(shapes.values())), primary,
+               detail[:70]))
+
+
 def plant_partial_with_markers(h):
     """(p) a mid-game score in ONE copy, markers set, date not ended.
 
@@ -596,6 +831,12 @@ PLANTS = [
     ("(n) a listed unusable game that no longer fails", plant_stale_exception),
     ("(p) a mid-game score with markers, date not ended",
      plant_partial_with_markers),
+    ("(q) an open-season self-inconsistent standings page still BUILDS",
+     plant_open_season_self_inconsistent),
+    ("(r) the same disagreement in a completed season is still fatal",
+     plant_completed_season_self_inconsistent),
+    ("(s) a lagging standings table in the open season reads as lag",
+     plant_open_season_lag),
 ]
 
 
