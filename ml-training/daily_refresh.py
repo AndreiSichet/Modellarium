@@ -174,6 +174,48 @@ LEAGUES = {
             Path("nfl") / "processed" / "nfl_quarantine.csv",
         ],
     },
+    # THE NHL, PHASE 3. Nothing about this entry is required of a snapshot -
+    # see served_data.OPTIONAL_FILES for why every table is optional and what
+    # that buys on deploy day.
+    #
+    # THREE STEPS, THE SAME SHAPE AS THE NFL'S, and for the same reason: the
+    # fetcher does revision-id change detection first, so a quiet day costs a
+    # handful of cheap requests and no content fetch at all. Measured
+    # 2026-10-31 on a real open-season fetch: 19 pages fetched, 14 unchanged,
+    # 3 API requests, 0 HTTP 429, 0 maxlag errors, 0s waiting.
+    #
+    # THE VALIDATOR IS WHERE SECTION 1's ADVISORY CLASSES LIVE. A standings
+    # disagreement in the OPEN season is classified and reported; in a
+    # COMPLETED season it is still fatal. So an editor's half-finished edit
+    # costs a class in the summary rather than every game in the season.
+    "nhl": {
+        "steps": [
+            PROJECT / "data-pipeline" / "nhl" / "ingestion" / "fetch_nhl_seasons.py",
+            PROJECT / "data-pipeline" / "nhl" / "preprocessing" / "validate_nhl_games.py",
+            PROJECT / "data-pipeline" / "nhl" / "preprocessing" / "build_nhl_tables.py",
+        ],
+        # EMPTY, AND THAT IS THE POINT. `tables` is what a league REQUIRES of
+        # a snapshot; the NHL requires nothing, so every one of its five is
+        # under optional_tables. A reader checking whether the NHL can take
+        # the service down should find this list empty.
+        "tables": [],
+        "optional_tables": [
+            Path("nhl") / "processed" / "nhl_games_final.csv",
+            Path("nhl") / "processed" / "nhl_fixtures.csv",
+            Path("nhl") / "processed" / "nhl_franchise_identity.csv",
+            Path("nhl") / "processed" / "nhl_quarantine.csv",
+            Path("nhl") / "processed" / "nhl_standings_report.csv",
+        ],
+        "cutoff_table": Path("nhl") / "processed" / "nhl_games_final.csv",
+        # GAME_DATE, like the three nba_api leagues and unlike the NFL's
+        # lower-case `date`. Declared anyway rather than defaulted, because
+        # the NFL's entry proves the default is not universal and a reader
+        # comparing the two should not have to know which way round it is.
+        "date_column": "GAME_DATE",
+        # CC BY-SA 4.0. The licence travels with the data: it is why no NHL
+        # table is committed, and why /health states the source.
+        "attribution": "English Wikipedia, CC BY-SA 4.0",
+    },
 }
 
 
@@ -778,6 +820,108 @@ def _drift_report(args, volume, leagues, served_root, identifier,
     return EXIT_OK
 
 
+def nhl_lines(root: Path) -> list:
+    """The NHL's own summary rows: standings class, quarantine, blocked.
+
+    A SEPARATE SECTION BECAUSE IT SAYS THINGS NO OTHER LEAGUE HAS. The
+    advisory standings class and the dependency rule's blocked count are NHL
+    facts, and folding them into the shared per-league table would mean a
+    column that is empty for four leagues out of five.
+
+    RENDERED AS MARKDOWN WITH A HEADER ROW, which is not a detail: the
+    per-league availability rows were once emitted with no header and no
+    blank line, and GitHub rendered them as literal pipe characters - a green
+    step stating a true fact unreadably, the eighth kind of misleading green
+    this project tallies.
+    """
+    # THE IMPORT NEEDS THE PATH, AND WITHOUT IT THIS FUNCTION ALWAYS FAILED
+    # SOFT. `live_nhl_features` lives in ml-training/nhl/, which is not on
+    # sys.path when daily_refresh runs from ml-training/ - so the except
+    # below caught ModuleNotFoundError and the summary read "_NHL summary
+    # unavailable: ModuleNotFoundError._" on every run, forever. A true
+    # statement that said nothing, which is this project's eighth kind of
+    # misleading green. Found by the isolation suite's own plant asserting
+    # that the advisory standings class REACHES A READER, which is the only
+    # check that could have found it - the classifier, the report table and
+    # the refresh outcome were all correct.
+    nhl_dir = PROJECT / "ml-training" / "nhl"
+    if str(nhl_dir) not in sys.path:
+        sys.path.insert(0, str(nhl_dir))
+    try:
+        import live_nhl_features as nhl
+    except Exception as error:                                  # noqa: BLE001
+        return [f"_NHL summary unavailable: {type(error).__name__}: "
+                f"{error}._"]
+
+    # THE STAGED ROOT, PASSED IN. At the point this is rendered the pointer
+    # has not moved, so deriving "volume plus the snapshot name" would
+    # describe the snapshot being REPLACED rather than the one about to
+    # serve - a summary that is true about the wrong thing.
+    try:
+        state = nhl.load_state(root=Path(root))
+    except Exception as error:                                  # noqa: BLE001
+        return [f"_NHL summary unavailable: {type(error).__name__}: "
+                f"{error}._"]
+
+    if not state.get("served"):
+        return ["### NHL", "",
+                "_This snapshot carries no NHL tables. They are optional by "
+                "design, so neither the service nor this job treats it as a "
+                "fault._"]
+
+    cutoff, behind, stale = nhl.freshness(state)
+    slate = nhl.predictable_fixtures(state)
+    ready = [row for row in slate if row["predictable"]]
+    blocked = {}
+    for row in slate:
+        if not row["predictable"]:
+            blocked[row["reason_code"]] = blocked.get(row["reason_code"],
+                                                      0) + 1
+    quarantine = state["quarantine"]
+    standings = nhl.standings_class(state)
+
+    lines = ["### NHL", "",
+             "| | |", "|---|---|",
+             f"| data as of | `{cutoff}` ({behind} day(s) behind"
+             f"{', STALE' if stale else ''}) |",
+             f"| prediction rule | both teams' previous games in history "
+             f"(dependency; `MAX_DAYS_AHEAD` does NOT apply) |",
+             f"| predictable fixtures | **{len(ready)}** of {len(slate)} "
+             f"future fixture(s) |",
+             f"| quarantine | {quarantine['state']}, "
+             f"{quarantine['count']} game(s) |",
+             f"| source | {nhl.SOURCE_ATTRIBUTION} |"]
+    if standings:
+        lines.append(f"| open-season standings | `{standings['class']}` "
+                     f"({standings['season']}) |")
+    lines.append("")
+    if standings and standings["class"] != "reconciled":
+        lines.append(f"> **Standings check, advisory:** "
+                     f"{standings['detail']}")
+        lines.append("")
+    if blocked:
+        lines.append("Fixtures the dependency rule cannot offer yet:")
+        lines.append("")
+        lines.append("| reason | fixtures |")
+        lines.append("|---|---|")
+        for code, count in sorted(blocked.items(),
+                                  key=lambda item: -item[1]):
+            lines.append(f"| `{code}` | {count} |")
+        lines.append("")
+    if quarantine["count"]:
+        lines.append("Quarantined games, set aside with their evidence:")
+        lines.append("")
+        lines.append("| date | copy A | copy B | reason |")
+        lines.append("|---|---|---|---|")
+        for game in quarantine["games"][:8]:
+            lines.append(f"| {game.get('date')} | {game.get('copy_a')} | "
+                         f"{game.get('copy_b')} | {game.get('reason')} |")
+        if quarantine["count"] > 8:
+            lines.append(f"| … | _{quarantine['count'] - 8} more_ | | |")
+        lines.append("")
+    return lines
+
+
 def availability_lines() -> list:
     """One line per league on whether availability is actually working.
 
@@ -907,18 +1051,47 @@ def stage_league_from_repo(league: str, staging: Path) -> None:
         destination = staging / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+    staged = len(league_tables(league))
     for relative in league_optional_tables(league):
         source = REPO_DATA_ROOT / relative
         if not source.is_file():
-            # NOT A FAILURE. build_nfl_tables.py writes an empty quarantine
-            # file every run, so in practice this is only reached by an older
-            # build script - and a snapshot without the table is servable by
-            # construction. Raising here would turn a tolerated absence into
-            # the league being carried for a reason that is not a problem.
+            # NOT A FAILURE ON ITS OWN. build_nfl_tables.py writes an empty
+            # quarantine file every run, so in practice this is only reached
+            # by an older build script - and a snapshot without the table is
+            # servable by construction. Raising here would turn a tolerated
+            # absence into the league being carried for a reason that is not
+            # a problem.
             continue
         destination = staging / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+        staged += 1
+
+    # A LEAGUE THAT CONTRIBUTED NOTHING HAS NOT STAGED - IT HAS FAILED.
+    #
+    # Every league before the NHL declared at least one REQUIRED table, so
+    # "the rebuild produced nothing" was always caught by the loop above.
+    # The NHL declares none: all five of its tables are optional, which is
+    # what lets a new image boot on a snapshot built before it existed. The
+    # optional loop then `continue`s past every absent file, so a build that
+    # produced NOTHING staged successfully with zero files - and the new
+    # snapshot would carry no NHL tables while the previous one had them.
+    # The league would silently stop being served, which is exactly what
+    # carrying exists to prevent. Found by verify_refresh_isolation's
+    # `case_every_league_fails` going red when the NHL was added.
+    #
+    # TWO DIFFERENT QUESTIONS, and conflating them is what opened the hole:
+    # a SNAPSHOT may lack these tables (optional, so an old snapshot boots),
+    # a REBUILD may not produce none of them (that is a failure). Same
+    # files, opposite answers.
+    declares = league_tables(league) + league_optional_tables(league)
+    if declares and not staged:
+        raise RuntimeError(
+            f"the {league} rebuild produced none of its "
+            f"{len(declares)} declared table(s), so it contributed nothing "
+            f"to the snapshot. A league that stages no file has not staged; "
+            f"it is carried from the previous snapshot instead, which keeps "
+            f"it served.")
 
 
 def carry_league(league: str, staging: Path, previous_root: Path) -> dict:
@@ -1402,6 +1575,12 @@ def _run(args, volume, leagues, record_outcome) -> int:
     print()
     for line in availability_lines():
         print(line)
+
+    nhl_section = nhl_lines(staging)
+    print()
+    for line in nhl_section:
+        print(line)
+    write_summary(args, nhl_section)
 
     if not advanced and not carried and not args.force_swap:
         section("NOTHING NEW")

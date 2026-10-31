@@ -102,7 +102,49 @@ REQUIRED_FILES = [
 # checked.
 OPTIONAL_FILES = [
     Path("nfl") / "processed" / "nfl_quarantine.csv",
+    # THE NHL, FROM PHASE 3, AND EVERY ONE OF ITS TABLES IS OPTIONAL.
+    #
+    # NOT A HEDGE - IT IS WHAT MAKES BOTH DEPLOY ORDERS SAFE. The NFL's phase
+    # 4 taught this from the painful side: an image that REQUIRES tables the
+    # served snapshot does not carry refuses to boot, so the service goes down
+    # the moment it is deployed ahead of the refresh that writes them. With
+    # these optional, a new image on any of the seven snapshots now on the
+    # volume boots and reports the NHL as not yet served, and an old image on
+    # a snapshot that carries them ignores them. Neither order can take the
+    # service down, so the two can ship in either sequence - which also means
+    # a rollback has somewhere to land.
+    #
+    # FIVE TABLES, AND EACH IS READ BY SERVING RATHER THAN CARRIED FOR
+    # COMPLETENESS:
+    #   games_final        the history the Elo replay and the rolling
+    #                      features are rebuilt from, and what the dependency
+    #                      rule reads to find each team's previous game.
+    #   fixtures           /schedule/nhl, and the other half of the
+    #                      dependency rule.
+    #   franchise_identity a franchise id becomes an abbreviation and a name.
+    #   quarantine         /health's quarantine block. A game set aside with
+    #                      its evidence is a fact a caller is owed.
+    #   standings_report   /health's standings class for the open season.
+    #                      Phase 3 section 1 writes it; without it /health
+    #                      could not say that an open season's cross-check is
+    #                      advisory and why.
+    #
+    # DELIBERATELY ABSENT: nhl_repairs.csv and nhl_end_disputes.csv. Both are
+    # provenance about how the corpus was reconciled, not inputs to a
+    # prediction, and copying them would invite someone to read a
+    # reconciliation note as a feature - which is exactly what
+    # nhl_features.py excludes DERIVED and END_DISPUTED for.
+    Path("nhl") / "processed" / "nhl_games_final.csv",
+    Path("nhl") / "processed" / "nhl_fixtures.csv",
+    Path("nhl") / "processed" / "nhl_franchise_identity.csv",
+    Path("nhl") / "processed" / "nhl_quarantine.csv",
+    Path("nhl") / "processed" / "nhl_standings_report.csv",
 ]
+
+# The NHL's own five, named once so serving can ask "is the NHL served at
+# all" without re-listing them. DERIVED from OPTIONAL_FILES rather than
+# written twice.
+NHL_FILES = [p for p in OPTIONAL_FILES if p.parts[0] == "nhl"]
 
 
 POINTER_FILE = "current"

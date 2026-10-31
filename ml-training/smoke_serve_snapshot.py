@@ -44,6 +44,7 @@ def main() -> int:
     os.environ["DATA_DIR"] = str(root)
 
     for directory in (HERE, HERE / "wnba", HERE / "gleague", HERE / "nfl",
+                      HERE / "nhl",
                       PROJECT / "data-pipeline" / "nfl" / "preprocessing",
                       PROJECT / "data-pipeline" / "preprocessing",
                       PROJECT / "data-pipeline" / "ingestion",
@@ -67,7 +68,7 @@ def main() -> int:
     # know which one failed - and parsing it back out of a message prefix is
     # the fragile shape this replaces. Every failure is recorded against its
     # league explicitly, at the point it happens.
-    SMOKE_LEAGUES = ("nba", "wnba", "gleague", "nfl")
+    SMOKE_LEAGUES = ("nba", "wnba", "gleague", "nfl", "nhl")
     results = {league: {"ok": True, "failure": None}
                for league in SMOKE_LEAGUES}
     failures = []
@@ -185,6 +186,54 @@ def main() -> int:
                   "invented scores and must never be served")
     except Exception as error:  # noqa: BLE001
         fail("nfl", f"{type(error).__name__}: {error}")
+
+    # --- NHL
+    try:
+        import live_nhl_features as nhl
+
+        nhl_state = nhl.load_state()
+        if not nhl_state.get("served"):
+            # NOT A FAILURE, AND THIS IS THE WHOLE POINT OF THE TABLES BEING
+            # OPTIONAL. A snapshot built before the NHL joined the refresh
+            # carries none of its five tables, and a new image must boot on
+            # one - see served_data.OPTIONAL_FILES. Refusing here would make
+            # the smoke test red on exactly the snapshot a rollback lands on.
+            print("  nhl      not served from this snapshot - no NHL tables "
+                  "(optional by design)")
+        else:
+            slate = nhl.predictable_fixtures(nhl_state)
+            ready = [row for row in slate if row["predictable"]]
+            cutoff, behind, stale = nhl.freshness(nhl_state)
+            if not ready:
+                # Between seasons, and in the gap before both sides of a
+                # fixture have a completed previous game, there is nothing
+                # the dependency rule can answer. The NFL's block has the
+                # same branch for the same reason.
+                print(f"  nhl      0 of {len(slate)} future fixture(s) "
+                      f"predictable - nothing whose previous games are all "
+                      f"in history (data as of {cutoff})")
+            else:
+                row = ready[0]
+                result = nhl.get_live_features(
+                    row["home_id"], row["away_id"],
+                    pd.Timestamp(row["game_date"]), nhl_state)
+                served = sorted(name for name, block
+                                in result["markets"].items()
+                                if block.get("served"))
+                print(f"  nhl      {len(result['predictions'])} market(s) "
+                      f"computed for {row['game_date']} "
+                      f"({', '.join(served)}), {len(ready)} of {len(slate)} "
+                      f"predictable, data as of {cutoff}")
+            standings = nhl.standings_class(nhl_state)
+            if standings:
+                print(f"           open season {standings['season']}: "
+                      f"{standings['class']}")
+            quarantine = nhl_state["quarantine"]
+            if quarantine["state"] != "none":
+                print(f"           quarantine {quarantine['state']}, "
+                      f"{quarantine['count']} game(s)")
+    except Exception as error:  # noqa: BLE001
+        fail("nhl", f"{type(error).__name__}: {error}")
 
     if results_path is not None:
         import json

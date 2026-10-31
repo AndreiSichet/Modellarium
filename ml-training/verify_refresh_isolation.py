@@ -33,6 +33,8 @@ from served_data import POINTER_FILE, SNAPSHOTS_DIR             # noqa: E402
 
 LIVE_VOLUME = Path(r"D:\modellarium-data")
 DEFAULT_SCRATCH = Path(r"D:\modellarium-rehearsal")
+
+NEWLINE = chr(10)
 RESULTS = []
 
 
@@ -147,7 +149,62 @@ def prepare(volume):
         target = scratch_repo / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
+    # SEEDED ON BOTH SIDES, and that is not symmetry for its own sake. With
+    # the tables in the repo alone the NHL has data the served snapshot
+    # lacks, so it ADVANCES - and the control case, whose whole point is
+    # `nothing-new`, swapped. The two have to be equal for "nothing newer"
+    # to mean anything. This is the verifier's own scratch volume and the
+    # bytes are identical every run, so seeding it is idempotent.
+    seed_nhl(scratch_repo)
+    seed_nhl(snapshot)
     return pointer, snapshot, scratch_repo
+
+
+def seed_nhl(scratch_repo):
+    """Minimal-but-valid NHL tables, so the NHL can stage fresh like the rest.
+
+    NOT COPIED FROM THE REAL CORPUS, deliberately: that corpus is CC BY-SA
+    and lives only on disk, so a suite that required it would fail on any
+    machine that had not fetched it. The isolation logic never reads these
+    contents - it only needs the league to contribute files - so the
+    smallest table that `live_nhl_features.load_state` accepts is enough.
+
+    SEEDED IN `prepare` RATHER THAN PER CASE, because the NHL has to be able
+    to stage fresh in the CONTROL and in every other league's failure case.
+    Without it the NHL was carried in all of them and "the other four staged
+    fresh" was false everywhere - which would have hidden an NHL that
+    genuinely stopped staging behind an assertion nobody could keep green.
+    """
+    processed = scratch_repo / "nhl" / "processed"
+    processed.mkdir(parents=True, exist_ok=True)
+    (processed / "nhl_games_final.csv").write_text(
+        "GAME_ID,SEASON,GAME_DATE,TEAM_ID,OPPONENT_ID,IS_HOME,GOALS_FOR,"
+        "GOALS_AGAINST,RESULT,GAME_END,MARGIN,DERIVED,END_DISPUTED" + NEWLINE
+        + "s1,2026-27,2026-10-01,1614000013,1614000020,1,6,5,W,OT,1,0,0"
+        + NEWLINE
+        + "s1,2026-27,2026-10-01,1614000020,1614000013,0,5,6,L,OT,-1,0,0"
+        + NEWLINE,
+        encoding="utf-8", newline=NEWLINE)
+    (processed / "nhl_fixtures.csv").write_text(
+        "SEASON,GAME_DATE,GAME_ID,HOME_ID,AWAY_ID,SOURCE" + NEWLINE
+        + "2026-27,2026-10-02,s2,1614000020,1614000013,seed" + NEWLINE,
+        encoding="utf-8", newline=NEWLINE)
+    (processed / "nhl_franchise_identity.csv").write_text(
+        "FRANCHISE_ID,ABBREV,FIRST_SEASON,LAST_SEASON,LINK_TARGET" + NEWLINE
+        + "1614000013,LAK,,,Los Angeles Kings" + NEWLINE
+        + "1614000020,OTT,,,Ottawa Senators" + NEWLINE,
+        encoding="utf-8", newline=NEWLINE)
+    # EMPTY, NOT ABSENT - which is the distinction the NFL's quarantine
+    # taught: an absent table is an unknown state and an empty one is a
+    # checked, clean state.
+    (processed / "nhl_quarantine.csv").write_text("", encoding="utf-8",
+                                                  newline=NEWLINE)
+    (processed / "nhl_standings_report.csv").write_text(
+        "SEASON,STATE,STRICT,CLASS,CLASSES,DETAIL,CONFLICTS,TEAMS_FLAGGED,"
+        "UPDATE" + NEWLINE
+        + "2026-27,OPEN,0,reconciled,reconciled,standings reconcile,0,0,"
+        "October 1 2026" + NEWLINE,
+        encoding="utf-8", newline=NEWLINE)
 
 
 def snapshots_in(volume):
@@ -197,6 +254,17 @@ def case_control(volume, scratch_repo, pointer):
 def case_one_league_fails(volume, scratch_repo, pointer, snapshot, league):
     """Remove one league's tables from the scratch repo so only it fails."""
     tables = D.league_tables(league)
+    # A LEAGUE THAT REQUIRES NO TABLES CANNOT BE PLANTED THIS WAY, AND SAYING
+    # SO BEATS PASSING. The NHL declares every one of its five tables
+    # optional, so `league_tables("nhl")` is empty - the loop below would
+    # remove nothing, `any()` over an empty list is False, the guard would
+    # not fire, and the case would report PASS having planted nothing. That
+    # is the silent no-op plant this project keeps catching, so it raises.
+    if not tables:
+        raise PlantDidNothing(
+            f"{league} requires no tables, so removing its required tables "
+            f"plants nothing. Use case_nhl_step_fails for a league whose "
+            f"tables are all optional.")
     backups = {}
     for relative in tables:
         path = scratch_repo / relative
@@ -222,6 +290,229 @@ def case_one_league_fails(volume, scratch_repo, pointer, snapshot, league):
            and (volume / POINTER_FILE).read_text(encoding="utf-8").strip() == pointer,
            f"exit {code}, outcome {outcome!r}")
     return out
+
+
+def case_nhl_optional_at_boot(volume, scratch_repo, pointer):
+    """The NHL's tables are optional OF A SNAPSHOT, so an old one still boots.
+
+    THE RIGHT LAYER, AND THE FIRST VERSION TESTED THE WRONG ONE. It asserted
+    that the NHL's tables being absent from the REPO made the league stage
+    fresh and the run green - which was true, and was a bug: a build that
+    produced nothing staged successfully with zero files, so the new snapshot
+    would carry no NHL tables while the previous one had them and the league
+    would silently stop being served. `stage_league_from_repo` now treats a
+    league that contributes no file as failed.
+
+    What IS true, and what this case asserts, is the boot property: none of
+    the NHL's five tables is in REQUIRED_FILES, so every snapshot now on the
+    volume - all of them built before the NHL existed - still satisfies a new
+    image. That is what makes both deploy orders safe, and if it ever goes
+    red, deploying the image ahead of the refresh takes the service down.
+    """
+    nhl_files = set(D.league_optional_tables("nhl"))
+    in_required = nhl_files & set(D.REQUIRED_FILES)
+    record("the NHL is in no REQUIRED_FILES entry: an old snapshot still "
+           "boots",
+           not in_required and len(nhl_files) == 5,
+           f"{len(nhl_files)} NHL table(s) declared, "
+           f"{len(in_required)} of them required")
+    record("the NHL declares no required table of its own",
+           D.league_tables("nhl") == [],
+           f"required {D.league_tables('nhl')}, optional {len(nhl_files)}")
+
+    # AND THE SERVED SNAPSHOT ITSELF, which is the state a deploy lands on.
+    snapshot = volume / SNAPSHOTS_DIR / pointer
+    present = [r.as_posix() for r in nhl_files if (snapshot / r).is_file()]
+    missing_required = [r.as_posix() for r in D.REQUIRED_FILES
+                        if not (snapshot / r).is_file()]
+    record("the snapshot being served satisfies REQUIRED_FILES with no NHL "
+           "table present",
+           not missing_required,
+           f"{len(present)} NHL table(s) present, "
+           f"{len(missing_required)} required table(s) missing")
+
+
+def case_nhl_contributes_nothing(volume, scratch_repo, pointer):
+    """A build that produces NONE of the NHL's tables is CARRIED, not passed.
+
+    THE HOLE THIS CLOSES. All five NHL tables are optional, and the optional
+    loop in `stage_league_from_repo` skips an absent file by design - so
+    before the guard, an NHL build that produced nothing at all staged
+    successfully with zero files and the league quietly dropped out of the
+    snapshot. Carrying is the safe reading, and this is the case that proves
+    it happens.
+    """
+    backups = {}
+    for relative in D.league_optional_tables("nhl"):
+        path = scratch_repo / relative
+        if path.exists():
+            backups[relative] = path.read_bytes()
+            path.unlink()
+    if not backups:
+        raise PlantDidNothing(
+            "the scratch repo held no NHL table to remove, so "
+            "'contributed nothing' is the state it was already in")
+    try:
+        code, outcome, out = run_refresh(volume, scratch_repo)
+    finally:
+        for relative, blob in backups.items():
+            target = scratch_repo / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(blob)
+    others = [league for league in D.LEAGUES if league != "nhl"]
+    record("a build producing none of the NHL's tables -> CARRIED, not "
+           "staged",
+           said(out, "nhl", "CARRIED from")
+           and not said(out, "nhl", "staged fresh"),
+           f"exit {code}, outcome {outcome!r}")
+    record("and the other four are unaffected by it",
+           all(said(out, other, "staged fresh") for other in others),
+           f"{sum(said(out, o, 'staged fresh') for o in others)} of "
+           f"{len(others)} staged fresh")
+    return out
+
+
+def case_nhl_step_fails(volume, scratch_repo, pointer):
+    """The NHL failing must carry the NHL and leave the others advancing.
+
+    PLANTED AT THE STAGING BOUNDARY, because this harness runs with
+    `skip_rebuild=True` and no real pipeline step executes - so a failing
+    fetch or build has to be injected where its failure would arrive.
+    `stage_league_from_repo` raising for the NHL alone is precisely what a
+    failed `build_nhl_tables.py` produces downstream, and the isolation logic
+    is what has to contain it.
+    """
+    original = D.stage_league_from_repo
+    calls = []
+
+    def failing(league, staging):
+        calls.append(league)
+        if league == "nhl":
+            raise RuntimeError(
+                "planted: build_nhl_tables.py failed for the open season")
+        return original(league, staging)
+
+    D.stage_league_from_repo = failing
+    try:
+        code, outcome, out = run_refresh(volume, scratch_repo)
+    finally:
+        D.stage_league_from_repo = original
+
+    if "nhl" not in calls:
+        raise PlantDidNothing(
+            "the staging function was never asked for the NHL, so the plant "
+            "could not have fired")
+    others = [league for league in D.LEAGUES if league != "nhl"]
+    record("plant: the NHL fails -> carried, the other four staged fresh",
+           said(out, "nhl", "CARRIED from")
+           and all(said(out, other, "staged fresh") for other in others),
+           f"exit {code}, outcome {outcome!r}, carried="
+           f"{said(out, 'nhl', 'CARRIED from')}")
+    record("plant: an NHL failure never moves the pointer on its own",
+           (volume / POINTER_FILE).read_text(encoding="utf-8").strip()
+           == pointer,
+           f"pointer still {pointer}")
+    return out
+
+
+def case_nhl_standings_advisory(volume, scratch_repo, pointer):
+    """An open-season standings disagreement is ADVISORY, not a carry.
+
+    THE REFRESH-LEVEL HALF OF SECTION 1. The negative suite proves the
+    builder classifies it and still writes tables; this proves the refresh
+    treats the result as a league that staged rather than one that failed.
+    Without it, section 1 could be correct in the pipeline and still cost the
+    NHL its snapshot every time an editor left an edit half-finished.
+
+    IT PLANTS THE REPORT ALONE, AND THAT IS NOT A SHORTCUT. An earlier
+    version also planted a games table dated after the served snapshot, so
+    the NHL advanced, the run SWAPPED, and the scratch volume's pointer
+    moved - which broke every pointer assertion after it and left the next
+    run's control case reading `advanced`. A verifier must not change the
+    state it measures, which is the same rule as this suite's
+    `record_outcome` stub writing nothing. With only the report planted no
+    new data arrives, the run stays `nothing-new`, and the claim under test -
+    staged rather than carried - is unaffected.
+    """
+    report = scratch_repo / Path("nhl") / "processed" / "nhl_standings_report.csv"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        "SEASON,STATE,STRICT,CLASS,CLASSES,DETAIL,CONFLICTS,TEAMS_FLAGGED,"
+        "UPDATE" + NEWLINE
+        + "2026-27,OPEN,0,standings_self_inconsistent,"
+        "standings_self_inconsistent,planted: win_LAK as both 4 and 3,3,0,"
+        "October 31 2026" + NEWLINE,
+        encoding="utf-8", newline=NEWLINE)
+    try:
+        code, outcome, out = run_refresh(volume, scratch_repo)
+    finally:
+        report.unlink()
+
+    record("plant: an open-season standings class stages, never carries",
+           said(out, "nhl", "staged fresh")
+           and not said(out, "nhl", "CARRIED from"),
+           f"exit {code}, outcome {outcome!r}")
+    record("plant: the advisory case leaves the pointer where it was",
+           (volume / POINTER_FILE).read_text(encoding="utf-8").strip()
+           == pointer,
+           f"pointer {pointer}")
+    return out
+
+
+def case_nhl_summary_renders(tmp_root):
+    """The advisory class REACHES A READER, against a throwaway root.
+
+    SEPARATED FROM THE REFRESH CASE AND TOUCHING NO VOLUME. A classification
+    nothing renders is a column in a CSV nobody opens - the availability rows
+    that came out as literal pipe characters are this project's record of a
+    true fact being unreadable.
+
+    THIS IS THE CHECK THAT FOUND A REAL BUG. `daily_refresh.nhl_lines`
+    imports `live_nhl_features`, which lives in ml-training/nhl/ and was not
+    on sys.path when daily_refresh ran - so the function returned "_NHL
+    summary unavailable: ModuleNotFoundError._" on every run, forever, while
+    the classifier, the report table and the refresh outcome were all
+    correct. Nothing else in the suite could have seen it.
+    """
+    root = Path(tmp_root)
+    processed = root / "nhl" / "processed"
+    processed.mkdir(parents=True, exist_ok=True)
+    (processed / "nhl_games_final.csv").write_text(
+        "GAME_ID,SEASON,GAME_DATE,TEAM_ID,OPPONENT_ID,IS_HOME,GOALS_FOR,"
+        "GOALS_AGAINST,RESULT,GAME_END,MARGIN,DERIVED,END_DISPUTED" + NEWLINE
+        + "p1,2026-27,2026-10-29,1614000013,1614000020,1,6,5,W,OT,1,0,0"
+        + NEWLINE
+        + "p1,2026-27,2026-10-29,1614000020,1614000013,0,5,6,L,OT,-1,0,0"
+        + NEWLINE,
+        encoding="utf-8", newline=NEWLINE)
+    (processed / "nhl_standings_report.csv").write_text(
+        "SEASON,STATE,STRICT,CLASS,CLASSES,DETAIL,CONFLICTS,TEAMS_FLAGGED,"
+        "UPDATE" + NEWLINE
+        + "2026-27,OPEN,0,standings_self_inconsistent,"
+        "standings_self_inconsistent,planted: win_LAK as both 4 and 3,3,0,"
+        "October 31 2026" + NEWLINE,
+        encoding="utf-8", newline=NEWLINE)
+
+    rendered = NEWLINE.join(D.nhl_lines(root))
+    record("the summary renders the advisory class, its detail and the rule",
+           "standings_self_inconsistent" in rendered
+           and "win_LAK as both 4 and 3" in rendered
+           and "Standings check, advisory" in rendered
+           and "MAX_DAYS_AHEAD" in rendered,
+           f"{len(rendered)} char(s); class named "
+           f"{'standings_self_inconsistent' in rendered}, detail "
+           f"{'win_LAK as both 4 and 3' in rendered}")
+
+    # AND THE NOT-SERVED BRANCH, which is what every snapshot now on the
+    # volume renders and what a new image must survive.
+    empty = root / "empty"
+    empty.mkdir(exist_ok=True)
+    absent = NEWLINE.join(D.nhl_lines(empty))
+    record("a root with no NHL tables renders 'optional by design', not an "
+           "error",
+           "optional by design" in absent
+           and "unavailable" not in absent,
+           absent.replace(NEWLINE, " ")[:96])
 
 
 def case_nba_unit(volume, scratch_repo, pointer):
@@ -538,6 +829,11 @@ def main(argv=None) -> int:
     case_control(volume, scratch_repo, pointer)
     case_one_league_fails(volume, scratch_repo, pointer, snapshot, "nfl")
     case_one_league_fails(volume, scratch_repo, pointer, snapshot, "wnba")
+    case_nhl_optional_at_boot(volume, scratch_repo, pointer)
+    case_nhl_contributes_nothing(volume, scratch_repo, pointer)
+    case_nhl_step_fails(volume, scratch_repo, pointer)
+    case_nhl_standings_advisory(volume, scratch_repo, pointer)
+    case_nhl_summary_renders(volume / "nhl-render")
     case_nba_unit(volume, scratch_repo, pointer)
     case_partial(volume, scratch_repo, pointer, snapshot)
     case_every_league_fails(volume, scratch_repo, pointer)
