@@ -41,6 +41,10 @@ PLANTS = {
     "b": "let the ship rule prefer a candidate that only TIES the reference",
     "c": "move a test season into the training list",
     "d": "swap the puck-line artifact for one fitted on shuffled labels",
+    "e": "delete the winner's test interval",
+    "f": "claim the winner confirmed on test while its interval crosses zero",
+    "g": "put a figure in the short caveat, so it can expire",
+    "h": "claim a calibrator ships while no calibrator is on disk",
 }
 
 
@@ -95,7 +99,33 @@ def run(table, plant=None, models_dir=MODELS_DIR):
             raise PlantDidNothing("that season was already in the list")
         manifest["seasons_trained_on"] = (manifest["seasons_trained_on"]
                                           + [moved])
-
+    elif plant == "e":
+        if manifest["targets"]["winner"]["test"].pop(
+                "interval_vs_no_skill", None) is None:
+            raise PlantDidNothing("there was no interval to delete")
+    elif plant == "f":
+        caveat = manifest["targets"]["winner"]["caveat"]
+        interval = manifest["targets"]["winner"]["test"][
+            "interval_vs_no_skill"]
+        if not interval["crosses_zero"]:
+            raise PlantDidNothing("the interval does not cross zero, so "
+                                  "claiming confirmation is not a lie")
+        if caveat["confirmed_on_test"]:
+            raise PlantDidNothing("it already claims confirmation")
+        caveat["confirmed_on_test"] = True
+    elif plant == "g":
+        caveat = manifest["targets"]["winner"]["caveat"]
+        if any(ch.isdigit() for ch in caveat["short"]):
+            raise PlantDidNothing("the short caveat already carries a digit")
+        caveat["short"] = caveat["short"] + " (0.6816 on test)"
+    elif plant == "h":
+        record = manifest["targets"]["winner"].get("calibration")
+        if record is None:
+            raise PlantDidNothing("there is no calibration record")
+        if record["ships_calibrated"]:
+            raise PlantDidNothing("it already claims to ship calibrated")
+        record["ships_calibrated"] = True
+        record["calibrator"] = "platt"
     elo = manifest["elo"]
     games = F.load_games(table)
     frame = F.build_features(
@@ -338,6 +368,129 @@ def run(table, plant=None, models_dir=MODELS_DIR):
           and "models_loaded" in provenance["serving"]["note"],
           f"served {provenance['serving']['served']}, note mentions "
           f"models_loaded: {'models_loaded' in provenance['serving']['note']}")
+
+    # -------------------------------------------------------- check 12
+    # THE WINNER'S TEST INTERVAL IS RECORDED AND RECOMPUTES. The whole point
+    # of freezing it is that the next reader of 0.681557 finds the interval
+    # without re-running anything - and a recorded interval nobody
+    # recomputes is a number that drifts from what it describes.
+    interval = manifest["targets"]["winner"]["test"].get(
+        "interval_vs_no_skill")
+    if interval is None:
+        check("12 the winner's test interval against no skill is recorded "
+              "and recomputes", False,
+              "the manifest carries no interval_vs_no_skill for the winner, "
+              "so the frozen log loss stands alone")
+    else:
+        rng = np.random.default_rng(20261030)
+        base = manifest["targets"]["winner"]["test"]["no_skill_base_rate"]
+        reference = np.full(len(y_winner), base)
+        n = len(y_winner)
+        draws = rng.integers(0, n, size=(2000, n))
+        deltas = np.empty(2000, dtype=float)
+        for i in range(2000):
+            pick = draws[i]
+            deltas[i] = (log_loss(y_winner[pick], predicted[pick])
+                         - log_loss(y_winner[pick], reference[pick]))
+        lo, hi = np.percentile(deltas, [2.5, 97.5])
+        observed = (log_loss(y_winner, predicted)
+                    - log_loss(y_winner, reference))
+        gaps = [abs(observed - interval["observed"]),
+                abs(float(lo) - interval["ci_low"]),
+                abs(float(hi) - interval["ci_high"])]
+        agrees = (interval["crosses_zero"] == bool(lo < 0.0 < hi))
+        check("12 the winner's test interval against no skill is recorded "
+              "and recomputes",
+              max(gaps) < 1e-9 and agrees,
+              f"recorded [{interval['ci_low']:+.6f}, "
+              f"{interval['ci_high']:+.6f}] crosses_zero="
+              f"{interval['crosses_zero']}; recomputed [{lo:+.6f}, "
+              f"{hi:+.6f}] crosses_zero={bool(lo < 0.0 < hi)}; worst gap "
+              f"{max(gaps):.3e}")
+
+    # -------------------------------------------------------- check 13
+    # THE CAVEAT AGREES WITH THE INTERVAL, and the short form carries no
+    # figure. A caveat that contradicts the number beside it is worse than
+    # no caveat, and a caveat containing a figure expires at the next
+    # retrain while still looking authoritative.
+    caveat = manifest["targets"]["winner"].get("caveat", {})
+    problems = []
+    if not caveat:
+        problems.append("there is no caveat block")
+    else:
+        if interval is not None:
+            expected = not interval["crosses_zero"]
+            if caveat.get("confirmed_on_test") != expected:
+                problems.append(
+                    f"confirmed_on_test is {caveat.get('confirmed_on_test')} "
+                    f"but the interval says {expected}")
+        for field in ("short", "reader", "for_maintainers"):
+            if not caveat.get(field):
+                problems.append(f"{field} is missing or empty")
+        if any(ch.isdigit() for ch in caveat.get("short", "")):
+            problems.append("the short caveat carries a figure, which will "
+                            "expire at the next retrain")
+        if len(caveat.get("short", "")) > 120:
+            problems.append("the short caveat is too long to be short")
+    check("13 the winner's caveat agrees with its interval and the short "
+          "form carries no figure",
+          not problems, f"{len(problems)} problem(s)"
+          + (f": {problems}" if problems else
+             f"; confirmed_on_test={caveat.get('confirmed_on_test')}, "
+             f"short is {len(caveat.get('short', ''))} chars"))
+
+    # -------------------------------------------------------- check 14
+    # THE CALIBRATION VERDICT IS RECORDED, AND AN UNCALIBRATED SHIP IS A
+    # RESULT RATHER THAN AN OMISSION. A missing record and a recorded
+    # "we tried and it did not clear the rule" are different states, and
+    # only the second one tells a later reader not to try again blindly.
+    record = manifest["targets"]["winner"].get("calibration")
+    problems = []
+    if record is None:
+        problems.append("there is no calibration record at all, which is "
+                        "not the same as 'uncalibrated by decision'")
+    else:
+        if not record.get("rule"):
+            problems.append("the rule it was judged against is not recorded")
+        if len(record.get("families_tried") or []) < 2:
+            problems.append("fewer than two families were tried")
+        if not record.get("reason"):
+            problems.append("no reason is recorded")
+        if not record.get("null_test"):
+            problems.append("the perfectly-calibrated null test is absent, "
+                            "so the record cannot say whether there was "
+                            "anything to fix")
+        on_disk = (models_dir / "winner_calibrator.joblib").exists()
+        if record.get("ships_calibrated") != on_disk:
+            problems.append(
+                f"ships_calibrated is {record.get('ships_calibrated')} but "
+                f"an artifact on disk is {on_disk}")
+    check("14 the calibration verdict is recorded, with its rule, its "
+          "families and its null test",
+          not problems, f"{len(problems)} problem(s)"
+          + (f": {problems}" if problems else
+             f"; calibrator {record.get('calibrator')!r}, families "
+             f"{record.get('families_tried')}"))
+
+    # -------------------------------------------------------- check 15
+    # THE NULL TEST SAYS SOMETHING, AND IT IS THE THING THAT JUSTIFIES NOT
+    # CALIBRATING. If raw Elo were miscalibrated on the data a calibrator
+    # could be fitted from, "we tried and it did not help" would need a
+    # different explanation - so the record has to carry which slices were
+    # inside the null.
+    if record and record.get("null_test"):
+        null = record["null_test"]
+        training = null.get("training pooled", {})
+        validation = null.get("validation", {})
+        check("15 the null test shows raw Elo inside the null where a "
+              "calibrator would be fitted",
+              (training.get("real_miscalibration") is False
+               and validation.get("real_miscalibration") is False),
+              f"training pooled real miscalibration "
+              f"{training.get('real_miscalibration')} "
+              f"(ECE {training.get('observed_ece'):.6f} vs null median "
+              f"{training.get('null_median'):.6f}), validation "
+              f"{validation.get('real_miscalibration')}")
 
     return results
 
