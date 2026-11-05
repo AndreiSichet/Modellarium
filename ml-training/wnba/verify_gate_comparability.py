@@ -1018,6 +1018,162 @@ def plant_absent_reads_as_empty() -> None:
            f"vs planted {body!r}")
 
 
+def a_served_nhl_reaches_the_predict_loop() -> None:
+    """A capture in which the NHL IS served and HAS fixtures must complete.
+
+    THE ONE STATE NO CHECK HAD EVER PUT THE CAPTURE IN, and the one the
+    deploy creates. The constructed contexts in this file never run a
+    capture; commit 19's intercepted capture runs one where `/schedule/nhl`
+    is ABSENT, so the NHL `continue`s out before the predict loop. So
+    `PREDICT_PATH` missing its `nhl` key - which `6e752cc` left behind -
+    could only ever surface as an unhandled `KeyError` in the AFTER half of
+    the switch pair.
+
+    Intercepted for the same reason as the 404 check: a live capture proves
+    only whatever image happens to be running, and against the pre-NHL image
+    it would prove the opposite of what is wanted.
+    """
+    fixture = {"game_id": "g1", "season": "2026-27", "game_date": "2026-11-06",
+               "home_team_id": 1614000030, "away_team_id": 1614000017,
+               "home": "H", "away": "A", "predictable": True,
+               "reason_code": None, "reason": None}
+    second = dict(fixture, game_id="g2", home_team_id=1614000001,
+                  away_team_id=1614000002)
+    posted = []
+
+    def fake_curl(method, url, body=None):
+        if url.endswith("/health") and ":8000" in url:
+            return {"status": "ok", "data_as_of": "2026-11-04",
+                    "days_behind": 1, "stale": False,
+                    "models_loaded": {"team": 7, "nfl": 3, "nhl": 1},
+                    "served_data": {"snapshot": "s1", "table_sha256": {}},
+                    "availability": {},
+                    "wnba": {"data_as_of": "2026-09-24"},
+                    "gleague": {"data_as_of": "2026-03-28"},
+                    "nfl": {"data_as_of": "2026-11-03"},
+                    "nhl": {"data_as_of": "2026-11-04", "served": True}}
+        if "/schedule/nhl" in url:
+            return [fixture, second]
+        if "/schedule/nfl" in url:
+            return []
+        if method.upper() == "POST":
+            posted.append(url)
+            return {"predictions": {"home_win_probability": 0.56}}
+        if url.endswith("/api/health"):
+            return {"status": "ok"}
+        if "/api/games/schedule" in url:
+            return []
+        return {"__raw__": ""}
+
+    original_curl, original_hashes = G.curl, G.model_hashes
+    G.curl = fake_curl
+    G.model_hashes = lambda: {}
+    crashed = None
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            captured = G.capture()
+    except Exception as error:                      # noqa: BLE001
+        crashed, captured = f"{type(error).__name__}: {error}", None
+    finally:
+        G.curl, G.model_hashes = original_curl, original_hashes
+
+    record("a SERVED NHL with fixtures does not crash the capture",
+           crashed is None, crashed or "completed")
+    if captured is None:
+        return
+
+    bodies = [k for k in captured["bodies"] if k.startswith("nhl.inference.")]
+    record("and it captures the NHL's inference bodies rather than skipping",
+           bodies == ["nhl.inference.0", "nhl.inference.1"],
+           f"bodies {bodies}")
+    record("posting to the route the service actually serves",
+           any(u.endswith("/predict/nhl") for u in posted),
+           f"{[u for u in posted if 'nhl' in u]}")
+
+
+def every_league_table_agrees() -> None:
+    """MATCHUPS, PREDICT_PATH and BACKEND_PATH are keyed on the same leagues.
+
+    Three hand-maintained dicts, and the failure mode is editing two of them.
+    EXACT equality rather than a subset test, for `load_models`' recorded
+    reason: a missing key is `6e752cc`'s bug and an extra key is a league
+    that is half removed.
+    """
+    tables = {"MATCHUPS": set(G.MATCHUPS), "PREDICT_PATH": set(G.PREDICT_PATH),
+              "BACKEND_PATH": set(G.BACKEND_PATH)}
+    record("the three league tables have identical key sets",
+           len(set(map(frozenset, tables.values()))) == 1,
+           "; ".join(f"{n} {sorted(k)}" for n, k in sorted(tables.items()))
+           if len(set(map(frozenset, tables.values()))) != 1
+           else f"{len(tables['MATCHUPS'])} leagues, all three agreeing")
+    record("and the NHL is in all three",
+           all("nhl" in keys for keys in tables.values()),
+           f"{[n for n, k in tables.items() if 'nhl' not in k]} missing it")
+
+
+def plant_predict_path_loses_the_nhl() -> None:
+    """PLANT: take the NHL back out of PREDICT_PATH, exactly as 6e752cc left it.
+
+    Two things must go red, and the second is the one that matters: the
+    import-time guard is what makes the FIRST one unnecessary, but a guard
+    that nobody has watched fail is not a guard.
+    """
+    original = dict(G.PREDICT_PATH)
+    G.PREDICT_PATH.pop("nhl")
+    try:
+        tables = {"MATCHUPS": set(G.MATCHUPS),
+                  "PREDICT_PATH": set(G.PREDICT_PATH),
+                  "BACKEND_PATH": set(G.BACKEND_PATH)}
+        disagree = len(set(map(frozenset, tables.values()))) != 1
+
+        def fake_curl(method, url, body=None):
+            if url.endswith("/health") and ":8000" in url:
+                return {"status": "ok", "data_as_of": "2026-11-04",
+                        "days_behind": 1, "stale": False,
+                        "models_loaded": {"team": 7, "nhl": 1},
+                        "served_data": {"snapshot": "s1",
+                                        "table_sha256": {}},
+                        "availability": {},
+                        "wnba": {"data_as_of": "2026-09-24"},
+                        "gleague": {"data_as_of": "2026-03-28"},
+                        "nfl": {"data_as_of": "2026-11-03"},
+                        "nhl": {"data_as_of": "2026-11-04"}}
+            if "/schedule/nhl" in url:
+                return [{"game_id": "g1", "game_date": "2026-11-06",
+                         "home_team_id": 1, "away_team_id": 2,
+                         "predictable": True}]
+            if "/schedule/nfl" in url:
+                return []
+            if method.upper() == "POST":
+                return {"ok": True}
+            if url.endswith("/api/health"):
+                return {"status": "ok"}
+            if "/api/games/schedule" in url:
+                return []
+            return {"__raw__": ""}
+
+        original_curl, original_hashes = G.curl, G.model_hashes
+        G.curl = fake_curl
+        G.model_hashes = lambda: {}
+        crashed = None
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                G.capture()
+        except Exception as error:                  # noqa: BLE001
+            crashed = f"{type(error).__name__}: {error}"
+        finally:
+            G.curl, G.model_hashes = original_curl, original_hashes
+    finally:
+        G.PREDICT_PATH.clear()
+        G.PREDICT_PATH.update(original)
+
+    record("PLANT the NHL out of PREDICT_PATH -> the league tables disagree",
+           disagree, "which is what the import-time guard now refuses")
+    record("PLANT and the capture CRASHES on it, as it did on 2026-11-05",
+           crashed is not None and "nhl" in str(crashed),
+           crashed or "did NOT crash - the plant proved nothing")
+
+
 def run_compare(before, after):
     """Drive the gate's own `compare` on two in-memory captures.
 
@@ -1127,7 +1283,10 @@ def main() -> int:
     plant_reason_in_the_compared_body()
     print()
     early_season_is_context()
+    every_league_table_agrees()
+    a_served_nhl_reaches_the_predict_loop()
     old_image_404_is_recorded_as_absent()
+    plant_predict_path_loses_the_nhl()
     the_switch_pair_cannot_compare_the_nhl()
     plant_absent_reads_as_empty()
     plant_early_season_unclassified()

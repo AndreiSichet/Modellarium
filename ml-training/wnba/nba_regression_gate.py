@@ -115,11 +115,37 @@ MATCHUPS = {
 }
 
 PREDICT_PATH = {"nba": "/predict", "wnba": "/predict/wnba",
-                "gleague": "/predict/gleague", "nfl": "/predict/nfl"}
+                "gleague": "/predict/gleague", "nfl": "/predict/nfl",
+                "nhl": "/predict/nhl"}
 BACKEND_PATH = {"nba": "/api/predictions", "wnba": "/api/predictions/wnba",
                 "gleague": "/api/predictions/gleague",
                 "nfl": "/api/predictions/nfl",
                 "nhl": "/api/predictions/nhl"}
+
+# THREE HAND-MAINTAINED DICTS KEYED ON THE SAME LEAGUES, AND THE FAILURE MODE
+# IS EDITING TWO OF THEM.
+#
+# `6e752cc` added `MATCHUPS["nhl"]` and `BACKEND_PATH["nhl"]` and left
+# `PREDICT_PATH` with four. Nothing noticed, because the KeyError only fires
+# in a capture where the NHL is served AND has a predictable fixture - which
+# is the AFTER half of the switch pair and nothing else. Measured 2026-11-05
+# against the candidate image on port 8010: `KeyError: 'nhl'` inside the
+# predict loop, an unhandled crash at the one moment this gate exists for.
+#
+# EXACT EQUALITY, not a subset test, and for `load_models`' recorded reason: a
+# MISSING key is the bug above and an EXTRA key is a league that is half
+# removed. Both are mistakes and the weaker test only sees one of them.
+_LEAGUE_KEYS = {"MATCHUPS": set(MATCHUPS), "PREDICT_PATH": set(PREDICT_PATH),
+                "BACKEND_PATH": set(BACKEND_PATH)}
+if len(set(map(frozenset, _LEAGUE_KEYS.values()))) != 1:
+    _union = set().union(*_LEAGUE_KEYS.values())
+    raise RuntimeError(
+        "the gate's league tables disagree, which is how the NHL came to "
+        "crash the capture that mattered: "
+        + "; ".join(
+            f"{name} is missing {sorted(_union - keys)}"
+            for name, keys in sorted(_LEAGUE_KEYS.items())
+            if _union - keys))
 
 # Per-call identifiers and timestamps. NOT dataAsOf and NOT stale: those are
 # CONTEXT - they are exactly what tells you a baseline came from different data,
