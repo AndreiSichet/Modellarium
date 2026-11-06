@@ -67,6 +67,17 @@ const PREDICTION_ENDPOINTS = {
     gameIdField: 'gameId',
     predictionField: 'prediction',
   },
+  // THE NHL'S ABSENCE HERE WOULD HAVE BEEN SILENT IN THE WRONG WAY.
+  // `normaliseSchedule` validates against THIS table rather than the league
+  // constants, because the operative question is whether a prediction can
+  // be requested - so an NHL fixture with no entry is skipped and logged,
+  // and the section would have rendered an empty list with a console
+  // warning rather than a visible fault.
+  nhl: {
+    path: '/predictions/nhl',
+    gameIdField: 'gameId',
+    predictionField: 'prediction',
+  },
 };
 
 /**

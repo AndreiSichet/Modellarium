@@ -97,6 +97,27 @@ export function formatLongDate(isoDate) {
 }
 
 /**
+ * An ISO date as "5 Nov", for a sentence inside a list row.
+ *
+ * SHORT BECAUSE OF WHERE IT APPEARS. The NHL's schedule shows a reason on
+ * almost every row - 1,081 of 1,083 on 6 November - and "5 November 2026"
+ * three times in one sentence turns an explanation into noise. The year is
+ * dropped for the same reason: these dates are always within days of the
+ * fixture, so the year adds nothing a reader of a schedule needs.
+ *
+ * Parsed by hand, not through Date, for `formatLongDate`'s reason: a date
+ * shown in copy must not move backwards for a reader west of Greenwich.
+ */
+export function shortDate(isoDate) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate || '');
+  if (!match) return null;
+
+  const [, , month, day] = match;
+  const name = MONTHS[Number(month) - 1];
+  return name ? `${Number(day)} ${name.slice(0, 3)}` : null;
+}
+
+/**
  * When a fixture starts, in the viewer's own zone.
  *
  * BASKETBALL IS UNCHANGED BY CONSTRUCTION. Those fixtures carry no kickoff,

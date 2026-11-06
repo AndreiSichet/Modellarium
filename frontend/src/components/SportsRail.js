@@ -43,6 +43,30 @@ function AmericanFootballIcon() {
   );
 }
 
+function IceHockeyIcon() {
+  // A stick and a puck. Drawn in the same line style as the other two -
+  // one viewBox, currentColor, 1.5 stroke - so the rail reads as one set
+  // rather than three borrowed glyphs.
+  return (
+    <svg
+      className="sport-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M6 4l6.5 11.5" />
+      <path d="M12.5 15.5h4.5" />
+      <ellipse cx="19.5" cy="17.5" rx="2.5" ry="1.5" />
+      <path d="M3.5 19.5h7" />
+    </svg>
+  );
+}
+
 export const SPORTS = [
   { slug: 'basketball', label: 'Basketball', icon: BasketballIcon },
   // "American football", never "football": for a European reader that word
@@ -52,6 +76,10 @@ export const SPORTS = [
     label: 'American football',
     icon: AmericanFootballIcon,
   },
+  // "Ice hockey", never "hockey": outside North America that word means
+  // field hockey, and the slug becomes a URL. The same reasoning as the
+  // line above it.
+  { slug: 'ice-hockey', label: 'Ice hockey', icon: IceHockeyIcon },
 ];
 
 export function findSport(slug) {

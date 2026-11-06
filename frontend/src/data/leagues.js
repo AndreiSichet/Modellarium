@@ -171,6 +171,79 @@ export const LEAGUES = [
       ];
     },
   },
+  {
+    slug: 'nhl',
+    label: 'NHL',
+    sport: 'ice-hockey',
+    freshness: 'nhl',
+    // THE SAME DEPENDENCY RULE AS THE NFL, and declared the same way. A
+    // fixture is predictable once both teams' previous games are in
+    // history, which no date can express - so the server answers and
+    // `dates.isPredictable` dispatches on the flag.
+    rule: 'server',
+    // Two markets, so one tab and no tablist: the winner and the puck line.
+    // Totals are deliberately NOT served - a constant predictor beat the
+    // fitted model on test - which the game page states rather than hides.
+    markets: { rebounds: false, assists: false, quarterHalf: false, playerProps: false },
+    // The licence requires attribution wherever this league's data is
+    // shown. The words come from the API's `source`, as the NFL's do.
+    attributionRequired: true,
+    // NO WEEKLY SLATE, UNLIKE THE NFL. Hockey plays most nights, so a date
+    // list is the unit a reader thinks in; "Week 10" would be a heading
+    // nobody uses for this sport.
+    weeklySlate: false,
+    // BUT ITS UNPREDICTABLE FIXTURES ARE STILL SHOWN. The NFL gets both
+    // from weeklySlate; this league needs only the second, because the
+    // dependency rule offers 2 of 1,083 and a page that hid the rest would
+    // look empty on a night with a full slate.
+    showsUnpredictable: true,
+    // THE ROW'S OWN COLUMNS. The default row is Spread / Win / Total and the
+    // NHL serves none of the three in that form: no spread, no total, and a
+    // puck line defined as "home wins by 2 or more". Declared rather than
+    // sniffed from the prediction's fields, so a league that stops serving a
+    // market says so here instead of rendering an empty cell.
+    rowMarkets: ['win', 'puckLine'],
+    // THE RULE IN THE READER'S WORDS, above the list, once. Not a copy of
+    // the API's prediction_rule, which is written for a maintainer.
+    predictabilityExplainer:
+      'A game can be predicted once both teams’ previous results are confirmed.',
+    // THE WINNER IS A WEAK SIGNAL AND EVERY SURFACE SAYS SO. This flag
+    // only says the caveat is required for this league; the words come
+    // from the API, because a copy here would go on asserting something
+    // the model no longer supports.
+    winnerCaveatRequired: true,
+    seasonStatus: ({ schedule }) => {
+      const opens = firstFixtureDate(schedule, 'nhl');
+      return opens
+        ? 'No games to predict yet — waiting on last night’s results'
+        : 'No games today — no fixtures are scheduled yet';
+    },
+    // THIS COPY IS THE NHL'S MECHANISM AND IT IS NOT THE NFL'S.
+    //
+    // The NFL waits for a weekly slate to settle. The NHL waits for
+    // Wikipedia's two copies of each result to agree: a game that only one
+    // team's article carries is set aside, and it holds back BOTH teams'
+    // next fixtures. That is why the predictable count is small and why it
+    // is not a fault - measured 2 of 1,083 on 6 November.
+    //
+    // No number is written here. The count comes from the same response
+    // the list does, so the page cannot claim one figure and show another.
+    seasonNote: ({ schedule }) => {
+      const opens = firstFixtureDate(schedule, 'nhl');
+
+      if (!opens) {
+        return [
+          'No NHL fixtures are scheduled here yet, so there is nothing to predict.',
+          'No date is shown for the next game because none has been published.',
+        ];
+      }
+
+      return [
+        'A game can be predicted once both teams’ previous results are confirmed.',
+        'Results are confirmed from two independent team pages, so a game usually becomes predictable the day after both teams last played.',
+      ];
+    },
+  },
 ];
 
 /**

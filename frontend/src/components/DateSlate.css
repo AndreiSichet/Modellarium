@@ -1,0 +1,71 @@
+/* The explainer above a slate that is mostly not-yet-predictable.
+
+   REWRITTEN TO USE THE PROJECT'S OWN TOKENS. The first version invented
+   `--color-text`, `--color-accent`, `--color-surface-muted` and `--radius-2`,
+   none of which exist in styles/tokens.css - so every rule fell through to
+   its hard-coded fallback and the block was styled by accident rather than
+   by the theme. The real names are `--ink`, `--accent`, `--surface` and
+   `--rule`; there is no radius token, and nothing else here rounds a corner. */
+
+.date-slate-explainer {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+}
+
+.date-slate-rule {
+  margin: 0;
+  max-width: var(--measure);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--ink);
+}
+
+/* The count is the one number on this block, so it is set in the mono face
+   every other figure in the app uses - and the two parts of "1 of 3" must
+   be the same face, or the sentence reads as two sources. */
+.date-slate-count {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-body);
+  font-size: var(--text-label);
+  color: var(--ink-muted);
+}
+
+.date-slate-count strong {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* TWO EMPTY-ISH STATES THAT MUST NOT LOOK ALIKE. No fixtures at all is a
+   gap in the data; none predictable yet is the rule working as designed, and
+   the second keeps the surface and the rule so it reads as an explanation
+   sitting above a list rather than an error where a list should be. */
+.date-slate-empty {
+  margin: 0 0 var(--space-4);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+}
+
+.date-slate-none-yet {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  max-width: var(--measure);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  font-family: var(--font-body);
+  font-size: var(--text-small);
+  line-height: var(--leading-body);
+  color: var(--ink);
+}
+
+@media (max-width: 480px) {
+  .date-slate-explainer,
+  .date-slate-none-yet {
+    padding: var(--space-2) var(--space-3);
+  }
+}

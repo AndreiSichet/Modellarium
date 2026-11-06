@@ -5,6 +5,7 @@ import Breadcrumb from './Breadcrumb';
 import { findLeague, leagueCopy } from '../data/leagues';
 import { dataAsOfFor } from '../dates';
 import Attribution from './Attribution';
+import DateSlate from './DateSlate';
 import GameList from './GameList';
 import { byDate } from './GamesPage';
 import { findSport } from './SportsRail';
@@ -54,6 +55,17 @@ function LeaguePage() {
           schedule={schedule}
           games={listed}
         />
+      ) : league.showsUnpredictable ? (
+        /* A FLAT DATE SLATE THAT SHOWS WHAT IT CANNOT PREDICT. `weeklySlate`
+           bundled two decisions - week headings AND showing unpredictable
+           fixtures - and they come apart here: a league playing most nights
+           wants the second without the first. Hiding them would leave this
+           page apparently empty on a night with a full slate, because the
+           dependency rule offers 2 of 1,083. */
+        <>
+          <DateSlate league={league} schedule={schedule} games={listed} />
+          <LeagueFreshness league={league} health={health} />
+        </>
       ) : listed.length === 0 ? (
         <SeasonEmptyState
           league={league}

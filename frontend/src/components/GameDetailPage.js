@@ -10,6 +10,7 @@ import Breadcrumb from './Breadcrumb';
 import DetailTabs, { PLAYER_STATS, isPlayerTab, panelId, tabId, tabsFor } from './DetailTabs';
 import Attribution from './Attribution';
 import GameTab from './GameTab';
+import NhlGameTab from './NhlGameTab';
 import PlayerStatTab from './PlayerStatTab';
 import QuarterHalfTab from './QuarterHalfTab';
 import { findSport } from './SportsRail';
@@ -139,7 +140,22 @@ function GameDetailPage() {
             }
           : {})}
       >
-        {tab === 'game' ? (
+        {/* THE NHL'S MARKETS ARE A DIFFERENT SHAPE, so it gets its own tab
+            the way the quarter/half and player-prop markets do. Dispatched
+            on a CAPABILITY and not on the slug: `winnerCaveatRequired` is
+            declared by the one league whose headline market needs its
+            caveat shown wherever the number is, and that is exactly the
+            league whose markets this tab renders. The reader caveat comes
+            from /health, because the prediction body carries only the
+            short one. */}
+        {tab === 'game' && league.winnerCaveatRequired ? (
+          <NhlGameTab
+            game={game}
+            health={health}
+            league={league}
+            healthCaveat={health?.nhl?.winnerCaveat}
+          />
+        ) : tab === 'game' ? (
           <GameTab game={game} health={health} league={league} />
         ) : tab === 'quarters' ? (
           <QuarterHalfTab

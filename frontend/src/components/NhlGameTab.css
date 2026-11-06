@@ -1,0 +1,114 @@
+/* The NHL's markets. Only what this tab adds - every row, label and value
+   is `.market-*` from GameDetailPage.css, so the three leagues' detail pages
+   stay one surface rather than three that look similar.
+
+   `.market-note` IS REUSED FOR THE CAVEAT AND THE DEFINITION. Both are a
+   full-width child of `.market-value`, which is the slot the NFL's
+   "P(home wins | not tied)" qualifier already occupies - so the caveat sits
+   on its own line under the number without a new layout rule, and inherits
+   the width fix recorded in that file. */
+
+/* Both sides on one line at desktop width, stacked when there is no room.
+   The pair is one value, not two rows: a reader comparing 69.6% and 30.4%
+   should not have to look in two places. */
+.nhl-win-pair {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+}
+
+/* THE CAVEAT IS NOT A FOOTNOTE AND MUST NOT LOOK LIKE ONE. It carries the
+   accent rule down its left edge so it reads as attached to the number above
+   it - a reader who sees 69.6% and skims past this has been told the wrong
+   thing. Same colour as `.market-note`, because it is the same kind of
+   qualifier and a louder one would turn every NHL number into a warning. */
+.nhl-caveat-short {
+  margin-top: var(--space-1);
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--accent);
+  max-width: var(--measure);
+}
+
+/* A text button, because this reveals prose rather than navigating. Styled
+   as a link so it reads as one affordance with the rest of the page, and
+   keyed off `--accent` so it moves with the theme. */
+.nhl-caveat-toggle {
+  flex-basis: 100%;
+  align-self: flex-start;
+  margin-top: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-body);
+  font-size: var(--text-label);
+  line-height: var(--leading-body);
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.nhl-caveat-toggle:hover,
+.nhl-caveat-toggle:focus-visible {
+  color: var(--ink);
+}
+
+/* THE PARAGRAPH, ONCE OPENED. Held to `--measure` so it stays readable at
+   1440 px, where the value cell is otherwise wide enough to run a 60-word
+   sentence into one line. */
+.nhl-caveat-reader {
+  flex-basis: 100%;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  max-width: var(--measure);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  font-family: var(--font-body);
+  font-size: var(--text-small);
+  line-height: var(--leading-body);
+  color: var(--ink);
+}
+
+/* "Not offered" is a STATE, not a missing number - so it is set in the body
+   face rather than the mono face every real value uses. A reader scanning
+   the column sees at a glance that nothing was computed here. */
+.nhl-not-offered {
+  font-family: var(--font-body);
+  font-size: var(--text-small);
+  font-style: italic;
+  color: var(--ink-muted);
+}
+
+/* The unserved row is dimmed as a whole, which is what keeps the Totals
+   heading from reading as a column that failed to load. */
+.market-row--unserved .market-label {
+  color: var(--ink-muted);
+}
+
+/* Three facts on one line at width, wrapping to two or three on a phone.
+   `.market-freshness` already sets the face and the stale badge's gap; this
+   only lets it wrap, because its content is three clauses rather than one. */
+.nhl-footnote {
+  flex-wrap: wrap;
+  row-gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+/* 390 px. The win pair stacks, and the caveat's indent is reduced: at that
+   width the rule plus padding costs a sixth of the line, which pushes the
+   caveat into four lines where three will do. */
+@media (max-width: 480px) {
+  .nhl-win-pair {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .nhl-caveat-short {
+    padding-left: var(--space-1);
+  }
+
+  .nhl-caveat-reader {
+    padding: var(--space-2);
+  }
+}
