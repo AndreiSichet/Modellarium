@@ -150,7 +150,18 @@ if len(set(map(frozenset, _LEAGUE_KEYS.values()))) != 1:
 # Per-call identifiers and timestamps. NOT dataAsOf and NOT stale: those are
 # CONTEXT - they are exactly what tells you a baseline came from different data,
 # so hiding them would restore the blindness this rewrite removes.
-VOLATILE = {"predictedAt", "id", "gameId", "predicted_at"}
+# `timestamp` IS THE FAILURE SHAPE'S `predictedAt`. A refused POST returns
+# Spring's default error body - {timestamp, status, error, message, path} -
+# and that timestamp is wall clock, so two captures of the same refusal
+# differ by construction. Measured 2026-11-06: the NHL came back REGRESSED on
+# two captures 23 seconds apart, differing in nothing else.
+#
+# STRIPPED RATHER THAN AVOIDED. The chooser below no longer posts a fixture
+# the backend would refuse, so this should not arise - but "should not arise"
+# is what every one of the four previous clock-field incidents assumed, and a
+# refusal the gate cannot compare is a verdict it must still be able to
+# reach.
+VOLATILE = {"predictedAt", "id", "gameId", "predicted_at", "timestamp"}
 
 # Derived from today and so never equal across a date boundary. Reported with
 # the context rather than diffed.
@@ -364,8 +375,24 @@ def predictable_date(health: dict, league: str):
     return (dt.date.fromisoformat(cutoff) + dt.timedelta(days=1)).isoformat()
 
 
-def nfl_matchups(count=2) -> list:
-    """Two predictable NFL fixtures with four distinct teams.
+# WHICH LEAGUES USE THE DEPENDENCY RULE, DERIVED FROM THE TABLE ABOVE.
+#
+# `MATCHUPS[league] is None` already means exactly this: the pairs cannot be
+# fixed here because which fixtures are predictable changes daily, which is
+# true of a league whose rule is "both teams' previous games in history" and
+# of no other. Both entries say so in prose; this reads it.
+#
+# IT WAS THREE HAND-WRITTEN BRANCHES. `backend_fixtures` tested
+# `league == "nfl"`, and the NHL therefore took the date branch and was
+# posted fixtures it could only refuse - a false REGRESSED on every pair,
+# measured 2026-11-06. A league must not be addable to a table without being
+# addable to the branches that read it.
+DEPENDENCY_RULE_LEAGUES = frozenset(
+    league for league, pairs in MATCHUPS.items() if pairs is None)
+
+
+def nfl_matchups(count=2) -> tuple:
+    """(fixtures, skip_code) - two predictable NFL fixtures, four teams.
 
     FROM THE SERVICE, BECAUSE NOTHING ELSE KNOWS. The dependency rule is
     evaluated against the served history, so the only honest source for "which
@@ -373,12 +400,26 @@ def nfl_matchups(count=2) -> list:
     Asking it is also what makes this gate survive the season advancing: next
     week's answer is a different four teams and the gate needs no edit.
 
-    Returns [(home, away, date), ...], or [] when nothing is predictable -
-    which is correct between seasons and is reported rather than failing.
+    THE SAME CONTRACT AS `nhl_matchups`, so `DERIVED_MATCHUPS` can dispatch
+    to either. It returned a bare list until 2026-11-06 and the two functions
+    could not be called the same way - which is a dispatch table that is not
+    one.
+
+    AND THE SAME CODES, for commit 19's reason. `return []` on a non-list
+    response threw away which way it failed: an image with no
+    `/schedule/nfl` route and a league with nothing predictable between
+    seasons produced the same empty list, so a capture taken across a deploy
+    that REMOVED the NFL would read identically to an ordinary February.
     """
     fixtures = curl("GET", f"{INFERENCE}/schedule/nfl?predictable_only=true")
     if not isinstance(fixtures, list):
-        return []
+        # ONLY `endpoint_absent` HERE, UNLIKE THE NHL. The NHL has a
+        # `not_served_from_this_snapshot` code because its five tables are
+        # OPTIONAL, so a snapshot can legitimately lack them. The NFL's are
+        # REQUIRED - the service refuses to boot without them - so there is
+        # no such state to report, and a branch for it would be a path that
+        # can never be taken.
+        return [], INFERENCE_ENDPOINT_ABSENT
 
     chosen, used = [], set()
     for fixture in sorted(fixtures, key=lambda f: (f.get("game_date") or "",
@@ -390,7 +431,7 @@ def nfl_matchups(count=2) -> list:
         used.update((home, away))
         if len(chosen) == count:
             break
-    return chosen
+    return chosen, (None if chosen else INFERENCE_NONE_PREDICTABLE)
 
 
 def nhl_matchups(count=2) -> tuple:
@@ -442,6 +483,23 @@ def nhl_matchups(count=2) -> tuple:
         if len(chosen) == count:
             break
     return chosen, (None if chosen else INFERENCE_NONE_PREDICTABLE)
+
+
+# EACH DEPENDENCY-RULE LEAGUE'S OWN MATCHUP FUNCTION, and the set must match.
+#
+# A dict rather than an if/else chain for the reason commit 22 recorded: three
+# hand-maintained tables keyed on the same leagues, and the failure mode is
+# editing two of them. Checked at import against DEPENDENCY_RULE_LEAGUES, so a
+# league declared `None` in MATCHUPS without a function here - or the reverse -
+# fails the import rather than at the one capture that needed it.
+DERIVED_MATCHUPS = {"nfl": nfl_matchups, "nhl": nhl_matchups}
+
+if set(DERIVED_MATCHUPS) != set(DEPENDENCY_RULE_LEAGUES):
+    raise RuntimeError(
+        f"DERIVED_MATCHUPS {sorted(DERIVED_MATCHUPS)} does not match the "
+        f"leagues whose MATCHUPS entry is None "
+        f"{sorted(DEPENDENCY_RULE_LEAGUES)} - a dependency-rule league with "
+        f"no matchup function cannot be captured at all")
 
 
 # Every differing field is printed. A CAP WOULD HAVE TO ANNOUNCE ITSELF, and
@@ -565,9 +623,13 @@ def backend_fixtures(schedule, league: str, date, count: int = 2) -> tuple:
             f"the backend has no cached {league} fixture at all "
             f"(its sync writes none out of season)")
 
-    if league == "nfl":
-        # ITS OWN FLAG, NOT A DATE. 193 of 208 fixtures are refused at any
-        # moment under the dependency rule, and which ones changes weekly.
+    if league in DEPENDENCY_RULE_LEAGUES:
+        # ITS OWN FLAG, NOT A DATE. Under the dependency rule most fixtures
+        # are refused at any moment and which ones changes constantly - 193
+        # of 208 for the NFL weekly, 2 of 1,083 for the NHL on 2026-11-06 -
+        # so a date cannot choose a usable one. THIS READ `league == "nfl"`
+        # and the NHL fell through to the date branch, which is how the gate
+        # came to post two unpredictable fixtures and compare the refusals.
         usable = [row for row in rows if row.get("predictable") is True]
         code = SKIP_NONE_PREDICTABLE
         why = "none of them is predictable yet under the dependency rule"
@@ -630,15 +692,12 @@ def capture() -> dict:
 
         # The NFL's pairs AND date come from its own schedule; the other three
         # keep fixed pairs and a date derived from their cutoff.
-        if league in ("nfl", "nhl"):
+        if league in DEPENDENCY_RULE_LEAGUES:
             # BOTH DEPENDENCY-RULE LEAGUES DERIVE THEIR PAIRS AND THEIR
             # DATE. The other three keep fixed pairs and derive only the
             # date, because any pair of their teams is predictable on
             # cutoff + 1.
-            if league == "nfl":
-                derived, inference_skip = nfl_matchups(), None
-            else:
-                derived, inference_skip = nhl_matchups()
+            derived, inference_skip = DERIVED_MATCHUPS[league]()
             pairs = [(home, away) for home, away, _d in derived]
             dates = [d for _h, _a, d in derived]
         else:
