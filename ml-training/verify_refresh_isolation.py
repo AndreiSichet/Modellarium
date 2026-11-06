@@ -768,6 +768,115 @@ def case_missing_step_script(volume, scratch_repo, pointer):
            "re-raise present")
 
 
+def case_corpus_missing(volume, scratch_repo, pointer):
+    """A league whose raw corpus was never seeded refuses BEFORE its fetch.
+
+    THE FAILURE THIS REPLACES, measured on the runner 2026-11-06. The NHL's
+    raw corpus was present there, but its PROCESSED tables were not - and
+    the way that surfaced was seventeen validation failures about an empty
+    games table, several steps and two minutes after the real answer was
+    knowable. An absent RAW corpus is the same shape and worse: the fetcher
+    would quietly start from nothing, which for the NHL is about 450 content
+    requests at the project's >=3 s floor, and for the NBA is a recorded
+    ~3.7-hour cold re-fetch that "looks like a slow job".
+
+    DRIVEN THROUGH `rebuild_league`, not `_run` with rebuilds enabled - the
+    `case_missing_step_script` lesson. Pointing a real step list at a real
+    corpus would run the real NBA pipeline and rewrite tracked tables in the
+    working tree, and a verifier must not mutate the repo to test a path.
+    """
+    original = D.LEAGUES["nhl"]["raw_corpus"]
+    D.LEAGUES["nhl"]["raw_corpus"] = Path("data-pipeline") / "data" / "nhl" \
+        / "raw-that-was-never-seeded"
+    if D.LEAGUES["nhl"]["raw_corpus"] == original:
+        raise PlantDidNothing("the corpus path was not replaced")
+
+    present, files = D.corpus_state("nhl")
+    raised = None
+    try:
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            D.rebuild_league("nhl", timeout=5)
+    except D.CorpusMissing as error:
+        raised = str(error)
+    except Exception as error:                                  # noqa: BLE001
+        raised = f"WRONG TYPE: {type(error).__name__}: {error}"
+    finally:
+        D.LEAGUES["nhl"]["raw_corpus"] = original
+
+    record("plant: an absent raw corpus raises CorpusMissing",
+           raised is not None and not raised.startswith("WRONG TYPE"),
+           f"-> {(raised or '')[:70]}")
+    record("plant: and the message carries the code `corpus_missing`",
+           raised is not None and "corpus_missing:" in raised,
+           "a stable word, so a summary can key on it")
+    record("plant: and it names the directory and says to seed it",
+           raised is not None and "raw-that-was-never-seeded" in raised
+           and "Seed it" in raised,
+           "")
+    record("plant: corpus_state reports absent with a zero count",
+           present is False and files == 0,
+           f"present={present}, files={files}")
+
+    # CONTROL: every real corpus on this machine IS present, so the guard
+    # cannot be passing because it refuses everything.
+    states = {league: D.corpus_state(league) for league in D.LEAGUES}
+    record("CONTROL every league's real corpus is present and non-empty",
+           all(ok and (count or 0) > 0 for ok, count in states.values()),
+           ", ".join(f"{lg} {count}" for lg, (ok, count) in states.items()))
+    record("CONTROL every league DECLARES a corpus, so none is unguarded",
+           all(D.LEAGUES[lg].get("raw_corpus") is not None
+               for lg in D.LEAGUES),
+           f"{len(D.LEAGUES)} league(s)")
+
+
+def case_nhl_builds_before_it_validates(volume, scratch_repo, pointer):
+    """The NHL validates what the build wrote, so the build must come first.
+
+    THE DEADLOCK THIS PREVENTS, measured 2026-11-06.
+    `validate_nhl_games.py` reads `nhl_games_final.csv`, `nhl_repairs.csv`
+    and `nhl_quarantine.csv` from `data/nhl/processed/`, which is
+    `build_nhl_tables.py`'s output. With validate ahead of build, a machine
+    that has never built the NHL can never build it: validate fails because
+    the tables are absent, so build never runs, so the tables stay absent.
+    The runner sat in exactly that state - no `nhl/processed/` directory at
+    all - while `nfl/processed/` was written by the same morning's run.
+
+    ASSERTED FROM THE DECLARED ORDER AND FROM THE VALIDATOR'S OWN SOURCE,
+    because the order alone is a convention until something ties it to the
+    reason. If the validator stops reading the build's output, this check
+    should be revisited rather than silently kept.
+    """
+    steps = [script.name for script in D.LEAGUES["nhl"]["steps"]]
+    record("the NHL's build runs before its validate",
+           steps.index("build_nhl_tables.py")
+           < steps.index("validate_nhl_games.py"),
+           " -> ".join(steps))
+
+    validator = (Path(D.PROJECT) / "data-pipeline" / "nhl" / "preprocessing"
+                 / "validate_nhl_games.py")
+    source = io.open(validator, encoding="utf-8").read()
+    reads_output = all(name in source for name in
+                       ("nhl_games_final.csv", "nhl_repairs.csv",
+                        "nhl_quarantine.csv"))
+    record("and it is ordered that way BECAUSE the validator reads the "
+           "build's output",
+           reads_output,
+           "names all three processed tables")
+
+    # THE NFL IS THE CONTRAST, and it is the reason the two orders differ.
+    nfl_steps = [script.name for script in D.LEAGUES["nfl"]["steps"]]
+    nfl_validator = (Path(D.PROJECT) / "data-pipeline" / "nfl"
+                     / "preprocessing" / "validate_nfl_games.py")
+    nfl_source = io.open(nfl_validator, encoding="utf-8").read()
+    record("CONTROL the NFL validates BEFORE its build, and may",
+           nfl_steps.index("validate_nfl_games.py")
+           < nfl_steps.index("build_nfl_tables.py")
+           and "parse_season" in nfl_source
+           and "nfl_games_final.csv" not in nfl_source,
+           "it parses the raw articles and never reads the build's output")
+
+
 def case_carried_table_altered(volume, scratch_repo, pointer, snapshot):
     """A carried table changed before the swap must stop the swap."""
     carried = {"wnba": D.league_hashes(snapshot, "wnba")}
@@ -840,6 +949,8 @@ def main(argv=None) -> int:
     case_carry_keeps_first_origin(volume, scratch_repo, pointer)
     case_real_step_refused(volume, scratch_repo)
     case_missing_step_script(volume, scratch_repo, pointer)
+    case_corpus_missing(volume, scratch_repo, pointer)
+    case_nhl_builds_before_it_validates(volume, scratch_repo, pointer)
     case_carried_table_altered(volume, scratch_repo, pointer, snapshot)
 
     D.run_step = real_run_step

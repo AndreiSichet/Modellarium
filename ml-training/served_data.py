@@ -192,6 +192,33 @@ LAST_REFRESH_FILE = "last_refresh.json"
 REFRESH_LATE_HOURS = 26
 REFRESH_OVERDUE_HOURS = 40
 
+# HOW LONG THE REFRESH WAITS FOR ONE /health, AND WHAT THAT BUYS /health.
+#
+# On 2026-11-06 the daily refresh rolled back a swap that had worked, because
+# `/health` took 4.3-5.1 s and this timeout is 5. Every one of the 20 attempts
+# raised `TimeoutError`, which is an `OSError`, which the probe caught - so a
+# service answering correctly but slowly was indistinguishable from one that
+# was not listening at all, and the job reported "THE SERVICE IS STILL NOT
+# SERVING" about a healthy process.
+#
+# TWO NUMBERS, ONE DEFINITION, because the failure was the two being
+# unrelated. The timeout is what the refresh allows; the budget is what
+# `/health` is allowed to cost, and it is a FIFTH of the timeout rather than
+# a shade under it. A budget set just inside the limit is the state that
+# caused this: 4.34 s against 5 s is a 13% margin, and the margin is spent by
+# any contention at all - the refresh restarts the container, the docker
+# healthcheck starts polling every 5 s, the backend polls, and the refresh's
+# own 20 attempts pile on, all at the same moment.
+#
+# MEASURED on snapshot 2026-11-05T0843, warm, unloaded, from the live image:
+# pre-NHL 1.01 s, with the NHL 4.34 s, and after commit A's indexes the two
+# dependency-rule walks fell from 3.53 s to 0.07 s together.
+#
+# Read by `daily_refresh.probe_health` and asserted by
+# `ml-training/verify_health_budget.py`. Neither writes the number again.
+HEALTH_TIMEOUT_SECONDS = 5
+HEALTH_BUDGET_SECONDS = HEALTH_TIMEOUT_SECONDS / 5
+
 # WHEN THE CRON QUEUES, AS ONE STRING WITH TWO READERS. It was written out as
 # a literal "07:00" in this file and again in daily_refresh.py, and both
 # strings reach a person - one through /health's refresh block, one through

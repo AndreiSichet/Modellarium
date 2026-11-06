@@ -35,6 +35,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import socket
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,6 +46,7 @@ sys.path.insert(0, str(HERE))
 import pandas as pd  # noqa: E402
 import drift_report  # noqa: E402
 from served_data import (  # noqa: E402
+    HEALTH_TIMEOUT_SECONDS,
     OPTIONAL_FILES, POINTER_FILE, REFRESH_LATE_HOURS,
     REFRESH_SCHEDULE_UTC, REPO_DATA_ROOT,
     REQUIRED_FILES, SNAPSHOTS_DIR, missing_files, read_last_refresh,
@@ -92,6 +94,9 @@ LEAGUES = {
         # at all: the other three were spelled out and a fourth was simply
         # not in the list.
         "availability": True,
+        # WHERE THIS LEAGUE'S RAW CORPUS LIVES, so `check_corpus` can refuse
+        # in seconds on a machine that was never seeded. See CorpusMissing.
+        "raw_corpus": Path("data-pipeline") / "data" / "raw",
         "steps": [
             PROJECT / "data-pipeline" / "ingestion" / "fetch_games.py",
             PROJECT / "data-pipeline" / "preprocessing" / "validate_games.py",
@@ -112,6 +117,9 @@ LEAGUES = {
         "cutoff_table": Path("processed") / "games_final.csv",
     },
     "wnba": {
+        # WHERE THIS LEAGUE'S RAW CORPUS LIVES, so `check_corpus` can refuse
+        # in seconds on a machine that was never seeded. See CorpusMissing.
+        "raw_corpus": Path("data-pipeline") / "data" / "wnba" / "raw",
         "steps": [
             PROJECT / "data-pipeline" / "wnba" / "ingestion" / "fetch_wnba_games.py",
             PROJECT / "data-pipeline" / "wnba" / "preprocessing" / "validate_wnba_games.py",
@@ -121,6 +129,9 @@ LEAGUES = {
         "cutoff_table": Path("wnba") / "processed" / "wnba_games_final.csv",
     },
     "gleague": {
+        # WHERE THIS LEAGUE'S RAW CORPUS LIVES, so `check_corpus` can refuse
+        # in seconds on a machine that was never seeded. See CorpusMissing.
+        "raw_corpus": Path("data-pipeline") / "data" / "gleague" / "raw",
         "steps": [
             PROJECT / "data-pipeline" / "gleague" / "ingestion" / "fetch_gleague_games.py",
             PROJECT / "data-pipeline" / "gleague" / "preprocessing" / "validate_gleague_games.py",
@@ -148,6 +159,9 @@ LEAGUES = {
     # taught the other three leagues retroactively and this one had from the
     # start.
     "nfl": {
+        # WHERE THIS LEAGUE'S RAW CORPUS LIVES, so `check_corpus` can refuse
+        # in seconds on a machine that was never seeded. See CorpusMissing.
+        "raw_corpus": Path("data-pipeline") / "data" / "nfl" / "raw",
         "steps": [
             PROJECT / "data-pipeline" / "nfl" / "ingestion" / "fetch_nfl_seasons.py",
             PROJECT / "data-pipeline" / "nfl" / "preprocessing" / "validate_nfl_games.py",
@@ -190,10 +204,33 @@ LEAGUES = {
     # COMPLETED season it is still fatal. So an editor's half-finished edit
     # costs a class in the summary rather than every game in the season.
     "nhl": {
+        # WHERE THIS LEAGUE'S RAW CORPUS LIVES, so `check_corpus` can refuse
+        # in seconds on a machine that was never seeded. See CorpusMissing.
+        "raw_corpus": Path("data-pipeline") / "data" / "nhl" / "raw",
+        # BUILD BEFORE VALIDATE, AND THE NHL IS THE ONLY LEAGUE LIKE THIS.
+        #
+        # `validate_nhl_games.py` reads `nhl_games_final.csv`,
+        # `nhl_repairs.csv` and `nhl_quarantine.csv` out of
+        # `data/nhl/processed/` - which `build_nhl_tables.py` WRITES. With
+        # validate second, a workspace that has never built the NHL
+        # deadlocks: validate fails because the tables are absent, so build
+        # never runs, so the tables stay absent. Measured on the self-hosted
+        # runner 2026-11-06, where `data/nhl/processed/` did not exist and
+        # the step failed 17 checks - 1 for the empty table, 14 for
+        # "<season> has rows", 2 for the unusable-game reverse guard - while
+        # printing real marker and record findings from the RAW corpus in
+        # the same output. It passed in the owner's working copy only because
+        # the phase 1 and 2 manual runs had left `processed/` behind.
+        #
+        # THE NFL'S ORDER IS DIFFERENT AND CORRECT FOR IT:
+        # `validate_nfl_games.py` parses the raw articles through
+        # `parse_nfl_wikitext`, so it guards the INPUT and legitimately runs
+        # before the build. The NHL's validator is a post-build AUDIT. Same
+        # three words, opposite dependency.
         "steps": [
             PROJECT / "data-pipeline" / "nhl" / "ingestion" / "fetch_nhl_seasons.py",
-            PROJECT / "data-pipeline" / "nhl" / "preprocessing" / "validate_nhl_games.py",
             PROJECT / "data-pipeline" / "nhl" / "preprocessing" / "build_nhl_tables.py",
+            PROJECT / "data-pipeline" / "nhl" / "preprocessing" / "validate_nhl_games.py",
         ],
         # EMPTY, AND THAT IS THE POINT. `tables` is what a league REQUIRES of
         # a snapshot; the NHL requires nothing, so every one of its five is
@@ -467,19 +504,146 @@ def restart_service(_unused: Path = None, project: str = COMPOSE_PROJECT,
 HEALTH_URL = "http://localhost:8000/health"
 
 
-def served_snapshot(attempts: int = 20, delay: float = 3.0,
-                    url: str = HEALTH_URL) -> dict:
-    """What /health says it is serving, once it answers."""
+# WHY /health FAILED, AS A STABLE WORD. Each of these is a different
+# situation and only the last two mean the service is not serving.
+PROBE_CONFIRMED = "confirmed"
+PROBE_TIMED_OUT = "timed_out"
+PROBE_NO_SNAPSHOT_FIELD = "no_snapshot_field"
+PROBE_DIFFERENT_SNAPSHOT = "different_snapshot"
+PROBE_UNREADABLE = "unreadable_body"
+PROBE_NOT_LISTENING = "not_listening"
+
+
+class HealthProbe:
+    """What one run of the /health probe found, and why it stopped.
+
+    `snapshot` is what /health reported, or None. `reason` is one of the
+    PROBE_* words above. `detail` is for a person. `attempts` and `seconds`
+    say how hard it tried, because "timed out 20 times over 120 s" and
+    "refused instantly once" are different stories about the same {}.
+    """
+
+    __slots__ = ("snapshot", "reason", "detail", "attempts", "seconds",
+                 "slowest")
+
+    def __init__(self, snapshot, reason, detail, attempts, seconds,
+                 slowest=0.0):
+        self.snapshot = snapshot
+        self.reason = reason
+        self.detail = detail
+        self.attempts = attempts
+        self.seconds = seconds
+        self.slowest = slowest
+
+    @property
+    def listening(self) -> bool:
+        """Was the connection ACCEPTED - whatever came back, or did not.
+
+        NOT "serving", and the difference is the one this class exists for.
+        A timeout means the socket accepted the request and the response did
+        not arrive inside the budget: something is there. A refused
+        connection means nothing is. Only the second is "the service is not
+        serving", and conflating them is what printed that line about a
+        healthy process on 2026-11-06.
+
+        An unreadable body counts as listening too - the service answered,
+        it just answered something this probe cannot parse.
+        """
+        return self.reason != PROBE_NOT_LISTENING
+
+    def __repr__(self) -> str:
+        return (f"HealthProbe({self.snapshot!r}, {self.reason!r}, "
+                f"{self.attempts} attempt(s), {self.seconds:.1f}s)")
+
+
+def probe_health(expected=None, attempts: int = 20, delay: float = 3.0,
+                 url: str = HEALTH_URL) -> HealthProbe:
+    """Ask /health until it answers, and report WHICH way it did not.
+
+    THE OLD VERSION COULD NOT TELL ITS FAILURES APART and that cost a good
+    swap. It caught `(URLError, OSError, JSONDecodeError)` and returned `{}`;
+    `TimeoutError` is an `OSError`, so a service answering correctly but 0.01 s
+    too slowly was the same `{}` as a port with nothing behind it. The caller
+    then printed "THE SERVICE IS STILL NOT SERVING" about a process that was
+    serving. Reproduced 2026-11-06: 8 x RemoteDisconnected while the app
+    loaded, then 12 x TimeoutError at 5.01 s, `{}` after 120.3 s.
+
+    `expected` is the snapshot the caller is waiting for. Given it, a /health
+    that answers with a DIFFERENT snapshot keeps being retried - the service
+    may still be mid-restart - but the reason says which, so a rollback can
+    report "it is serving the old snapshot" rather than "it is not serving".
+
+    THE TIMEOUT IS `served_data.HEALTH_TIMEOUT_SECONDS`, not a literal 5.
+    `/health`'s own budget is derived from it there, so the two cannot drift.
+    """
     import urllib.error
     import urllib.request
 
-    for _ in range(attempts):
+    started = time.monotonic()
+    last_reason, last_detail, slowest, snapshot = (
+        PROBE_NOT_LISTENING, "no attempt was made", 0.0, None)
+
+    for attempt in range(1, attempts + 1):
+        attempt_started = time.monotonic()
         try:
-            with urllib.request.urlopen(url, timeout=5) as response:
-                return json.loads(response.read()).get("served_data", {})
-        except (urllib.error.URLError, OSError, json.JSONDecodeError):
+            with urllib.request.urlopen(
+                    url, timeout=HEALTH_TIMEOUT_SECONDS) as response:
+                body = json.loads(response.read())
+        except (TimeoutError, socket.timeout) as error:
+            slowest = max(slowest, time.monotonic() - attempt_started)
+            last_reason = PROBE_TIMED_OUT
+            last_detail = (
+                f"no response within {HEALTH_TIMEOUT_SECONDS}s "
+                f"({type(error).__name__}); the service accepted the "
+                f"connection, so it is listening and slow rather than absent")
+        except json.JSONDecodeError as error:
+            last_reason, last_detail = PROBE_UNREADABLE, f"not JSON: {error}"
+        except (urllib.error.URLError, OSError) as error:
+            # A TIMEOUT IS AN OSError, which is the whole reason the two
+            # `except` clauses above come first. Anything reaching here is a
+            # refused connection, a reset, a DNS failure or a closed socket.
+            reason = getattr(error, "reason", error)
+            if isinstance(reason, (TimeoutError, socket.timeout)):
+                slowest = max(slowest, time.monotonic() - attempt_started)
+                last_reason = PROBE_TIMED_OUT
+                last_detail = (f"no response within "
+                               f"{HEALTH_TIMEOUT_SECONDS}s ({reason!r})")
+            else:
+                last_reason = PROBE_NOT_LISTENING
+                last_detail = f"{type(error).__name__}: {error}"
+        else:
+            served = (body or {}).get("served_data") or {}
+            snapshot = served.get("snapshot")
+            if not snapshot:
+                last_reason = PROBE_NO_SNAPSHOT_FIELD
+                last_detail = ("/health answered, but its served_data "
+                               "carries no snapshot")
+            elif expected is not None and snapshot != expected:
+                last_reason = PROBE_DIFFERENT_SNAPSHOT
+                last_detail = (f"/health is serving {snapshot!r}, not the "
+                               f"{expected!r} just written")
+            else:
+                return HealthProbe(snapshot, PROBE_CONFIRMED,
+                                   f"/health confirms snapshot {snapshot}",
+                                   attempt, time.monotonic() - started,
+                                   slowest)
+        if attempt < attempts:
             time.sleep(delay)
-    return {}
+
+    return HealthProbe(snapshot, last_reason, last_detail, attempts,
+                       time.monotonic() - started, slowest)
+
+
+def served_snapshot(attempts: int = 20, delay: float = 3.0,
+                    url: str = HEALTH_URL) -> dict:
+    """What /health says it is serving, once it answers.
+
+    KEPT AS THE DICT-SHAPED VIEW for callers that only want the snapshot.
+    `probe_health` is the one that says why not; this is a thin wrapper over
+    it so there is a single implementation of the loop.
+    """
+    probe = probe_health(attempts=attempts, delay=delay, url=url)
+    return {"snapshot": probe.snapshot} if probe.snapshot else {}
 
 
 # A staging directory this old cannot belong to a live run: the longest real
@@ -609,7 +773,7 @@ def swap_and_verify(volume: Path, previous: str, identifier: str,
     cheaper than that, and it keeps the function under test the real one.
     """
     restart_fn = restart_fn or restart_service
-    health_fn = health_fn or served_snapshot
+    health_fn = health_fn or probe_health
     section("SWAP")
     print(f"  {previous} -> {identifier}")
     write_pointer(volume, identifier)
@@ -631,22 +795,41 @@ def swap_and_verify(volume: Path, previous: str, identifier: str,
 
     print("  restarting inference-service ...")
     restart_fn(PROJECT)
-    serving = health_fn()
+    probe = health_fn(expected=identifier)
 
-    if serving.get("snapshot") == identifier:
-        print(f"  /health confirms snapshot {serving.get('snapshot')}")
+    if probe.reason == PROBE_CONFIRMED:
+        print(f"  /health confirms snapshot {probe.snapshot} "
+              f"(attempt {probe.attempts}, {probe.seconds:.1f}s)")
         return EXIT_OK
 
-    section("THE SERVICE DID NOT COME UP - ROLLING BACK")
-    print(f"  /health reported {serving.get('snapshot')!r}, "
-          f"expected {identifier!r}")
+    section("THE SERVICE DID NOT CONFIRM THE SWAP - ROLLING BACK")
+    # THE REASON, AS A WORD AND THEN AS A SENTENCE. On 2026-11-06 this
+    # section said only "reported None" for a service that was answering 200
+    # a second too slowly, and the summary said "did not answer" - two
+    # phrasings of one unexamined cause.
+    print(f"  reason [{probe.reason}] after {probe.attempts} attempt(s) "
+          f"over {probe.seconds:.1f}s")
+    print(f"  {probe.detail}")
+    if probe.reason == PROBE_TIMED_OUT:
+        print(f"  the slowest attempt waited {probe.slowest:.2f}s. THIS IS "
+              f"NOT A DEAD SERVICE - it is listening and over the "
+              f"{HEALTH_TIMEOUT_SECONDS}s budget. See "
+              f"served_data.HEALTH_BUDGET_SECONDS.")
     write_pointer(volume, previous)
     print(f"  pointer restored to {previous}")
     restart_fn(PROJECT)
-    recovered = health_fn()
-    print(f"  after restart /health reports {recovered.get('snapshot')!r}")
-    if recovered.get("snapshot") == previous:
+    recovered = health_fn(expected=previous)
+    print(f"  after restart /health reports {recovered.snapshot!r} "
+          f"[{recovered.reason}]")
+    if recovered.reason == PROBE_CONFIRMED:
         print("  the previous snapshot is serving again")
+    elif recovered.listening:
+        # THE CONNECTION WAS ACCEPTED. Whatever came back, this is not "the
+        # service is not serving" - and saying so sent a reader looking for a
+        # dead container while the process was answering 200s.
+        print(f"  the service IS listening - {recovered.detail}")
+        print(f"  [{recovered.reason}] is not a dead service. Do not restart "
+              f"it blindly; read served_data.HEALTH_BUDGET_SECONDS first.")
     else:
         print("  THE SERVICE IS STILL NOT SERVING. Manual attention needed.")
     return EXIT_FAILED
@@ -1179,10 +1362,67 @@ def carried_from_for(league: str, previous_root: Path, previous_id: str) -> str:
     return entry.get("carried_from") or previous_id
 
 
+class CorpusMissing(RuntimeError):
+    """A league's raw corpus is absent, so its fetch would start from zero.
+
+    NOT A FETCH FAILURE AND NOT A VALIDATION ONE. An absent corpus is a
+    machine that was never seeded, or was seeded and then orphaned - and the
+    cost of discovering that by letting the fetcher run is hours. The NHL is
+    about 450 content requests at the project's >=3 s floor; the NBA's
+    `data/raw/` is a recorded ~3.7-hour cold re-fetch that "looks like a slow
+    job"; the NFL is ~500 articles.
+
+    So it refuses, names the directory, and says to seed it. Seeding is a
+    command the owner runs: two of these corpora are CC BY-SA and none of
+    them is committed, so no checkout can carry them.
+
+    THE ALTERNATIVE WAS WORSE IN BOTH DIRECTIONS. Letting the fetch run
+    spends the hours; letting the later steps run reports the absence as
+    whatever the next script happens to notice - which for the NHL on
+    2026-11-06 was seventeen validation failures about an empty table.
+    """
+
+
+def corpus_state(league: str) -> tuple:
+    """(exists, files) for a league's declared raw corpus.
+
+    AT LEAST ONE FILE, NOT A COUNT. A count would be a number that expires
+    the next time a season is added, which is the derive-never-hardcode rule.
+    The question this answers is "has this machine ever been seeded", and one
+    file settles it. A corpus with GAPS is the fetcher's business and it
+    fills them.
+    """
+    relative = LEAGUES[league].get("raw_corpus")
+    if relative is None:
+        return True, None
+    root = PROJECT / relative
+    if not root.is_dir():
+        return False, 0
+    files = sum(1 for item in root.rglob("*") if item.is_file())
+    return files > 0, files
+
+
+def check_corpus(league: str) -> None:
+    """Refuse a league whose raw corpus was never seeded on this machine."""
+    present, _files = corpus_state(league)
+    if present:
+        return
+    relative = LEAGUES[league]["raw_corpus"]
+    raise CorpusMissing(
+        f"corpus_missing: {relative} holds no files on this machine, so "
+        f"{league}'s fetch would start from nothing. Seed it from a machine "
+        f"that has it and check the file count before re-running; these "
+        f"corpora are never committed, so no checkout carries them.")
+
+
 def rebuild_league(league: str, timeout: int, env: dict = None) -> list:
     """Run one league's steps. Raises on the first failure."""
     collected = []
     print(f"  {league}")
+    # BEFORE THE FIRST STEP, because the point is to refuse in seconds rather
+    # than hours into a fetch - or, as happened to the NHL on 2026-11-06,
+    # seventeen validation failures later.
+    check_corpus(league)
     for script in LEAGUES[league]["steps"]:
         if not script.is_file():
             # GLOBAL, not league-local, and deliberately raised as such by the

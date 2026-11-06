@@ -202,22 +202,33 @@ class ProbeService:
         self.stop()
         self._spawn()
 
-    def health(self, attempts: int = 20, delay: float = 1.5) -> dict:
-        """What this service says it is serving, or {} if it never answers.
+    def health(self, expected=None, attempts: int = 20,
+               delay: float = 1.5):
+        """What this service says it is serving, as a `HealthProbe`.
+
+        A PROBE AND NOT A DICT, following `swap_and_verify`'s contract. A
+        dict could say what was being served and never why not, which is
+        what let the refresh of 2026-11-06 report a slow-but-healthy service
+        as "STILL NOT SERVING" and roll back a good swap.
 
         A dead process short-circuits rather than waiting out the attempts,
         because check 6 deliberately makes the service refuse to boot and the
-        answer there is already known.
+        answer there is already known. That short-circuit returns
+        `not_listening`, which is the truthful reason for a process that has
+        exited - and it is the one case where the loud line IS correct.
         """
         for _ in range(attempts):
             if self.process is not None and self.process.poll() is not None:
-                return {}
-            served = refresh.served_snapshot(attempts=1, delay=0,
-                                             url=self.url)
-            if served:
-                return served
+                return refresh.HealthProbe(
+                    None, refresh.PROBE_NOT_LISTENING,
+                    f"the service process exited "
+                    f"{self.process.returncode}", 1, 0.0)
+            probe = refresh.probe_health(expected=expected, attempts=1,
+                                         delay=0, url=self.url)
+            if probe.reason == refresh.PROBE_CONFIRMED:
+                return probe
             time.sleep(delay)
-        return {}
+        return probe
 
     def stop(self) -> None:
         if self.process is None:
@@ -361,8 +372,8 @@ def check_rollback(original: str) -> None:
 
     served = PROBE.health()
     record("the service is serving again, on the previous snapshot",
-           served.get("snapshot") == previous,
-           f"/health reports {served.get('snapshot')!r}")
+           served.snapshot == previous,
+           f"/health reports {served.snapshot!r} [{served.reason}]")
 
     shutil.rmtree(broken, ignore_errors=True)
 
@@ -709,10 +720,10 @@ a league is added, this has to wait until a snapshot carrying it exists.""")
         PROBE.start()
         booted = PROBE.health()
         print(f"  port {PROBE.port}, serving "
-              f"{booted.get('snapshot')!r} from {VOLUME}")
-        if booted.get("snapshot") != original:
+              f"{booted.snapshot!r} from {VOLUME}")
+        if booted.snapshot != original:
             print(f"  REFUSING: the probe service reports "
-                  f"{booted.get('snapshot')!r}, not {original!r}. Nothing "
+                  f"{booted.snapshot!r}, not {original!r}. Nothing "
                   f"below would mean anything.")
             return 2
 
@@ -733,7 +744,8 @@ a league is added, this has to wait until a snapshot carrying it exists.""")
             shutil.rmtree(leftover, ignore_errors=True)
             print(f"  removed {leftover.name}")
         served = PROBE.health()
-        print(f"  probe /health reports {served.get('snapshot')!r}")
+        print(f"  probe /health reports {served.snapshot!r} "
+              f"[{served.reason}]")
         PROBE.stop()
         print(f"  probe service stopped")
         if VOLUME.resolve() != LIVE_VOLUME.resolve():
