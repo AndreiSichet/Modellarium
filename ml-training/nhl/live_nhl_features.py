@@ -379,6 +379,49 @@ def blocking_reason(state, home_id, away_id, date):
     return None
 
 
+def blocking_details(state, home_id, away_id, date) -> list:
+    """Every side that blocks this fixture, as data rather than prose.
+
+    THE SAME KEYS THE REFUSAL BODY USES - `side`, `franchise_id`, `pending` -
+    so a caller that has handled one shape has handled both.
+
+    A LIST, BECAUSE `blocking_reason` SHORT-CIRCUITS. It returns on the first
+    reason it finds, which is correct for a refusal and incomplete for a
+    schedule row: when both teams are waiting on an earlier result, a reader
+    waiting on one of them is only half informed. Measured 2026-11-06, 1,081
+    of 1,083 fixtures were blocked and most block on both sides.
+
+    EMPTY FOR EVERY WHOLE-FIXTURE REASON. `same_team`, `unknown_team`,
+    `date_out_of_range` and `not_served` are properties of the request or the
+    snapshot, not of a side, so there is nothing to list and the caller falls
+    back to the code. Empty also means "nothing blocks this", which is the
+    same answer `blocking_reason` gives as None - the two cannot disagree
+    because they test the same things in the same order.
+    """
+    if not state.get("served") or home_id == away_id:
+        return []
+    context = _rule_context(state)
+    known = context["known"]
+    if home_id not in known or away_id not in known:
+        return []
+    if date <= context["cutoff"]:
+        return []
+
+    out = []
+    for side, team in (("home", home_id), ("away", away_id)):
+        earlier = [d for d in _team_dates(state)[team] if d < date]
+        if not earlier:
+            out.append({"side": side, "franchise_id": team,
+                        "code": REFUSAL_SEASON_OPENER, "pending": []})
+            continue
+        pending = _unplayed_before(state, team, date)
+        if pending:
+            out.append({"side": side, "franchise_id": team,
+                        "code": REFUSAL_PREVIOUS_GAME_PENDING,
+                        "pending": [str(d) for d in sorted(pending)]})
+    return out
+
+
 def predictable_fixtures(state, limit=None):
     """Every fixture the dependency rule can answer, with its reason if not.
 
@@ -409,6 +452,15 @@ def predictable_fixtures(state, limit=None):
             "predictable": blocked is None,
             "reason_code": None if blocked is None else blocked[0],
             "reason": None if blocked is None else blocked[1],
+            # THE SAME FACTS AS `reason`, AS DATA. The sentence is for a
+            # reader and will be reworded; these are what a client builds
+            # its own sentence from, and a client must never parse the one
+            # above. Empty when the fixture is predictable, and empty for a
+            # whole-fixture reason, which has no side to name.
+            "blocked_by": ([] if blocked is None
+                           else blocking_details(state, int(row.HOME_ID),
+                                                 int(row.AWAY_ID),
+                                                 row.GAME_DATE)),
         })
         if limit is not None and len(out) >= limit:
             break

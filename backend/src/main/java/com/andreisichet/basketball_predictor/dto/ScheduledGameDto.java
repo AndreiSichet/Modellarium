@@ -2,6 +2,7 @@ package com.andreisichet.basketball_predictor.dto;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 
 /** An upcoming fixture offered to the client as a candidate to predict. */
 public record ScheduledGameDto(
@@ -62,5 +63,44 @@ public record ScheduledGameDto(
         Boolean flex,
 
         /** The NFL week, for the Week N headings on the league page. */
-        Integer week) {
+        Integer week,
+
+        /**
+         * Why this fixture is not predictable, as a stable code the client
+         * turns into a sentence. Null when predictable, and null for the
+         * three basketball leagues.
+         *
+         * THE CLIENT WRITES THE SENTENCE, FROM THIS AND `blockedBy`. The
+         * inference row has an English `reason` which is deliberately not
+         * carried: 1,081 of 1,083 NHL fixtures are blocked, so this is the
+         * most-read explanation in the app, and it must be the frontend's
+         * words rather than a string parsed out of a server message.
+         */
+        String reasonCode,
+
+        /**
+         * Which sides block it, and the dates each is waiting on.
+         *
+         * BOTH SIDES, because 1,074 of 1,083 NHL fixtures block on both and
+         * naming one leaves the reader waiting on the wrong team.
+         */
+        List<Blocker> blockedBy) {
+
+    /**
+     * One side that is holding a fixture back.
+     *
+     * THE SAME KEYS THE REFUSAL BODY USES. A client that has written the
+     * sentence for a refused prediction has written it for a schedule row
+     * too, which is the whole reason the names were not shortened here.
+     *
+     * `pending` is the dates that side is waiting on, earliest first, as
+     * ISO strings. A `season_opener` blocker carries an empty list: there is
+     * nothing to wait for, the team simply has no history yet.
+     */
+    public record Blocker(
+            String side,
+            Long franchiseId,
+            String code,
+            List<String> pending) {
+    }
 }

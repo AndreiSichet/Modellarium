@@ -59,4 +59,30 @@ public class Game {
 
     /** The NFL week, for the Week N headings on the league page. */
     private Integer week;
+
+    /**
+     * Why this fixture is not predictable, as a stable code. Dependency-rule
+     * leagues only; null for the three basketball leagues and null for a
+     * fixture that IS predictable.
+     *
+     * THE CODE AND NEVER THE PROSE. The inference row carries an English
+     * `reason` beside this; it is deliberately not stored, because the
+     * sentence belongs to the reader and gets reworded, and a client that
+     * parses it breaks silently when it is.
+     */
+    private String reasonCode;
+
+    /**
+     * Which sides block it and what they are waiting for, as JSON.
+     *
+     * A LIST BECAUSE BOTH TEAMS USUALLY BLOCK: measured 2026-11-06, 1,074 of
+     * 1,083 NHL fixtures were blocked on both sides. `reasonCode` above comes
+     * from a rule that short-circuits on the first side it finds, which is
+     * right for a refusal and leaves a schedule reader half-informed.
+     *
+     * JSON IN A TEXT COLUMN, for the reason V7 records: nothing filters or
+     * joins on these values, they are read back with the row and handed to
+     * the client, and a list that is always read as a unit is a document.
+     */
+    private String blockedBy;
 }

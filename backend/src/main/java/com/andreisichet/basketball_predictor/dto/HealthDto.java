@@ -90,7 +90,33 @@ public record HealthDto(
             Integer predictableFixtures,
             Integer fixtures,
             String predictionRule,
-            String source) {
+            String source,
+
+            /**
+             * The winner market's caveat, in three forms.
+             *
+             * WHY IT IS HERE AND NOT ONLY ON THE PREDICTION. The prediction
+             * body carries the SHORT caveat, which sits beside the number.
+             * The READER caveat is a paragraph for a "what this means"
+             * note, and the schedule page shows it before any prediction
+             * has been fetched - so the page needed it from the one call it
+             * already makes.
+             *
+             * Null when inference sent no winner block, which an older
+             * image would not.
+             */
+            CaveatDto winnerCaveat) {
+
+        /** The three audiences, as the manifest defines them. */
+        public record CaveatDto(String shortText, String reader,
+                                Boolean confirmedOnTest) {
+            static CaveatDto from(InferenceHealth.Caveat source) {
+                return source == null ? null
+                        : new CaveatDto(source.shortText(), source.reader(),
+                                source.confirmedOnTest());
+            }
+        }
+
         static NhlFreshnessDto from(InferenceHealth.NhlFreshness source) {
             // ABSENT IS NOT UNSERVED. A null block means the inference
             // service sent no `nhl` key at all - an OLDER image than this
@@ -99,13 +125,16 @@ public record HealthDto(
             // client could not tell from a league that is simply behind.
             return source == null
                     ? new NhlFreshnessDto(false, "absent_from_inference",
-                            null, null, null, null, null, null, null)
+                            null, null, null, null, null, null, null, null)
                     : new NhlFreshnessDto(
                             source.served(), source.reasonCode(),
                             source.dataAsOf(), source.daysBehind(),
                             source.stale(), source.predictableFixtures(),
                             source.fixtures(), source.predictionRule(),
-                            source.source());
+                            source.source(),
+                            source.winner() == null ? null
+                                    : CaveatDto.from(
+                                            source.winner().caveat()));
         }
     }
 

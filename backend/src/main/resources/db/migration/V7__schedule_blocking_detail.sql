@@ -1,0 +1,39 @@
+-- Why a cached fixture is not predictable, as data a client can build a
+-- sentence from. Both nullable, both dependency-rule-only, both null forever
+-- for the three basketball leagues.
+--
+-- WHY THESE LIVE ON `game`, WHICH IS V5'S REASON ONE STEP ON. V5 put
+-- `predictable` here rather than enriching rows from a live /schedule call,
+-- because the whole point of caching fixtures is that browsing survives the
+-- inference service being down, and a per-request upstream call puts that
+-- dependency straight back. The same argument applies to the explanation: a
+-- page that can list 1,081 blocked fixtures but cannot say why is a page that
+-- has to call upstream to be readable.
+--
+-- `reason_code` IS THE CODE AND NEVER THE PROSE. The inference row carries
+-- both a `reason_code` and an English `reason`; only the code is stored. The
+-- sentence is written in the frontend from the code and the fields below,
+-- because prose is for a reader and gets reworded - and a client that parses
+-- it breaks silently when it is. This is the same split the refusal contract
+-- already makes.
+--
+-- `blocked_by` IS JSON IN A TEXT COLUMN, AND THAT IS A DELIBERATE CHOICE
+-- OVER A SECOND TABLE. The normalised shape would be
+-- game_blocker(game_id, side, franchise_id, pending[]) - three rows per
+-- fixture, rewritten wholesale every sync for ~1,100 NHL fixtures, and
+-- queried by nothing. Nothing filters or joins on these values; they are
+-- read back with the row and handed to the client. A list that is always
+-- read as a unit and never queried into is a document, so it is stored as
+-- one. If anything ever needs to ASK "which fixtures wait on Anaheim", this
+-- becomes the wrong shape and the table is the answer.
+--
+-- WHY A LIST AT ALL: measured 2026-11-06, 1,074 of 1,083 NHL fixtures are
+-- blocked on BOTH sides. `blocking_reason` short-circuits and names one,
+-- which is right for a refusal and leaves a reader half-informed on a
+-- schedule.
+--
+-- No backfill. Every existing row keeps null and acquires a value on the
+-- next schedule sync, which runs at startup.
+
+ALTER TABLE game ADD COLUMN reason_code VARCHAR(64);
+ALTER TABLE game ADD COLUMN blocked_by TEXT;

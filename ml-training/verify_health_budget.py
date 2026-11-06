@@ -153,14 +153,23 @@ def equivalence(work: Path) -> None:
     record("NHL predictable_fixtures: same number of rows",
            len(slate_new) == len(slate_old),
            f"{len(slate_new)} vs {len(slate_old)}")
+    # ADDED IS NOT CHANGED, which is the distinction the gate's own health
+    # comparison makes and the one this check needed once a field was added
+    # on purpose. Every field HEAD had must still say the same thing; a
+    # field only the new code has is reported separately and is allowed.
+    added = sorted(set().union(*(set(r) for r in slate_new))
+                   - set().union(*(set(r) for r in slate_old)))         if slate_new and slate_old else []
     differing = [(a.get("game_id"), key, a.get(key), b.get(key))
                  for a, b in zip(slate_new, slate_old)
-                 for key in sorted(set(a) | set(b))
+                 for key in sorted(set(b))
                  if a.get(key) != b.get(key)]
-    record("NHL predictable_fixtures: every field of every row identical",
+    record("NHL predictable_fixtures: fields HEAD had are unchanged",
            not differing and len(slate_new) > 100,
            f"{len(differing)} differing field(s) over {len(slate_new)} rows"
            + (f"; first {differing[0]}" if differing else ""))
+    record("and the only NEW field is the one this phase added",
+           added == ["blocked_by"],
+           f"added {added}")
 
     # AND THE FLAG ITSELF, counted - so a run where every row became blocked
     # cannot pass by being uniformly wrong in both.
@@ -239,6 +248,114 @@ def equivalence(work: Path) -> None:
 
 
 # -------------------------------------------------------------------- budget
+def blocked_by_invariants(nhl_state, nhl) -> None:
+    """`blocked_by` says the same thing as `reason_code`, in data.
+
+    THE TWO ARE COMPUTED INDEPENDENTLY AND THAT IS THE POINT.
+    `predictable_fixtures` asks `blocking_reason` for the verdict and
+    `blocking_details` for the per-side detail; neither reads the other, so
+    nothing can make them agree except both being right. These checks are
+    what notices if they stop.
+
+    IT COSTS A SECOND WALK OF THE SAME CONDITIONS - measured 2026-11-06, the
+    snapshot-derived work went from 68 ms to 174 ms, 17.4% of the budget.
+    Kept rather than fused, because fusing them would make the detail the
+    source of the verdict and there would be nothing left to cross-check.
+    """
+    slate = nhl.predictable_fixtures(nhl_state)
+    record("the NHL slate is the real one and non-trivial",
+           len(slate) > 500, f"{len(slate)} row(s)")
+
+    per_side = {"season_opener", "previous_game_pending"}
+
+    predictable = [r for r in slate if r["predictable"]]
+    blocked = [r for r in slate if not r["predictable"]]
+    record("every PREDICTABLE row has an empty blocked_by",
+           all(r["blocked_by"] == [] for r in predictable),
+           f"{len(predictable)} predictable row(s)")
+    record("every row blocked for a PER-SIDE reason names at least one side",
+           all(r["blocked_by"] for r in blocked
+               if r["reason_code"] in per_side),
+           f"{sum(1 for r in blocked if r['reason_code'] in per_side)} "
+           f"per-side row(s)")
+    record("and a WHOLE-FIXTURE reason names none, because it has no side",
+           all(r["blocked_by"] == [] for r in blocked
+               if r["reason_code"] not in per_side),
+           f"{sum(1 for r in blocked if r['reason_code'] not in per_side)} "
+           f"whole-fixture row(s)")
+
+    # THE CODE ON EACH BLOCKER MATCHES THE ROW'S, because the row's code is
+    # whichever side `blocking_reason` reached first - so every blocker must
+    # carry a code the row could have reported.
+    mismatched = [r for r in blocked
+                  if r["blocked_by"]
+                  and r["reason_code"] not in {b["code"]
+                                               for b in r["blocked_by"]}]
+    record("the row's reason_code is one of its blockers' codes",
+           not mismatched,
+           f"{len(mismatched)} mismatch(es)"
+           + (f", first {mismatched[0]['game_id']}" if mismatched else ""))
+
+    sides = {tuple(b["side"] for b in r["blocked_by"]) for r in blocked
+             if r["blocked_by"]}
+    record("sides are home, away or both - in that order, never repeated",
+           sides <= {("home",), ("away",), ("home", "away")},
+           f"{sorted(sides)}")
+
+    # `pending` SEPARATES THE TWO SENTENCES. "Waiting for X's result from
+    # 5 Nov" needs a date; "first game of the season" must not pretend to
+    # have one.
+    pending_ok = all(
+        b["pending"] for r in blocked for b in r["blocked_by"]
+        if b["code"] == "previous_game_pending")
+    opener_ok = all(
+        b["pending"] == [] for r in blocked for b in r["blocked_by"]
+        if b["code"] == "season_opener")
+    record("a previous_game_pending blocker carries dates", pending_ok, "")
+    record("a season_opener blocker carries NONE - it waits for nothing",
+           opener_ok, "")
+
+    both = sum(1 for r in blocked if len(r["blocked_by"]) == 2)
+    record("BOTH sides is the common case, which is why it is a list",
+           both > len(blocked) // 2,
+           f"{both} of {len(blocked)} blocked on both sides")
+
+    # ORDERED, so a client rendering them produces a stable sentence.
+    unsorted = [r for r in blocked
+                for b in r["blocked_by"]
+                if b["pending"] != sorted(b["pending"])]
+    record("each blocker's pending dates are sorted", not unsorted,
+           f"{len(unsorted)} unsorted")
+
+
+def plant_blocked_by_names_one_side(nhl_state, nhl) -> None:
+    """PLANT: truncate the blocker list and watch the invariants go red.
+
+    This is the shape `blocking_reason` alone would have produced - it
+    short-circuits on the first side it finds - and it is why `blocked_by`
+    exists as a separate list rather than a rendering of the code.
+    """
+    original = nhl.blocking_details
+
+    def truncated(state, home_id, away_id, date):
+        return original(state, home_id, away_id, date)[:1]
+
+    nhl.blocking_details = truncated
+    try:
+        slate = nhl.predictable_fixtures(nhl_state)
+        both = sum(1 for r in slate if len(r["blocked_by"]) == 2)
+    finally:
+        nhl.blocking_details = original
+
+    record("PLANT only the first side -> no row blocks on both",
+           both == 0,
+           "which the 'BOTH sides is the common case' check refuses")
+
+    after = nhl.predictable_fixtures(nhl_state)
+    record("PLANT guard reverting restores the two-sided rows",
+           sum(1 for r in after if len(r["blocked_by"]) == 2) > 0, "")
+
+
 def budget(nhl_state, nfl_state, nhl, nfl, slow: bool = False) -> None:
     """The snapshot-derived work stays inside served_data's budget."""
     def walk():
@@ -511,6 +628,11 @@ def main() -> int:
         else:
             print("EQUIVALENCE - the indexes changed no answer\n")
             nhl_state, nfl_state, nhl, nfl = equivalence(work)
+
+        if args.plant != "revert-index":
+            print("\nBLOCKED_BY\n")
+            blocked_by_invariants(nhl_state, nhl)
+            plant_blocked_by_names_one_side(nhl_state, nhl)
 
         print("\nBUDGET\n")
         budget(nhl_state, nfl_state, nhl, nfl,

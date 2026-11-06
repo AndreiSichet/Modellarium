@@ -47,9 +47,9 @@
     "stale": false,
     "missing_results": 3,
     "missing_result_ids": [
-      "2026\u201327_2026-10-30_1614000017_1614000030",
-      "2026\u201327_2026-10-30_1614000029_1614000012",
-      "2026\u201327_2026-10-30_1614000031_1614000004"
+      "2026–27_2026-10-30_1614000017_1614000030",
+      "2026–27_2026-10-30_1614000029_1614000012",
+      "2026–27_2026-10-30_1614000031_1614000004"
     ],
     "fixtures": 1131,
     "predictable_fixtures": 14,
@@ -63,25 +63,25 @@
       "count": 3,
       "games": [
         {
-          "season": "2026\u201327",
+          "season": "2026–27",
           "date": "2026-10-24",
-          "copy_a": "2026\u201327 Nashville Predators season says home 1614000022, 3-2, OT",
-          "copy_b": "2026\u201327 Pittsburgh Penguins season says home 1614000022, 3-2, REG",
+          "copy_a": "2026–27 Nashville Predators season says home 1614000022, 3-2, OT",
+          "copy_b": "2026–27 Pittsburgh Penguins season says home 1614000022, 3-2, REG",
           "reason": "the two copies disagree",
           "left_quarantine": 0
         },
         {
-          "season": "2026\u201327",
+          "season": "2026–27",
           "date": "2026-10-30",
-          "copy_a": "2026\u201327 Winnipeg Jets season says home 1614000012, 5-2, REG",
+          "copy_a": "2026–27 Winnipeg Jets season says home 1614000012, 5-2, REG",
           "copy_b": "(no second copy yet)",
           "reason": "only one article carries this game",
           "left_quarantine": 0
         },
         {
-          "season": "2026\u201327",
+          "season": "2026–27",
           "date": "2026-10-30",
-          "copy_a": "2026\u201327 New Jersey Devils season says home 1614000030, 2-5, REG",
+          "copy_a": "2026–27 New Jersey Devils season says home 1614000030, 2-5, REG",
           "copy_b": "(no second copy yet)",
           "reason": "only one article carries this game",
           "left_quarantine": 0
@@ -89,7 +89,7 @@
       ]
     },
     "standings": {
-      "season": "2026\u201327",
+      "season": "2026–27",
       "class": "standings_probable_error",
       "classes": [
         "standings_probable_error"

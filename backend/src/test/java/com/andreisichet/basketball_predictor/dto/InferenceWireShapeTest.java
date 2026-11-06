@@ -385,6 +385,24 @@ class InferenceWireShapeTest {
         }
 
         @Test
+        void theSeasonLabelKeepsItsEnDashThroughJackson() {
+            InferenceNhlResponse response = mapper.readValue(
+                    Fixture.read("predict-nhl.json"),
+                    InferenceNhlResponse.class);
+
+            // THE FIRST NON-ASCII STRING ANY LEAGUE HAS PUT ON THIS WIRE,
+            // and `season` is the only field that carries it to a client:
+            // the schedule DTO deliberately reads only what the sync needs,
+            // so there is no `gameId` there to check. U+2013, not a hyphen
+            // and not a cp1252 mojibake. The live backend sends it as raw
+            // UTF-8, checked against the owner's saved response of
+            // 2026-11-06.
+            assertThat(response.season())
+                    .isEqualTo("2026–27")
+                    .doesNotContain("â");
+        }
+
+        @Test
         void theScheduleCarriesAPerRowPredictableFlagAndItsReason() {
             List<InferenceScheduledGame> fixtures = mapper.readValue(
                     Fixture.read("schedule-nhl.json"),
@@ -402,6 +420,52 @@ class InferenceWireShapeTest {
             assertThat(fixtures.get(0).awayTeamId()).isNotNull();
             assertThat(fixtures.get(0).gameDate()).isNotNull();
         }
+
+        @Test
+        void aBlockedRowNamesEverySideThatHoldsItBack() {
+            List<InferenceScheduledGame> fixtures = mapper.readValue(
+                    Fixture.read("schedule-nhl.json"),
+                    mapper.getTypeFactory().constructCollectionType(
+                            List.class, InferenceScheduledGame.class));
+
+            // A PREDICTABLE ROW BLOCKS ON NOTHING, and the empty list is the
+            // data saying so rather than a null the client must interpret.
+            InferenceScheduledGame open = fixtures.stream()
+                    .filter(f -> Boolean.TRUE.equals(f.predictable()))
+                    .findFirst().orElseThrow();
+            assertThat(open.reasonCode()).isNull();
+            assertThat(open.blockedBy()).isEmpty();
+
+            // BOTH SIDES, WHICH IS THE COMMON CASE AND NOT THE EXCEPTION:
+            // measured 2026-11-06, 1,074 of 1,083 fixtures blocked on both.
+            // A client that renders only the first blocker points the reader
+            // at the wrong team half the time.
+            InferenceScheduledGame pending = fixtures.stream()
+                    .filter(f -> "previous_game_pending".equals(f.reasonCode()))
+                    .findFirst().orElseThrow();
+            assertThat(pending.blockedBy()).hasSize(2);
+            assertThat(pending.blockedBy())
+                    .extracting(InferenceScheduledGame.Blocker::side)
+                    .containsExactly("home", "away");
+            assertThat(pending.blockedBy()).allSatisfy(blocker -> {
+                assertThat(blocker.franchiseId()).isNotNull();
+                assertThat(blocker.code()).isEqualTo("previous_game_pending");
+                assertThat(blocker.pending()).isNotEmpty();
+            });
+
+            // A SEASON OPENER WAITS FOR NOTHING. Its `pending` is empty,
+            // which is a different sentence from waiting on a date - and the
+            // empty list is what lets a client tell them apart without
+            // reading the prose.
+            InferenceScheduledGame opener = fixtures.stream()
+                    .filter(f -> "season_opener".equals(f.reasonCode()))
+                    .findFirst().orElseThrow();
+            assertThat(opener.blockedBy()).hasSize(1);
+            assertThat(opener.blockedBy().get(0).code())
+                    .isEqualTo("season_opener");
+            assertThat(opener.blockedBy().get(0).pending()).isEmpty();
+        }
+
     }
 
     @Nested
@@ -433,6 +497,76 @@ class InferenceWireShapeTest {
             // winner is Elo alone and has no artifact. CI asserts this dict
             // at exact equality, so a change here moves with that assertion.
             assertThat(health.modelsLoaded()).containsEntry("nhl", 1);
+        }
+
+        @Test
+        void theWinnerCaveatReachesTheBackendInAllThreeForms() {
+            InferenceHealth health = mapper.readValue(
+                    Fixture.read("health-nhl.json"), InferenceHealth.class);
+
+            InferenceHealth.Caveat caveat = health.nhl().winner().caveat();
+            assertThat(caveat).isNotNull();
+
+            // THE SHORT ONE SITS BESIDE THE NUMBER and has to stay short
+            // enough for a badge; the reader one is the paragraph behind a
+            // "what this means" toggle.
+            assertThat(caveat.shortText()).isNotBlank();
+            assertThat(caveat.reader()).isNotBlank();
+            assertThat(caveat.reader().length())
+                    .isGreaterThan(caveat.shortText().length());
+
+            // NEITHER CARRIES A FIGURE, BY DESIGN. A caveat with a number in
+            // it expires at the next retrain while still reading as
+            // authoritative; the manifest's own check fails if a digit
+            // appears in `short`, and this is that rule arriving at the
+            // surface that renders it.
+            assertThat(caveat.shortText()).doesNotMatch(".*\\d.*");
+
+            // THE WINNER DOES NOT CONFIRM ON TEST, and the flag says so
+            // rather than leaving the caveat to read as boilerplate.
+            assertThat(caveat.confirmedOnTest()).isFalse();
+        }
+
+        @Test
+        void theHealthDtoCarriesTheCaveatOnward() {
+            InferenceHealth health = mapper.readValue(
+                    Fixture.read("health-nhl.json"), InferenceHealth.class);
+
+            // THE LEAGUE BLOCK ALONE, not the whole HealthDto: that one
+            // also maps the schedule-sync snapshot, which is a live bean
+            // and not what this test is about.
+            HealthDto.NhlFreshnessDto dto =
+                    HealthDto.NhlFreshnessDto.from(health.nhl());
+
+            assertThat(dto.winnerCaveat()).isNotNull();
+            assertThat(dto.winnerCaveat().shortText())
+                    .isEqualTo(health.nhl().winner().caveat().shortText());
+            assertThat(dto.winnerCaveat().reader())
+                    .isEqualTo(health.nhl().winner().caveat().reader());
+            assertThat(dto.winnerCaveat().confirmedOnTest()).isFalse();
+        }
+
+        @Test
+        void anInferenceWithNoWinnerBlockLeavesTheCaveatNull() {
+            // AN OLDER INFERENCE IMAGE SENDS NO `winner`. The caveat must
+            // then be ABSENT rather than a record of nulls, which a client
+            // could not tell from a caveat that exists and says nothing -
+            // the same distinction `absent_from_inference` already draws for
+            // the block as a whole.
+            InferenceHealth health = mapper.readValue(
+                    Fixture.read("health-nhl.json"), InferenceHealth.class);
+            InferenceHealth.NhlFreshness stripped =
+                    new InferenceHealth.NhlFreshness(
+                            health.nhl().served(), health.nhl().reasonCode(),
+                            health.nhl().dataAsOf(),
+                            health.nhl().daysBehind(), health.nhl().stale(),
+                            health.nhl().predictableFixtures(),
+                            health.nhl().fixtures(),
+                            health.nhl().predictionRule(),
+                            health.nhl().source(), null);
+
+            assertThat(HealthDto.NhlFreshnessDto.from(stripped).winnerCaveat())
+                    .isNull();
         }
 
         @Test

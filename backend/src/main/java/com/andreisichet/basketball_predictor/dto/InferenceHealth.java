@@ -84,7 +84,45 @@ public record InferenceHealth(
             @JsonProperty("predictable_fixtures") Integer predictableFixtures,
             Integer fixtures,
             @JsonProperty("prediction_rule") String predictionRule,
-            String source) {
+            String source,
+
+            /**
+             * The winner market's block, read ONLY for its caveat.
+             *
+             * The caveat is not decoration. The NHL's winner is Elo alone
+             * and its test interval crosses zero, so every surface showing
+             * the probability has to show the caveat with it - and the
+             * words have to come from here rather than from a copy in the
+             * frontend, which would go on saying something the model no
+             * longer supports.
+             */
+            Winner winner) {
+    }
+
+    /** The winner market, as /health reports it. */
+    public record Winner(
+            String family,
+            String artifact,
+            Caveat caveat) {
+    }
+
+    /**
+     * Three strings for three audiences, and the short one carries no
+     * figure by design: a caveat with a number in it expires at the next
+     * retrain while still looking authoritative.
+     */
+    public record Caveat(
+            /**
+             * `short` is a Java keyword, so the component cannot be named
+             * after the JSON field and the mapping is explicit. The
+             * annotation goes on the COMPONENT, not on an accessor: Jackson
+             * binds a record through its canonical constructor, so an
+             * annotated getter would be read on the way out and ignored on
+             * the way in.
+             */
+            @JsonProperty("short") String shortText,
+            String reader,
+            @JsonProperty("confirmed_on_test") Boolean confirmedOnTest) {
     }
 
     public record NflFreshness(

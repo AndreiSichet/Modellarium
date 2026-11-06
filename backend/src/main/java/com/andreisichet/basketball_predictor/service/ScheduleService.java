@@ -9,6 +9,12 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectReader;
+
+import lombok.extern.slf4j.Slf4j;
+
 import com.andreisichet.basketball_predictor.dto.HealthDto;
 import com.andreisichet.basketball_predictor.dto.ScheduledGameDto;
 import com.andreisichet.basketball_predictor.model.Game;
@@ -18,7 +24,19 @@ import com.andreisichet.basketball_predictor.repository.TeamRepository;
 
 /** Serves upcoming fixtures and dataset freshness. */
 @Service
+@Slf4j
 public class ScheduleService {
+
+    /**
+     * Reader for the `blocked_by` column, built once.
+     *
+     * A TYPED READER RATHER THAN A SHARED ObjectMapper CALL, so the generic
+     * type is fixed here instead of at each call site, where an erased
+     * `List` would let anything through.
+     */
+    private static final ObjectReader BLOCKERS = new ObjectMapper()
+            .readerForListOf(ScheduledGameDto.Blocker.class);
+
     private final GameRepository gameRepository;
     private final TeamRepository teamRepository;
     private final InferenceClient inferenceClient;
@@ -91,6 +109,39 @@ public class ScheduleService {
                 game.getPredictable(),
                 game.getKickoffUtc(),
                 game.getFlex(),
-                game.getWeek());
+                game.getWeek(),
+                game.getReasonCode(),
+                readBlockers(game.getBlockedBy()));
+    }
+
+    /**
+     * The stored JSON blocker list, or an empty list.
+     *
+     * NEVER NULL AND NEVER A THROW. This is a browse path: a fixture whose
+     * stored detail is unreadable must still appear in the schedule, without
+     * its explanation, rather than taking the list down. The column is
+     * written by this application's own sync from a validated shape, so a
+     * parse failure means something changed underneath - it is logged once
+     * per request at most and the row degrades to the code alone, which the
+     * client already has a generic sentence for.
+     *
+     * An unparsable value is NOT silently treated as "nothing blocks this":
+     * `reasonCode` travels beside it and still says the fixture is blocked.
+     */
+    private List<ScheduledGameDto.Blocker> readBlockers(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return BLOCKERS.readValue(json);
+        } catch (JacksonException error) {
+            // JACKSON 3'S EXCEPTIONS ARE UNCHECKED, so this catch is a
+            // deliberate choice rather than a compiler requirement - and
+            // the choice is that a browse page must not 500 over an
+            // explanatory field.
+            log.warn("Unreadable blocked_by JSON, falling back to the code "
+                    + "alone: {}", error.getMessage());
+            return List.of();
+        }
     }
 }

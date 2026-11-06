@@ -18,10 +18,17 @@ import com.andreisichet.basketball_predictor.model.Game;
 import com.andreisichet.basketball_predictor.model.Team;
 import com.andreisichet.basketball_predictor.repository.GameRepository;
 import com.andreisichet.basketball_predictor.repository.TeamRepository;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectWriter;
+import tools.jackson.core.JacksonException;
 
 /** Caches upcoming fixtures into the games table, one league at a time. */
 @Service
 public class ScheduleSyncService {
+
+    /** Writer for the `blocked_by` column, built once. */
+    private static final ObjectWriter BLOCKERS = new ObjectMapper().writer();
+
     private static final Logger log = LoggerFactory.getLogger(ScheduleSyncService.class);
 
     private final InferenceClient inferenceClient;
@@ -247,6 +254,35 @@ public class ScheduleSyncService {
      * null and this returns false for them - which is why the sync does not
      * need to know which league it is looking at.
      */
+    /**
+     * The blocker list as JSON for storage, or null when there is none.
+     *
+     * NULL AND NOT "[]" FOR AN ABSENT LIST, so the column reads the same as
+     * every other dependency-rule field on a basketball row: a league with
+     * no server-side answer stores nothing, which is a different state from
+     * a league that answered "nothing blocks this". An empty list from a
+     * league that DOES answer is stored as `[]`.
+     *
+     * A WRITE FAILURE IS NOT FATAL AND NOT SILENT. Serialising a record of
+     * strings and longs cannot realistically fail, but if it did, failing
+     * the whole schedule sync over an explanatory field would cost the
+     * fixtures themselves - so the field is dropped, logged, and the row
+     * keeps its `reasonCode`.
+     */
+    private String writeBlockers(
+            List<InferenceScheduledGame.Blocker> blockers) {
+        if (blockers == null) {
+            return null;
+        }
+        try {
+            return BLOCKERS.writeValueAsString(blockers);
+        } catch (JacksonException error) {
+            log.warn("Could not serialise blocked_by, storing none: {}",
+                    error.getMessage());
+            return null;
+        }
+    }
+
     private boolean applyFixtureFields(Game game,
                                        InferenceScheduledGame fixture) {
         boolean changed = false;
@@ -264,6 +300,19 @@ public class ScheduleSyncService {
         }
         if (!Objects.equals(game.getWeek(), fixture.week())) {
             game.setWeek(fixture.week());
+            changed = true;
+        }
+        if (!Objects.equals(game.getReasonCode(), fixture.reasonCode())) {
+            game.setReasonCode(fixture.reasonCode());
+            changed = true;
+        }
+        // SERIALISED HERE, ONCE PER CHANGE, rather than on every read. The
+        // comparison is on the JSON text, so an unchanged blocker list
+        // writes nothing - which matters because this runs every six hours
+        // over ~1,100 NHL fixtures.
+        String blockers = writeBlockers(fixture.blockedBy());
+        if (!Objects.equals(game.getBlockedBy(), blockers)) {
+            game.setBlockedBy(blockers);
             changed = true;
         }
         return changed;
