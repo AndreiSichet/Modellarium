@@ -12,8 +12,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 
+import com.andreisichet.basketball_predictor.TestDatabase;
 import com.andreisichet.basketball_predictor.dto.ScheduledGameDto;
 import com.andreisichet.basketball_predictor.model.Game;
 import com.andreisichet.basketball_predictor.model.Team;
@@ -75,6 +78,20 @@ class ScheduleServiceQueryCountTest {
      * wrong reason gets relaxed rather than investigated.
      */
     private static final int QUERY_CEILING = 6;
+
+    /**
+     * The test database, refusing the production one.
+     *
+     * THIS IS THE TEST THAT WRITES. It seeds up to a few hundred {@code game}
+     * rows and removes them by id in {@code @AfterEach} - so a run killed in
+     * between leaves them behind, and on the production database that would
+     * be rows in the table the app serves from. Checked while the context is
+     * built, which is before Flyway migrates. See {@link TestDatabase}.
+     */
+    @DynamicPropertySource
+    static void database(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", TestDatabase::url);
+    }
 
     private static final int DAYS_AHEAD = 120;
     private static final int SMALL_BATCH = 40;

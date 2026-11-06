@@ -112,6 +112,25 @@
 				</configuration>
 			</plugin>
 			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!--
+						THE TEST SUITE'S DATABASE, SET HERE SO NO TEST CAN
+						FORGET IT. src/test/resources/application-test.properties
+						points the datasource at basketball_predictor_test;
+						that file only applies while this profile is active,
+						and @ActiveProfiles on each class would be one more
+						thing a new test could omit. TestDatabase.url(), wired
+						in through @DynamicPropertySource, is the layer above
+						it and REFUSES the production name outright.
+					-->
+					<systemPropertyVariables>
+						<spring.profiles.active>test</spring.profiles.active>
+					</systemPropertyVariables>
+				</configuration>
+			</plugin>
+			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 			</plugin>

@@ -26,7 +26,13 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_DB: basketball_predictor
+          # ITS OWN NAME, AND THAT IS THE WHOLE GUARD. This used to be
+          # basketball_predictor - identical to the production database on
+          # localhost:5432 - so no url-based rule could tell CI's container
+          # from the compose container the running app serves from, and
+          # "refuse production" would have refused CI too. The test suite
+          # migrates and inserts, so it gets a database of its own.
+          POSTGRES_DB: basketball_predictor_test
           POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
