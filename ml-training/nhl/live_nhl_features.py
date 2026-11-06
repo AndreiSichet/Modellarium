@@ -256,6 +256,63 @@ def _team_dates(state):
     return cached
 
 
+def _rule_context(state):
+    """The dependency rule's inputs, built once per loaded state.
+
+    WHY THIS EXISTS, measured rather than assumed. `/health` reports the
+    NHL's predictable count, so it walked every future fixture and asked
+    `blocking_reason` about it - and `blocking_reason` rebuilt two
+    snapshot-wide facts every single time. Profiled 2026-11-06 over 1,094
+    future fixtures against snapshot 2026-11-05T0843:
+
+        max(state["games"]["GAME_DATE"])   1,094 x 1.25 ms = 1.372 s
+        _unplayed_before                   2,188 x 0.55 ms = 1.206 s
+
+    That was 2.41 s of a 4.34 s `/health`, against the daily refresh's 5 s
+    per-attempt timeout - so the refresh read a working service as "no
+    snapshot" and rolled back a good swap.
+
+    CACHED ON `state`, THE SAME WAY `_team_dates` ALREADY IS, and under the
+    same assumption: a loaded state is immutable, and a refresh replaces the
+    process rather than mutating what it holds.
+
+    `unplayed` is a team -> sorted dates index of this team's fixtures with
+    no result yet, which is what the rule actually asks for. Building it
+    costs one pass over the fixtures frame instead of two boolean masks per
+    side per fixture.
+    """
+    cached = state.get("_rule_context")
+    if cached is not None:
+        return cached
+
+    played = _team_dates(state)
+    games = state.get("games")
+    context = {
+        # ONE NUMBER FOR THE WHOLE SNAPSHOT. It was `max()` over 32,428 rows,
+        # per fixture.
+        "cutoff": (max(games["GAME_DATE"])
+                   if games is not None and len(games) else None),
+        "known": set(played),
+        "unplayed": {},
+    }
+
+    fixtures = state.get("fixtures")
+    if fixtures is not None and len(fixtures):
+        index = {}
+        for row in fixtures.itertuples():
+            for team in (int(row.HOME_ID), int(row.AWAY_ID)):
+                # A FIXTURE DATE THIS TEAM HAS ALREADY PLAYED IS NOT
+                # PENDING, which is the test `_unplayed_before` applied.
+                if row.GAME_DATE in played.get(team, ()):
+                    continue
+                index.setdefault(team, []).append(row.GAME_DATE)
+        context["unplayed"] = {team: sorted(dates)
+                               for team, dates in index.items()}
+
+    state["_rule_context"] = context
+    return context
+
+
 def _unplayed_before(state, team_id, date):
     """This team's fixtures before `date` that have NO result yet.
 
@@ -264,16 +321,13 @@ def _unplayed_before(state, team_id, date):
     history" is not "both teams have played at least once" - if a team's
     game two nights ago has no result, its previous game is NOT in history
     and the next one cannot be predicted from a complete window.
+
+    READS THE INDEX rather than masking the fixtures frame. Same answer, and
+    `verify_health_budget.py` asserts that on every fixture of the real
+    corpus rather than trusting this comment.
     """
-    fixtures = state.get("fixtures")
-    if fixtures is None or not len(fixtures):
-        return []
-    played = set(_team_dates(state).get(int(team_id), ()))
-    mine = fixtures[((fixtures["HOME_ID"] == team_id)
-                     | (fixtures["AWAY_ID"] == team_id))
-                    & (fixtures["GAME_DATE"] < date)]
-    return [row.GAME_DATE for row in mine.itertuples()
-            if row.GAME_DATE not in played]
+    return [d for d in _rule_context(state)["unplayed"].get(int(team_id), ())
+            if d < date]
 
 
 def blocking_reason(state, home_id, away_id, date):
@@ -291,14 +345,15 @@ def blocking_reason(state, home_id, away_id, date):
     if home_id == away_id:
         return (REFUSAL_SAME_TEAM,
                 f"home and away are the same franchise ({home_id})", {})
-    known = set(_team_dates(state))
+    context = _rule_context(state)
+    known = context["known"]
     for side, team in (("home", home_id), ("away", away_id)):
         if team not in known:
             return (REFUSAL_UNKNOWN_TEAM,
                     f"the {side} franchise {team} has no completed game in "
                     f"this snapshot", {"side": side, "franchise_id": team})
 
-    cutoff = max(state["games"]["GAME_DATE"])
+    cutoff = context["cutoff"]
     if date <= cutoff:
         return (REFUSAL_DATE_OUT_OF_RANGE,
                 f"{date} is not after the last completed game "
@@ -335,8 +390,7 @@ def predictable_fixtures(state, limit=None):
     fixtures = state.get("fixtures")
     if fixtures is None or not len(fixtures):
         return []
-    cutoff = (max(state["games"]["GAME_DATE"]) if state.get("served")
-              else None)
+    cutoff = _rule_context(state)["cutoff"] if state.get("served") else None
     out = []
     ordered = fixtures.sort_values(["GAME_DATE", "GAME_ID"])
     for row in ordered.itertuples():

@@ -235,7 +235,44 @@ def load_state(root: Path = None, manifest: dict = None) -> dict:
 # =========================================================================
 
 def _ordered_fixtures(state: dict) -> pd.DataFrame:
-    return state["fixtures"].sort_values(["date", "game_id"])
+    """The fixtures frame in (date, game_id) order, sorted ONCE per state.
+
+    It was sorted on every call, and `earlier_unplayed` is called twice per
+    fixture - so a 151-fixture slate sorted this frame 302 times. Cached on
+    `state` the same way `live_nhl_features._team_dates` already caches, and
+    under the same assumption: a loaded state is immutable, and a refresh
+    replaces the process rather than mutating what it holds.
+    """
+    cached = state.get("_ordered_fixtures")
+    if cached is None:
+        cached = state["fixtures"].sort_values(["date", "game_id"])
+        state["_ordered_fixtures"] = cached
+    return cached
+
+
+def _fixtures_by_team(state: dict) -> dict:
+    """{franchise id: [((date, game_id), row), ...]} in that same order.
+
+    WHY: `earlier_unplayed` walked EVERY fixture with `iterrows()` to find
+    one team's, per side, per fixture - ~45,600 row visits on a 151-fixture
+    slate, measured at 979 ms. The index answers the same question from a
+    list.
+
+    BUILT FROM `_ordered_fixtures`, so the sequence it yields is the
+    sequence the old loop yielded. That order is load-bearing: the key is
+    (date, game_id), which is the total order the training walk used, so two
+    fixtures on one date break by game id and not by row order.
+    """
+    cached = state.get("_fixtures_by_team")
+    if cached is not None:
+        return cached
+    index: dict = {}
+    for _position, row in _ordered_fixtures(state).iterrows():
+        key = (pd.Timestamp(row["date"]), str(row["game_id"]))
+        for column in ("home_franchise_id", "away_franchise_id"):
+            index.setdefault(int(row[column]), []).append((key, row))
+    state["_fixtures_by_team"] = index
+    return index
 
 
 def earlier_unplayed(state: dict, franchise_id: int, before_key) -> list:
@@ -245,16 +282,13 @@ def earlier_unplayed(state: dict, franchise_id: int, before_key) -> list:
     about, so the ordering is the same total order the training walk used -
     two fixtures on one date are broken by game id rather than left to the
     frame's row order.
+
+    READS THE PER-TEAM INDEX rather than walking every fixture.
+    `verify_health_budget.py` asserts the two agree on every fixture of the
+    real corpus rather than trusting this comment.
     """
-    out = []
-    for _index, row in _ordered_fixtures(state).iterrows():
-        if franchise_id not in (int(row["home_franchise_id"]),
-                                int(row["away_franchise_id"])):
-            continue
-        key = (pd.Timestamp(row["date"]), str(row["game_id"]))
-        if key < before_key:
-            out.append(row)
-    return out
+    return [row for key, row in _fixtures_by_team(state).get(
+        int(franchise_id), ()) if key < before_key]
 
 
 def predictable_fixtures(state: dict) -> list:
