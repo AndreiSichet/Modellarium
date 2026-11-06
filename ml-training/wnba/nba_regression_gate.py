@@ -645,6 +645,30 @@ def backend_fixtures(schedule, league: str, date, count: int = 2) -> tuple:
         return [], skip(code,
                         f"the backend has {league} fixtures but {why}")
 
+    # AN EXPLICIT ORDER, BECAUSE THE BACKEND'S IS NOT ONE. This read
+    # `for row in usable:` over the schedule in whatever order it arrived, so
+    # a backend restart between the two halves of a pair could re-order the
+    # rows and the gate would choose a DIFFERENT fixture - which it reports
+    # as CANNOT COMPARE even though nothing about the code moved. Measured
+    # twice: the NFL on 2026-11-05 and again on 2026-11-06, where the same
+    # fixture asked again was byte-identical, so the verdict was about the
+    # chooser. `nfl_matchups` and `nhl_matchups` have always sorted; the
+    # backend half was the only half that did not.
+    #
+    # KEYED ON THE FIXTURE, NOT ON ITS ROW ID. (date, home, away) identifies
+    # a fixture and survives a database rebuild; `gameId` is a `game` row's
+    # primary key, so a re-created row would re-order the set and reintroduce
+    # exactly the instability this removes. None sorts first and
+    # deterministically rather than raising on a mixed comparison.
+    def fixture_key(row):
+        return (str(row.get("gameDate") or ""),
+                -1 if row.get("homeTeamId") is None
+                else int(row.get("homeTeamId")),
+                -1 if row.get("awayTeamId") is None
+                else int(row.get("awayTeamId")))
+
+    usable = sorted(usable, key=fixture_key)
+
     # FOUR DISTINCT TEAMS, the same shape MATCHUPS has and for the same
     # reason: two bodies that share a team share whatever that team's
     # features did.

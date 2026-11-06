@@ -550,6 +550,134 @@ def backend_half_picks_existing_fixtures() -> None:
            f"{sorted(codes)}")
 
 
+def the_backend_half_chooses_the_same_fixtures_in_any_order() -> None:
+    """N7: the chooser must not depend on the order the rows arrive in.
+
+    THE DEFECT THIS CLOSES WAS MEASURED TWICE ON REAL PAIRS. On 2026-11-05
+    the NFL read CANNOT COMPARE purely because a backend restart between the
+    two halves re-ordered /api/games/schedule and a different second fixture
+    was chosen; the same fixture asked again was byte-identical, so the
+    verdict was about the chooser. On 2026-11-06 a constructed before/after
+    pair reproduced it on BOTH the NBA and the NFL at once - ten fields
+    "differing" that were simply two other games.
+
+    A gate whose instrument moves cannot certify a deploy, and CANNOT COMPARE
+    is the verdict nobody can act on: the obvious way to clear it is to
+    recapture the baseline, which this gate's own rules forbid.
+    """
+    rows = [
+        fixture("nhl", 1614000009, 1614000008, "2026-11-07", True),
+        fixture("nhl", 1614000003, 1614000004, "2026-11-06", True),
+        fixture("nhl", 1614000001, 1614000002, "2026-11-06", True),
+        fixture("nhl", 1614000005, 1614000006, "2026-11-06", True),
+    ]
+
+    forward, _s1 = G.backend_fixtures(rows, "nhl", "2026-11-06")
+    backward, _s2 = G.backend_fixtures(list(reversed(rows)), "nhl",
+                                       "2026-11-06")
+    middle, _s3 = G.backend_fixtures([rows[2], rows[0], rows[3], rows[1]],
+                                     "nhl", "2026-11-06")
+
+    record("N7 the backend half chooses the same fixtures whatever order "
+           "the schedule arrives in",
+           forward == backward == middle,
+           f"forward={forward}, reversed={backward}, shuffled={middle}")
+
+    # AND THE ORDER IS THE FIXTURE'S OWN, not the backend's. The earliest
+    # date and then the lowest ids - so a human can predict which pair the
+    # gate will take, which is what makes a capture reproducible by hand.
+    record("N7 and the order is the earliest date, then the lowest team ids",
+           forward == [(1614000001, 1614000002, "2026-11-06"),
+                       (1614000003, 1614000004, "2026-11-06")],
+           f"{forward}")
+
+    # THE DATE BRANCH TOO. The three basketball leagues go down the other
+    # side of the same function, and the first version of this fix only
+    # sorted inside the dependency-rule branch.
+    nba_rows = [
+        fixture("nba", 1610612740, 1610612758, "2026-10-29"),
+        fixture("nba", 1610612737, 1610612739, "2026-10-29"),
+        fixture("nba", 1610612757, 1610612763, "2026-10-29"),
+    ]
+    a, _ = G.backend_fixtures(nba_rows, "nba", "2026-10-29")
+    b, _ = G.backend_fixtures(list(reversed(nba_rows)), "nba", "2026-10-29")
+    record("N7 the DATE branch is ordered as well, not only the "
+           "dependency-rule one",
+           a == b and a == [(1610612737, 1610612739, "2026-10-29"),
+                            (1610612740, 1610612758, "2026-10-29")],
+           f"forward={a}, reversed={b}")
+
+    # A MISSING id MUST NOT RAISE. The sort key sees None in real data - a
+    # placeholder team the sync could not resolve - and a mixed-type
+    # comparison would crash the capture rather than skip the row.
+    holed = [fixture("nhl", None, 1614000002, "2026-11-06", True),
+             fixture("nhl", 1614000003, 1614000004, "2026-11-06", True),
+             fixture("nhl", 1614000005, None, "2026-11-06", True),
+             fixture("nhl", 1614000007, 1614000008, "2026-11-06", True)]
+    try:
+        chosen, _skip = G.backend_fixtures(holed, "nhl", "2026-11-06")
+        crashed = None
+    except Exception as error:                                  # noqa: BLE001
+        chosen, crashed = None, f"{type(error).__name__}: {error}"
+    record("N7 a row with a missing team id sorts rather than crashing the "
+           "capture",
+           crashed is None and chosen == [
+               (1614000003, 1614000004, "2026-11-06"),
+               (1614000007, 1614000008, "2026-11-06")],
+           f"chosen={chosen}, crashed={crashed}")
+
+
+def plant_the_backend_half_loses_its_order() -> None:
+    """PLANT: put the arrival-order walk back and watch the pair go red.
+
+    This is the shape the gate was in until 2026-11-06, and the plant is a
+    REIMPLEMENTATION of the old loop rather than a monkeypatch of the sort,
+    because what has to go red is the choice, not the sorting call.
+    """
+    rows = [
+        fixture("nhl", 1614000009, 1614000008, "2026-11-07", True),
+        fixture("nhl", 1614000003, 1614000004, "2026-11-06", True),
+        fixture("nhl", 1614000001, 1614000002, "2026-11-06", True),
+    ]
+
+    def unordered(schedule):
+        """backend_fixtures as it was: the greedy walk with no sort."""
+        usable = [r for r in schedule if r.get("predictable") is True]
+        chosen, used = [], set()
+        for row in usable:
+            home, away = row.get("homeTeamId"), row.get("awayTeamId")
+            if home is None or away is None or home in used or away in used:
+                continue
+            chosen.append((home, away, row.get("gameDate")))
+            used.update((home, away))
+            if len(chosen) == 2:
+                break
+        return chosen
+
+    before = unordered(rows)
+    after = unordered(list(reversed(rows)))
+    record("PLANT the arrival-order walk is back -> the two halves choose "
+           "DIFFERENT fixtures (red)",
+           before != after,
+           f"{before} -> {after}")
+
+    # AND THE GUARD AGAINST AN INEFFECTIVE PLANT, stated the right way round.
+    # The first version asserted that the real chooser disagrees with the
+    # planted one on the reversed input, and went RED against working code:
+    # on that input the arrival-order walk happens to land on the sorted
+    # answer, which is exactly why order-dependence is so easy to miss. What
+    # makes the plant effective is not disagreement on one input but that the
+    # planted chooser returns TWO answers for one set of rows where the real
+    # one returns one.
+    real_forward, _s1 = G.backend_fixtures(rows, "nhl", "2026-11-06")
+    real_reversed, _s2 = G.backend_fixtures(list(reversed(rows)), "nhl",
+                                            "2026-11-06")
+    record("PLANT guard the real chooser is stable on the very rows the "
+           "planted one splits on",
+           real_forward == real_reversed and before != after,
+           f"real={real_forward} either way; planted {before} -> {after}")
+
+
 def skipped_half_reaches_the_verdict() -> None:
     """A half captured on one side and skipped on the other is not a pass."""
     tables = {"games_final.csv": "aaa"}
@@ -1278,6 +1406,8 @@ def main() -> int:
     plant_withdrawn_reference()
     print()
     backend_half_picks_existing_fixtures()
+    the_backend_half_chooses_the_same_fixtures_in_any_order()
+    plant_the_backend_half_loses_its_order()
     skipped_half_reaches_the_verdict()
     plant_skip_is_silent()
     plant_reason_in_the_compared_body()
