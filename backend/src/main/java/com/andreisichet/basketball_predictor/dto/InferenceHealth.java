@@ -15,7 +15,26 @@ public record InferenceHealth(
         LeagueFreshness wnba,
         LeagueFreshness gleague,
         NflFreshness nfl,
-        NhlFreshness nhl) {
+        NhlFreshness nhl,
+        @JsonProperty("served_data") ServedData servedData) {
+
+    /**
+     * Which snapshot inference is serving right now.
+     *
+     * ONLY THE NAME, out of a block that also carries the root path, the
+     * creation stamp and a sha256 per served table. The backend's one
+     * question is "has the data moved since I last synced", and the
+     * directory name IS the snapshot's identity - the project treats a
+     * disagreeing stamp inside SNAPSHOT.json as a fault to report rather
+     * than a second opinion, so reading the stamp here would be reading the
+     * weaker of the two.
+     *
+     * Nullable, like every other block here: an older inference service
+     * would not send it, and the watcher treats absence as "cannot tell"
+     * rather than as a change.
+     */
+    public record ServedData(String snapshot) {
+    }
     /**
      * The WNBA's own cutoff, which is a different date from the NBA's.
      *

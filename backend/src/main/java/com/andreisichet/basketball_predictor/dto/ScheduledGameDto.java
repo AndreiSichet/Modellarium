@@ -24,6 +24,25 @@ public record ScheduledGameDto(
          * NBA list contains.
          */
         String league,
+
+        /**
+         * This fixture's own {@code game} row id, so the client can link to
+         * it.
+         *
+         * ADDITIVE, AND IT CLOSES A HOLE A BROWSER FOUND. Without it a
+         * scheduled fixture is not addressable: the detail page resolves a
+         * game out of the PREDICTED list, and a fixture that cannot be
+         * predicted yet is never in that list - so /predictions/ice-hockey/
+         * nhl/1366 answered "No such game" about a real NHL fixture that the
+         * list page was displaying three rows further down. Under a date
+         * rule that was nearly always true and nearly always harmless;
+         * under the dependency rule 1,070 of 1,083 NHL fixtures are in
+         * exactly that state.
+         *
+         * Nullable only in the sense that every other field here is: the row
+         * exists, so it has an id.
+         */
+        Long gameId,
         Long homeTeamId,
         String homeTeamAbbr,
         String homeTeamName,

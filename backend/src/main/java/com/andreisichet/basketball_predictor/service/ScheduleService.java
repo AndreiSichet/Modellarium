@@ -16,6 +16,7 @@ import tools.jackson.databind.ObjectReader;
 import lombok.extern.slf4j.Slf4j;
 
 import com.andreisichet.basketball_predictor.dto.HealthDto;
+import com.andreisichet.basketball_predictor.dto.InferenceScheduledGame;
 import com.andreisichet.basketball_predictor.dto.ScheduledGameDto;
 import com.andreisichet.basketball_predictor.model.Game;
 import com.andreisichet.basketball_predictor.model.Team;
@@ -34,8 +35,26 @@ public class ScheduleService {
      * type is fixed here instead of at each call site, where an erased
      * `List` would let anything through.
      */
+    /**
+     * READ BACK AS THE RECORD THAT WAS WRITTEN, then mapped.
+     *
+     * This read {@code ScheduledGameDto.Blocker} while ScheduleSyncService
+     * writes {@code InferenceScheduledGame.Blocker}, and the two spell one
+     * field differently: the inbound record carries
+     * {@code @JsonProperty("franchise_id")}, which Jackson applies when
+     * SERIALISING too, so the stored text says {@code franchise_id} and the
+     * outbound record's {@code franchiseId} never matched it. Measured on a
+     * probe stack: every blocker came back with {@code franchiseId: null}.
+     *
+     * It was invisible because the frontend resolves the team from
+     * {@code side} and only falls back to the id when the side is neither
+     * home nor away - which never happens - and because the wire test fed
+     * the DTO a fixture written by hand rather than bytes this service had
+     * stored. One definition on both sides is the fix; two records agreeing
+     * by convention is how they came apart.
+     */
     private static final ObjectReader BLOCKERS = new ObjectMapper()
-            .readerForListOf(ScheduledGameDto.Blocker.class);
+            .readerForListOf(InferenceScheduledGame.Blocker.class);
 
     private final GameRepository gameRepository;
     private final TeamRepository teamRepository;
@@ -99,6 +118,7 @@ public class ScheduleService {
         return new ScheduledGameDto(
                 home.getLeague() == null
                         ? null : home.getLeague().toLowerCase(),
+                game.getId(),
                 home.getId(),
                 home.getAbbreviation(),
                 home.getName(),
@@ -128,12 +148,23 @@ public class ScheduleService {
      * An unparsable value is NOT silently treated as "nothing blocks this":
      * `reasonCode` travels beside it and still says the fixture is blocked.
      */
-    private List<ScheduledGameDto.Blocker> readBlockers(String json) {
+    // PACKAGE-PRIVATE SO A TEST CAN CALL THE REAL ONE. The first
+    // version of that test built its own ObjectMapper and round-
+    // tripped the record directly, which passes whatever this
+    // method does - proved by planting the old reader and watching
+    // the test stay green. A check that cannot fail is not a check.
+    List<ScheduledGameDto.Blocker> readBlockers(String json) {
         if (json == null || json.isBlank()) {
             return List.of();
         }
         try {
-            return BLOCKERS.readValue(json);
+            List<InferenceScheduledGame.Blocker> stored =
+                    BLOCKERS.readValue(json);
+            return stored.stream()
+                    .map(blocker -> new ScheduledGameDto.Blocker(
+                            blocker.side(), blocker.franchiseId(),
+                            blocker.code(), blocker.pending()))
+                    .toList();
         } catch (JacksonException error) {
             // JACKSON 3'S EXCEPTIONS ARE UNCHECKED, so this catch is a
             // deliberate choice rather than a compiler requirement - and
