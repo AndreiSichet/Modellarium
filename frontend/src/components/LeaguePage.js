@@ -76,7 +76,7 @@ function LeaguePage() {
         <GameList games={listed} league={league} />
       )}
 
-      {league.attributionRequired ? <Attribution source={source} /> : null}
+      {league.attributionRequired ? <Attribution source={source} league={league} /> : null}
     </div>
   );
 }

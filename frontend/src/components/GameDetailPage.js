@@ -4,6 +4,7 @@ import { useOutletContext, useParams } from 'react-router-dom';
 import { createQuarterHalfPrediction, getPlayerPropPredictions } from '../api';
 import { DEV_FIXTURES_ON, devPlayerPropsFor, devQuarterHalfFor } from '../data/devFixtures';
 import { findLeague } from '../data/leagues';
+import { GENERIC_NOT_PREDICTABLE, scheduleReason } from '../refusalText';
 import { abbrOf, nameOf } from '../data/teams';
 import { formatKickoff } from '../dates';
 import Breadcrumb from './Breadcrumb';
@@ -19,12 +20,25 @@ import './GameDetailPage.css';
 
 function GameDetailPage() {
   const { sport: sportSlug, league: leagueSlug, gameId } = useParams();
-  const { games, health } = useOutletContext();
+  const { games, schedule, health } = useOutletContext();
 
   const sport = findSport(sportSlug);
   const league = findLeague(sportSlug, leagueSlug);
 
-  const game = games.find((entry) => String(entry.gameId) === String(gameId));
+  const predicted = games.find(
+    (entry) => String(entry.gameId) === String(gameId));
+
+  // A FIXTURE THAT CANNOT BE PREDICTED STILL EXISTS, and this page used to
+  // say otherwise. `games` holds only the fixtures a prediction was fetched
+  // for, so a blocked one was never in it and the page answered "No such
+  // game" about a fixture its own list was displaying. Under a date rule
+  // that is rare; under the dependency rule it is the normal case - 1,070
+  // of 1,083 NHL fixtures on 7 November.
+  const scheduled = (schedule || []).find(
+    (entry) => String(entry.gameId) === String(gameId));
+
+  const game = predicted ?? scheduled;
+  const blocked = !predicted && Boolean(scheduled);
 
   // Only the tabs this league serves. The WNBA gets one, and one tab is not a
   // tablist - see the render below.
@@ -148,7 +162,23 @@ function GameDetailPage() {
             league whose markets this tab renders. The reader caveat comes
             from /health, because the prediction body carries only the
             short one. */}
-        {tab === 'game' && league.winnerCaveatRequired ? (
+        {/* A FIXTURE THE MODELS CANNOT ANSWER YET GETS THE SAME SENTENCE
+            THE LIST ROW GIVES IT, built from `reasonCode` and `blockedBy`
+            and never from the API's prose - so the page agrees with the row
+            the reader clicked. No raw JSON, and not "the service did not
+            answer": nothing was asked of the service, because the rule says
+            this fixture is not answerable yet. */}
+        {blocked ? (
+          <div className="game-detail-blocked">
+            <p className="game-detail-blocked-tag">Not yet predictable</p>
+            <p className="game-detail-blocked-why">
+              {scheduleReason(game) || GENERIC_NOT_PREDICTABLE}
+            </p>
+            <p className="game-detail-blocked-rule">
+              {league.predictabilityExplainer}
+            </p>
+          </div>
+        ) : tab === 'game' && league.winnerCaveatRequired ? (
           <NhlGameTab
             game={game}
             health={health}
@@ -179,7 +209,7 @@ function GameDetailPage() {
           body's own `source` so they cannot drift from the backend. Absent
           for every other league, which owes no attribution. */}
       {league.attributionRequired ? (
-        <Attribution source={game.prediction?.source} />
+        <Attribution source={game.prediction?.source} league={league} />
       ) : null}
     </div>
   );
@@ -252,9 +282,23 @@ function NotFound({ sport, league, gameId }) {
         <p className="predictions-message-body">
           {sport && league ? (
             <>
-              Nothing predictable in <strong>{league.label}</strong> has the id{' '}
-              <strong>{gameId}</strong>. A game only has a page while it is
-              within reach of the models — one day past the newest data.
+              No <strong>{league.label}</strong> fixture has the id{' '}
+              <strong>{gameId}</strong>
+              {league.rule === 'date' ? (
+                <>
+                  {' '}in the window this page covers — a game has a page
+                  while it is within reach of the models, one day past the
+                  newest data.
+                </>
+              ) : (
+                // THE DATE RULE IS NOT THIS LEAGUE'S RULE. Saying "one day
+                // past the newest data" to an NHL reader describes a rule
+                // the NHL does not use and the project's own notes say must
+                // never be applied to it.
+                <>
+                  {' '}in the fixtures currently cached.
+                </>
+              )}
             </>
           ) : (
             <>That address does not name a league this app covers.</>

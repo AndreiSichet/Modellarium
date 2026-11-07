@@ -352,3 +352,39 @@
   margin: 0 0 1rem;
   padding: 0.6rem 0.85rem;
 }
+
+/* ------------------------------------------- a fixture that is not yet
+   answerable, opened directly.
+
+   The same words the list row shows, in the place the markets would be.
+   Quiet rather than alarming: the fixture is real and the models have not
+   declined it so much as not reached it yet. */
+.game-detail-blocked {
+  padding: var(--space-4) 0;
+  max-width: var(--measure);
+}
+
+.game-detail-blocked-tag {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-label);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.game-detail-blocked-why {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--ink);
+}
+
+.game-detail-blocked-rule {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-small);
+  line-height: var(--leading-body);
+  color: var(--ink-muted);
+}

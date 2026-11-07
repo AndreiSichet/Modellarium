@@ -1,12 +1,19 @@
 import './Attribution.css';
 
 /**
- * The licence line the NFL's data requires.
+ * The licence line a CC BY-SA league's data requires.
  *
- * REQUIRED, NOT DECORATIVE. The NFL history is CC BY-SA 4.0 from English
- * Wikipedia, and that licence asks for attribution wherever the data is
- * shown - so this appears on the NFL league page and on every NFL game
- * detail page, as a visible line rather than a tooltip.
+ * REQUIRED, NOT DECORATIVE. The NFL and NHL histories are CC BY-SA 4.0 from
+ * English Wikipedia, and that licence asks for attribution wherever the data
+ * is shown - so this appears on those leagues' pages and on every one of
+ * their game detail pages, as a visible line rather than a tooltip.
+ *
+ * THE LEAGUE IS A PROP, AND IT USED TO BE THE WORD "NFL" TYPED HERE. The
+ * comment below has always said the words come from the API - and the
+ * publisher and the licence do - but the league did not, so the NHL's first
+ * game page read "NFL game data from English Wikipedia". A true licence line
+ * naming the wrong league is worse than none: it attributes the right source
+ * for the wrong dataset. Caught by looking at the page in a browser.
  *
  * THE WORDS COME FROM THE API, NOT FROM HERE. `source` travels on every NFL
  * prediction body as "English Wikipedia, CC BY-SA 4.0", and this renders
@@ -29,8 +36,13 @@ const LINKS = [
   [/cc by-sa 4\.0/i, 'https://creativecommons.org/licenses/by-sa/4.0/'],
 ];
 
-function Attribution({ source }) {
+function Attribution({ source, league }) {
   if (!source) return null;
+
+  // The league's own label, never a hardcoded one. Falling back
+  // to the neutral word rather than to a league name, because a
+  // wrong name is the defect this prop exists to remove.
+  const what = league?.label ? `${league.label} game data` : 'Game data';
 
   // "English Wikipedia, CC BY-SA 4.0" -> publisher, licence. An unexpected
   // shape is rendered whole rather than forced into the sentence.
@@ -42,10 +54,10 @@ function Attribution({ source }) {
     <p className="attribution">
       {publisher && licence ? (
         <>
-          NFL game data from {linked(publisher)}, licensed {linked(licence)}.
+          {what} from {linked(publisher)}, licensed {linked(licence)}.
         </>
       ) : (
-        <>NFL game data from {linked(String(source))}.</>
+        <>{what} from {linked(String(source))}.</>
       )}
     </p>
   );

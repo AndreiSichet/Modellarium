@@ -67,6 +67,28 @@ function teamName(blocker, game) {
   return nameOf(blocker?.franchiseId, null);
 }
 
+/**
+ * The possessive of a team name, which in this league is usually plural.
+ *
+ * MEASURED IN A BROWSER, NOT GUESSED. The first version wrote
+ * `${name}’s` unconditionally and the NHL page read "Waiting for Buffalo
+ * Sabres's result" - and that is not a rare case here: Devils, Rangers,
+ * Kings, Penguins, Sabres, Islanders, Flyers, Canadiens, Maple Leafs,
+ * Senators, Canucks, Stars, Blues, Ducks, Sharks, Predators, Hurricanes,
+ * Blackhawks, Bruins, Jets, Coyotes, Oilers, Flames, Panthers, Capitals,
+ * Penguins and Golden Knights all end in s. A plural ending in s takes a
+ * bare apostrophe.
+ *
+ * Singular names ending in s would take "'s" by most style guides, but no
+ * team in any league this app serves has one - every name ending in s here
+ * is a plural - so the simple rule is also the correct one, and this comment
+ * is where to look if that ever stops being true.
+ */
+function possessive(name) {
+  if (!name) return '';
+  return name.endsWith('s') ? `${name}’` : `${name}’s`;
+}
+
 function joinNames(names) {
   if (names.length <= 1) return names[0] || '';
   return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
@@ -110,7 +132,7 @@ export function scheduleReason(game) {
     if (names.length && when) {
       return names.length > 1
         ? `Waiting for ${joinNames(names)} to have their results from ${when}.`
-        : `Waiting for ${names[0]}’s result from ${when}.`;
+        : `Waiting for ${possessive(names[0])} result from ${when}.`;
     }
   }
 

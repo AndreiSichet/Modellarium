@@ -5,6 +5,8 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
+import Attribution from './components/Attribution';
+
 import App from './App';
 import { createPredictionFor, getHealth, getSchedule } from './api';
 import { LEAGUES, leagueBySlug } from './data/leagues';
@@ -59,6 +61,7 @@ const HEALTH = {
 const PREDICTABLE = {
   league: 'nhl',
   leagueSlug: 'nhl',
+  gameId: 9101,
   homeTeamId: 1614000014,
   homeTeamAbbr: 'MIN',
   homeTeamName: 'Minnesota Wild',
@@ -77,6 +80,7 @@ const PREDICTABLE = {
 const BOTH_PENDING = {
   league: 'nhl',
   leagueSlug: 'nhl',
+  gameId: 9102,
   homeTeamId: 1614000005,
   homeTeamAbbr: 'CAR',
   homeTeamName: 'Carolina Hurricanes',
@@ -194,6 +198,133 @@ beforeEach(() => {
   createPredictionFor.mockResolvedValue(SUMMARY);
 });
 
+// OPENING A BLOCKED FIXTURE DIRECTLY, which used to say the game does not
+// exist. `games` holds only fixtures a prediction was fetched for, so a
+// blocked one was never in it and the detail page answered "No such game"
+// about a fixture its own list was showing - and explained itself with the
+// DATE rule, which the NHL does not use. Found in a browser.
+describe('the detail page of a fixture that is not yet predictable', () => {
+  beforeEach(() => {
+    getSchedule.mockResolvedValue([PREDICTABLE, BOTH_PENDING]);
+  });
+
+  test('it says why, in the same words as the row', async () => {
+    renderAt(`/predictions/ice-hockey/nhl/${BOTH_PENDING.gameId}`);
+
+    expect(await screen.findByText(/Not yet predictable/i)).toBeInTheDocument();
+    // The sentence is built from blockedBy, so it names BOTH teams.
+    const why = await screen.findByText(/Waiting for/);
+    expect(why.textContent).toContain('Carolina Hurricanes');
+    expect(why.textContent).toContain('Chicago Blackhawks');
+  });
+
+  test('it does not claim the game does not exist', async () => {
+    renderAt(`/predictions/ice-hockey/nhl/${BOTH_PENDING.gameId}`);
+
+    await screen.findByText(/Not yet predictable/i);
+    expect(screen.queryByText(/No such game/i)).toBeNull();
+  });
+
+  test('and never quotes the date rule at a dependency league', async () => {
+    renderAt(`/predictions/ice-hockey/nhl/${BOTH_PENDING.gameId}`);
+
+    await screen.findByText(/Not yet predictable/i);
+    expect(screen.queryByText(/one day past the newest data/i)).toBeNull();
+  });
+
+  test('an id that really is unknown still says so', async () => {
+    renderAt('/predictions/ice-hockey/nhl/999999');
+
+    expect(await screen.findByText(/No such game/i)).toBeInTheDocument();
+    // ...without the date rule, because this league does not use it.
+    expect(screen.queryByText(/one day past the newest data/i)).toBeNull();
+  });
+
+  test('no raw JSON reaches the page', async () => {
+    renderAt(`/predictions/ice-hockey/nhl/${BOTH_PENDING.gameId}`);
+
+    await screen.findByText(/Not yet predictable/i);
+    expect(document.body.textContent).not.toContain('previous_game_pending');
+    expect(document.body.textContent).not.toContain('{');
+    expect(document.body.textContent)
+      .not.toMatch(/the service did not answer/i);
+  });
+});
+
+// THE ATTRIBUTION NAMES THIS LEAGUE, which 247 passing tests did not check.
+// `Attribution` rendered the publisher and the licence from the API and the
+// word "NFL" from its own source, so the NHL's game page read "NFL game data
+// from English Wikipedia" - a true licence line attributing the wrong
+// dataset. Found in a browser, like the possessive below.
+describe('the attribution line names the league it is on', () => {
+  const render_ = (league) => render(
+    <Attribution source="English Wikipedia, CC BY-SA 4.0" league={league} />
+  );
+
+  test('the NHL page says NHL, and does not say NFL', () => {
+    const { container } = render_({ label: 'NHL' });
+    expect(container.textContent).toContain('NHL game data');
+    expect(container.textContent).not.toContain('NFL');
+  });
+
+  test('the NFL page still says NFL', () => {
+    const { container } = render_({ label: 'NFL' });
+    expect(container.textContent).toContain('NFL game data');
+  });
+
+  test('with no league it names neither, rather than guessing one', () => {
+    const { container } = render_(undefined);
+    expect(container.textContent).toContain('Game data from');
+    expect(container.textContent).not.toContain('NFL');
+    expect(container.textContent).not.toContain('NHL');
+  });
+
+  test('the publisher and licence still come from the API', () => {
+    const { container } = render(
+      <Attribution source="Example Source, Some Licence"
+        league={{ label: 'NHL' }} />
+    );
+    expect(container.textContent)
+      .toContain('NHL game data from Example Source, licensed Some Licence.');
+  });
+});
+
+// THE POSSESSIVE, BECAUSE A BROWSER FOUND IT AND NO TEST HAD.
+// "Waiting for Buffalo Sabres's result" shipped past 245 passing tests and
+// was caught by looking at the page. Most NHL names are plurals ending in
+// s, so this is the common case rather than an edge one.
+describe('the possessive in a waiting sentence', () => {
+  const row = (name, pending) => ({
+    leagueSlug: 'nhl',
+    gameDate: '2026-11-08',
+    homeTeamId: 1614000002,
+    homeTeamName: 'Buffalo Sabres',
+    awayTeamId: 1614000033,
+    awayTeamName: 'Vegas Golden Knights',
+    reasonCode: 'previous_game_pending',
+    blockedBy: [{
+      side: name === 'Buffalo Sabres' ? 'home' : 'away',
+      franchiseId: 1614000002,
+      code: 'previous_game_pending',
+      pending: [pending],
+    }],
+  });
+
+  test('a plural name ending in s takes a bare apostrophe', () => {
+    const sentence = scheduleReason(row('Buffalo Sabres', '2026-11-06'));
+    expect(sentence).toContain('Buffalo Sabres’ result');
+    expect(sentence).not.toContain('Sabres’s');
+  });
+
+  test('a name not ending in s keeps its s', () => {
+    const vegas = row('Vegas Golden Knights', '2026-11-06');
+    vegas.homeTeamName = 'Colorado Avalanche';
+    vegas.blockedBy[0].side = 'home';
+    expect(scheduleReason(vegas))
+      .toContain('Colorado Avalanche’s result');
+  });
+});
+
 describe('the sport and the league are in the navigation', () => {
   test('Ice hockey is in the rail, and is not called hockey', async () => {
     renderAt('/predictions');
@@ -241,9 +372,13 @@ describe('the sentence on a not-yet-predictable row', () => {
     expect(sentence).not.toContain('earlier fixture(s)');
   });
 
+  // THIS ASSERTION ENCODED THE DEFECT. It was written as "Devils’s"
+  // and passed, because the code produced exactly that; a browser is what
+  // noticed the page was ungrammatical. Corrected rather than deleted -
+  // the case is right, only the expected string was wrong.
   test('one team is named when only one is waiting', () => {
     const sentence = scheduleReason(ONE_PENDING);
-    expect(sentence).toBe('Waiting for New Jersey Devils’s result from 6 Nov.');
+    expect(sentence).toBe('Waiting for New Jersey Devils’ result from 6 Nov.');
     expect(sentence).not.toContain('Vegas');
   });
 

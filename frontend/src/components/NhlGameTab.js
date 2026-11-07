@@ -91,7 +91,11 @@ function NhlGameTab({ game, health, league, healthCaveat }) {
             one, and inventing 1 - p would assert a market that is not
             served. */}
         <Metric
-          label={`${homeName} wins by 2 or more goals`}
+          // "Carolina Hurricanes wins" - a team name is plural
+          // here almost always, so the verb agrees with it. Same
+          // family as the possessive in refusalText, and found the
+          // same way: by reading the rendered page.
+          label={`${homeName} ${homeName.endsWith('s') ? 'win' : 'wins'} by 2 or more goals`}
           value={formatWin(prediction.homeWinsByTwoOrMore, true)}
           note={
             prediction.puckLineDefinition
