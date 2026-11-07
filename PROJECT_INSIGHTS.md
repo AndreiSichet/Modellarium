@@ -1,17 +1,31 @@
 # Modellarium — Project Insights
 
-**A personal sportsbook.** Predictions across **three basketball leagues** —
-the NBA (whole games, quarters, halves and individual player statistics), the
-WNBA and the NBA G League — produced by models trained from scratch on public
-data.
+**A personal sportsbook.** Predictions across **five leagues in three
+sports** — the NBA (whole games, quarters, halves and individual player
+statistics), the WNBA, the NBA G League, the NFL and the NHL — produced by
+models trained from scratch on public data.
 
-Written: 21 September 2026 · Last updated: 6 October 2026
+Written: 21 September 2026 · Last updated: 7 November 2026
 
 Since first writing, the app gained a second league (chapter 20), a third
-(chapter 21), and a job that keeps every league's data current on its own
-(chapter 23). Where this document previously said something that those
+(chapter 21), a fourth in a different sport (chapter 22), a job that keeps
+every league's data current on its own (chapter 23), and a fifth league
+(chapter 24). Where this document previously said something that those
 changes made false, the correction is left visible rather than quietly
-rewritten — a document is only true as of its date.
+rewritten — a document is only true as of its date, and watching a claim get
+corrected teaches more than never seeing it made.
+
+**Two corrections worth knowing about before you start**, because they
+replaced things earlier versions of this document stated confidently:
+
+- The NBA's four roster-availability features, described for months as the
+  highest-value work in the project, were **measured and removed** in October
+  2026. Chapter 25's first item is the whole story, and it is the single most
+  useful page here.
+- The weekly retraining gate's central mechanism, explained in 6.3, was
+  **replaced** on 29 October 2026 after it turned out to be a gate that could
+  never say yes. Both versions are described, because the second one only
+  makes sense as an answer to the first.
 
 ---
 
@@ -65,8 +79,9 @@ requirement.
 21. [The G League — a third league](#21-the-g-league--a-third-league)
 22. [The NFL — a fourth league, and a different sport](#22-the-nfl--a-fourth-league-and-a-different-sport)
 23. [How the data stays current — the daily refresh](#23-how-the-data-stays-current--the-daily-refresh)
-24. [Known limitations and what comes next](#24-known-limitations-and-what-comes-next)
-25. [Quick reference](#25-quick-reference)
+24. [The NHL — a fifth league, and the first whose best model has no file](#24-the-nhl--a-fifth-league-and-the-first-whose-best-model-has-no-file)
+25. [Known limitations and what comes next](#25-known-limitations-and-what-comes-next)
+26. [Quick reference](#26-quick-reference)
 
 ---
 
@@ -75,8 +90,8 @@ requirement.
 ### What it does
 
 Modellarium predicts the outcome of games before they are played, across
-**four leagues and two sports** — the NBA, the WNBA, the NBA G League and,
-since October 2026, the NFL. For an NBA game it can reach, it produces
+**five leagues and three sports** — the NBA, the WNBA, the NBA G League,
+the NFL (since October 2026) and the NHL (since November 2026). For an NBA game it can reach, it produces
 **eighteen separate numbers** across three families; for a game in any of the
 other three, three numbers.
 
@@ -380,7 +395,7 @@ predictions — but they are still recorded, because they affect how much rest
 a team has had.
 
 **Snapshot** — one complete, self-consistent set of results tables for all
-four leagues, produced by a single run of the pipeline and stored under its
+five leagues, produced by a single run of the pipeline and stored under its
 own timestamped name. The app serves exactly one snapshot at a time
 (chapter 23).
 
@@ -407,7 +422,7 @@ throughout to answer "is this *exactly* what it was before?" without
 comparing whole 80 MB tables.
 
 **Snapshot** — one complete, self-consistent set of results tables for all
-four leagues, stored in its own folder under its own name. Chapter 23.
+five leagues, stored in its own folder under its own name. Chapter 23.
 
 **Carried** — said of a league whose daily update failed, so its previous
 tables were copied forward byte for byte into the new snapshot. The league is
@@ -1066,6 +1081,105 @@ production model's **architecture**, re-fits it on exactly the candidate's
 training data, and scores both on games neither has seen. After the fix, all
 seven targets moved from "appears to have regressed 5-12%" to within **±1.06%**.
 
+### 6.3a …and that fix was itself replaced, because it could never say yes
+
+**Everything in 6.3 is kept as written, because the second answer only makes
+sense as a reply to the first.** The refit-the-architecture fix was correct
+about the problem it solved and wrong in a way that took a season opening to
+reveal.
+
+Re-fitting production's architecture on the candidate's rows means training a
+fresh model — and training uses **early stopping**, which halts when a
+validation curve stops improving. But the *incumbent* side of the comparison
+was handed production's full, frozen tree count. So the two sides were not
+built the same way: the candidate stopped wherever its data said to stop, and
+the incumbent always got every tree the shipped model has.
+
+On the moneyline market the candidate stopped very early and lost badly:
+
+| run | candidate trees | production trees | result |
+|---|---|---|---|
+| unchanged data, 38-feature models | 27 | 138 | 6.51% worse — refused |
+| 501 new games, 34-feature models | 21 | 67 | 6.21% worse — refused |
+
+Production's tree count more than halved between those runs and the refusal
+barely moved, which is the tell: **the asymmetry was structural, not a matter
+of degree.** The other six markets passed comfortably. All seven ship
+together, so moneyline alone blocked every promotion.
+
+**A gate that cannot say yes is worse than no gate, because it looks like
+diligence.** Every Monday would have produced a refusal, and a red that is
+expected every week is a red nobody reads.
+
+What it was first called was a systematic bias. Replaying six past cutoffs
+showed something worse: the old rule refused **once in six**, on totals rather
+than moneyline, and promoted its control. Moneyline's early-stopping point
+lands anywhere from **21 to 329 trees** depending on which games form the
+validation window, while production's count is a frozen constant. So the
+comparison was a lottery between a noisy number and a fixed one, and on the
+data of October 2026 it sat at the bad end. It would not have refused every
+week — it would have refused **unpredictably**, which is worse, because a
+verdict nobody can anticipate is one nobody can learn from.
+
+**The rule since 29 October 2026:**
+
+| | |
+|---|---|
+| production | the **shipped models, scored exactly as shipped**. Not refitted. |
+| the window | the most recent **500 games, every one strictly after the date production was trained through** |
+| candidate | built by the real finalisation procedure, on every game *before* that window |
+| verdict | no market more than **2%** worse, **and** every market keeping half of production's edge over its no-skill baseline |
+
+There is no refit at a frozen tree count any more, so there is nothing for the
+stopping point to be asymmetric against. The 6.3 objection — that scoring the
+shipped models grades them on their own homework — is answered by the window
+instead: those 500 games are strictly after the cutoff production was trained
+through, so they are games the shipped models have genuinely never seen.
+A marker file records that cutoff, and a missing marker is now a **red**,
+because it used to be a green that skipped the week silently.
+
+**Making both sides fully identical was tried and rejected.** Same procedure
+*and* same rows compares a model with itself — exactly 0.00% on all seven
+markets, with bit-identical predictions — so it promotes unconditionally. A
+gate that cannot say no is the mirror of one that cannot say yes.
+
+### 6.3b Why the window is 500 games, which was measured rather than chosen
+
+The obvious instinct is a small window, so the gate can act often. That
+instinct is wrong, and the measurement says how wrong.
+
+The question that matters is: **how often would a candidate identical to
+production be refused by sampling noise alone?** Resampling the same six
+cutoffs:
+
+| window | spread of the gate's own verdict | identical candidate wrongly refused |
+|---|---|---|
+| 100 games | 1.59 points | **26.5%** |
+| 300 games | 1.00 points | 3.3% |
+| **500 games** | **0.63 points** | **0.1%** |
+
+A smaller window is not a faster gate. It is a gate whose verdicts are mostly
+noise.
+
+The price is honest and worth stating: at roughly seven NBA games a day, 500
+new games plus the training margin means **this gate acts about twice a
+season, not weekly.** The weeks in between report a true green that states
+its own progress — "not enough new games, 154 of 600" — rather than
+pretending a comparison happened.
+
+**Two things the gate admits it cannot see**, both measured and both accepted:
+
+1. **Stale training data.** A candidate deliberately truncated a whole season
+   earlier than production's cutoff was **promoted**, every market inside the
+   noise. A year of extra history is worth nothing measurable here — the
+   information ceiling again. The cutoff marker and the new-games count are
+   the defence; this comparison is not one.
+2. **A market where production has no edge over no skill.** The half-the-edge
+   guard cannot be a floor where there is no edge to keep half of, so it
+   reports *"not informative"* for that market rather than pretending a check
+   happened. On a 500-game window that is true of three of the seven markets,
+   which is a fact about the data rather than a loose threshold.
+
 ### 6.4 Exit codes are a contract
 
 ```
@@ -1676,7 +1790,7 @@ A separate table rather than extra columns on `prediction`. The WNBA prices
 three markets against the NBA's seven, so sharing one table would mean four
 columns that are always empty for a WNBA row and nothing in the row saying
 which league it belongs to. The `game` table *is* shared, which is safe
-because none of the four leagues' team ids overlap.
+because none of the five leagues' team ids overlap.
 
 #### Table: `player_prop_prediction` — five numbers per player per request
 
@@ -2111,7 +2225,7 @@ chapter 21 explains was a tie broken on serving cost rather than a winner.
 **Response 400** in three cases, each with the reason in the message: the
 fixture cannot be scored because a rolling window is incomplete; the date is
 more than one day past the newest data; or the team ids belong to a different
-league. That last one is worth naming — the four leagues' id ranges do not
+league. That last one is worth naming — the five leagues' id ranges do not
 overlap, so sending NBA ids to this endpoint is a mistake the server can
 detect rather than a prediction it should attempt.
 
@@ -2210,7 +2324,7 @@ anything keying on the short code.
 ```
 
 **There is one freshness block per league, and the website needs every one of
-them.** The four leagues' data ends on four different dates, so a page that
+them.** The five leagues' data ends on five different dates, so a page that
 used the top-level date for a WNBA game would mark it predictable whenever NBA
 data was fresh — and then ask for a prediction the server refuses. A league
 this endpoint says nothing about is treated as having no predictable date at
@@ -2350,7 +2464,7 @@ that is not there.
 
 The app only offers a prediction for a game it can actually reach — one day
 past the end of that league's data. **That cutoff is asked for per league**,
-because all four leagues' data ends on a different date.
+because all five leagues' data ends on a different date.
 
 Using the NBA's date for a WNBA game would be wrong in a specific and
 embarrassing way: it would mark WNBA games as predictable whenever NBA data
@@ -2562,14 +2676,30 @@ python -m uvicorn app:app --port 8000
 ```
 
 Confirm it is alive at `http://localhost:8000/health`. Expected — note that
-`models_loaded` is an object, not a number:
+`models_loaded` is an object, not a number, with one entry per model family:
 
 ```json
 {"status":"ok",
- "models_loaded":{"team":7,"quarter_half":6,"player_props":10,"wnba":3},
- "data_as_of":"2026-04-12","days_behind":162,"stale":true,
- "wnba":{"data_as_of":"2026-09-24","days_behind":10,"stale":true}}
+ "models_loaded":{"team":7,"quarter_half":6,"player_props":10,
+                  "wnba":3,"gleague":3,"nfl":3,"nhl":1},
+ "data_as_of":"2026-11-05","days_behind":2,"stale":false,
+ "wnba":{"data_as_of":"2026-09-24","days_behind":44,"stale":true},
+ "nhl":{"served":true,"predictable_fixtures":13,"fixtures":1083,
+        "prediction_rule":"both teams' previous games in history"}}
 ```
+
+**The dates and counts above move every morning** — the refresh advances them
+— so treat them as a shape rather than as values to match. What is worth
+reading is that the WNBA says `stale: true` while the others do not: its
+season ended in September, so that is the correct answer rather than a fault.
+
+**`models_loaded` is checked at exact equality by the automated tests**, not
+as a minimum. A missing model fails, and so does an unexpected extra one.
+That strictness caught a real fault once: the model files had never been
+committed at all, and a looser check would have reported a healthy service
+with nothing in it. The NHL's `1` is also worth a glance — it serves two
+markets from one file, because its winner is a formula rather than an
+artifact (24.5).
 
 Leave this terminal running.
 
@@ -3672,6 +3802,231 @@ Both fixed, and the check for it reads the summary's *structure* rather than
 its wording: every table row must sit in a table that opened with a blank line
 and a header. Planting the original defect back makes it go red, naming the
 exact line the row was orphaned after.
+
+---
+
+### The six below are from shipping two more leagues
+
+Entries 17.1 to 17.30 were found building the system. These six were found
+**running** it — during the NFL and NHL launches and the week after — and
+they have a different flavour. Fewer of them are mistakes in logic. Most are
+cases where every individual piece was defensible and the fault lived in the
+relationship between two of them, or where a check existed, passed, and was
+not testing what its name claimed.
+
+### 17.31 The health check generated the load it was checking for
+
+**Symptom:** on the morning of 6 November 2026 the inference service was
+pinned at 100–128% CPU, its container had failed its health check 125 times
+in a row, and three ordinary requests measured 13.6, 24.0 and 29.9 seconds —
+getting worse each time.
+
+**Cause:** a feedback loop between two numbers that were each reasonable
+alone. Docker ran the health check **every 5 seconds**, and the check itself
+gave up after **4 seconds**. The `/health` handler had grown: it hashed every
+served table on every call. Once one call crossed four seconds, the check
+failed — and the next one started before the previous had finished. Each
+overlapping call made the next slower.
+
+**Why it is confusing:** every individual piece looks fine. A 5-second
+interval is normal. A 4-second timeout is normal. A health endpoint that
+reports which data is being served is obviously correct. The fault only
+exists in the relationship between them, and only above a threshold. An idle
+copy of the same image on the same machine sat at 0.18% CPU — so the service
+was not "slow", it was being asked faster than it could answer.
+
+**Fix:** everything derived from the snapshot — table hashes, per-league
+cutoffs, the blocked-fixture counts — is computed **once at boot** and reused.
+Only genuinely clock-dependent values are recomputed per request. `/health`
+went from 4.337 seconds to about **0.09** on the wire, which dissolves the
+loop rather than raising a limit.
+
+**The guard that matters more than the fix:** a *budget*. The handler's own
+work is now measured against a limit derived in one place from the health
+check's timeout, so the next person who adds something expensive to `/health`
+finds out from a failing check rather than from a production incident. And
+the body it returns was proved **byte-identical** before and after, so the
+speed-up changed no fact the service reports.
+
+**The lesson is about thresholds that feed themselves.** A monitor that
+consumes the resource it monitors is stable right up until it is not, and
+then it is not stable at all.
+
+### 17.32 A field was added at both ends and never crossed the middle
+
+**Symptom:** the NHL's schedule rows on the website said a fixture could not
+be predicted yet, but never said *why* — even though the sentence had been
+written, tested and shipped.
+
+**Cause:** the explanation (which teams are being waited on, and for which
+dates) was added to the Python code that computes it, to the Java object that
+receives it, to the database column that stores it, to the API that returns
+it and to the page that renders it. It was **not** added to the one place in
+the middle that copies the computed value onto the response: the route builds
+its response object field by field, so a new key is silently dropped.
+
+**Why it is confusing — and this is the valuable part:** *every test passed.*
+The Python side was tested against itself and produced the field. The Java
+side was tested against **a sample response written by hand** and parsed the
+field correctly. Both ends were green. A hand-written sample can only ever
+prove that the receiver understands what its author *believed* the sender
+sends; it cannot notice that the sender never sends it.
+
+**Fix:** a check that derives the expected set of keys **from the producer**
+and asserts two things — that the response model declares each one, and that
+the route actually passes it. The second half is the one no sample file can
+cover.
+
+**It immediately found a second instance underneath the first.** With the
+field finally flowing, every record arrived with one property empty: the
+writer spelled it `franchise_id` and the reader asked for `franchiseId`. That
+had been invisible because the page resolves the team another way and only
+consults that property on a branch that never runs. The writer and reader now
+share one definition, and a test round-trips **the bytes the service actually
+stores** through **the reader the service actually uses**.
+
+**And the first version of that test was vacuous.** It built its own JSON
+converter and round-tripped the object against itself, so it would have passed
+whatever the service did — proved by putting the old reader back and watching
+the test stay green. A check that cannot fail is not a check.
+
+### 17.33 The test suite was pointed at the production database
+
+**Symptom:** none. That is why it is here.
+
+**Cause:** the backend's test configuration inherited the application's own
+database settings, so two test classes that start the whole application
+pointed at **the live application database**. Those tests run schema
+migrations and insert several hundred rows. With the database password
+present in the environment, running the test suite would have migrated and
+written to the database the running app serves. It had not happened only
+because the password was usually absent and the connection never opened.
+
+**Why it is confusing:** the obvious fix — "refuse to run against the
+production URL" — **could not have worked.** The continuous-integration
+server's throwaway database was *also* called `basketball_predictor`, also on
+`localhost:5432`. From the URL's point of view the two were identical, so any
+rule that refused production would have refused CI as well.
+
+**Fix:** a distinct **name**, not a heuristic. The test database is
+`basketball_predictor_test` everywhere, CI's container was renamed in the same
+change, and a guard refuses the production name outright. The guard is wired
+in at the one point that runs *while the application context is being built*,
+which is before the migration tool gets a turn — a check that runs after
+startup is a check that runs after the damage.
+
+**The plant is the interesting part.** It was proved by pointing the suite at
+a database genuinely named `basketball_predictor` on a scratch server, so the
+connection *would* have succeeded. Result: the run stopped with the refusal,
+**zero** migrations, **zero** connection attempts, and that database still
+empty. Proving it on the real one was never an option.
+
+**And the first version of the fix had its own fault.** The override was put
+in a file named `application.properties` under the test folder — which does
+not *add to* the application's settings, it **replaces** them entirely,
+because only the first file of that name on the path is read. Every other
+setting vanished at once. Measured rather than reasoned about: the suite
+failed with *"the server requested authentication, but no password was
+provided"* — with the password set, because the line that reads it lived in
+the file that had just been shadowed.
+
+### 17.34 A style variable that nothing read, and 251 tests that could not see it
+
+**Symptom:** the NHL's fixture rows were unreadable. One team's win
+probability sat alone in the middle of the row with no team attached, the
+column headings labelled the wrong numbers, and the team names were squeezed
+into a narrow column and cut off — "Se…" for Seattle Kraken.
+
+**Cause:** the row's layout is a grid, and the NHL shows two markets where the
+other leagues show three. The code set a variable saying "this row has two
+columns" — and **no stylesheet ever read that variable.** A search of the
+whole project returns exactly one match: the line that writes it. So the
+two-market row laid itself out on the four-column default, and the cells
+simply flowed into the wrong places.
+
+**Why it is confusing:** the page did not crash, nothing was logged, and the
+project's 251 automated interface tests all passed. They run in a simulated
+browser that **computes no layout at all** — it can confirm that an element
+exists and what it says, and it genuinely cannot answer "does this look
+right". The defect was found by a person opening the page.
+
+**Fix:** the grid reads the variable; the narrow-screen rules that drop
+columns are scoped so they cannot reach a row that declared its own; and a
+market with no value for one side renders a visible dash rather than being
+skipped — skipping shifts every later cell one column left, which reproduces
+the original defect by another route.
+
+**A second, larger thing fell out of the same session.** At phone width
+*every* league's page overflowed sideways, with the win column and the button
+off-screen. The cause was the sports menu gaining a third entry: it is meant
+to scroll sideways inside its own column, but the column refused to shrink
+below the width of its contents. Two sports fitted in a phone screen and three
+did not.
+
+**The lesson: a page that has not been opened has not been checked.** What
+closed it was a real browser, driven automatically, taking screenshots at two
+widths that a person then looked at — and, as the cheap half, a **hash** of
+the other four leagues' page content before and after, proving those were
+byte-identical rather than merely believed unchanged.
+
+### 17.35 A rule for one league leaked into four places it did not belong
+
+**Symptom:** the overview page headed the NHL's section **2026-11-06** above
+fixtures dated 2026-11-07. Opening one of those fixtures directly said **"No
+such game"** about a fixture the list was displaying three rows further down.
+
+**Cause:** the project has two rules for when a fixture can be predicted. The
+three basketball leagues use a **date** — one day past the newest result. The
+NFL and NHL use a **dependency** — both teams' previous games must be in
+history. Four separate surfaces had the date rule written into them as though
+it were the only one: the section heading printed "newest result plus one"
+for every league; the detail page looked for the fixture only among the ones a
+prediction had been fetched for; its error text explained itself in terms of
+the date rule; and the schedule data carried no identifier, so a fixture that
+could not be predicted could not be addressed at all.
+
+**Why it is confusing:** under a date rule, "the fixture is not in the
+predicted list" and "the fixture does not exist" are *almost* the same thing,
+because nearly everything in the window is predictable. Under the dependency
+rule they are completely different: **1,070 of 1,083** NHL fixtures were in
+exactly that state. A latent wrong assumption became a visible wrong answer
+only when a league arrived that exercised it.
+
+**Fix:** the heading is shown only for a league that declares the date rule;
+the detail page falls back to the schedule and shows the same sentence the
+list row gives; the error text no longer quotes a rule the league does not
+use; and schedule rows carry their identifier.
+
+**One of those four was not new.** The NFL's section had been headed with a
+meaningless date since the day it shipped. A week-long slate hid it, and it
+took a league whose fixtures sit on consecutive days to make it obvious.
+
+### 17.36 A gate that compared two different games and called it a regression
+
+**Symptom:** the comparison tool used to certify a deployment reported that
+two leagues had changed, listing ten differing numbers — on a change that
+touched neither league.
+
+**Cause:** the tool compares predictions before and after. For the half that
+goes through the Java backend it picks fixtures out of the backend's cached
+schedule, and it took them **in whatever order the list arrived in**. The
+"after" side had restarted and re-synced, which re-ordered the list, so the
+tool compared *different games* and dutifully reported that their numbers
+differed.
+
+**Why it is confusing:** the output looks exactly like a real regression —
+specific fields, specific values, before and after. Two of the ten differing
+"fields" were the team names, which should have been the tell.
+
+**Fix:** sort the candidates explicitly, keyed on the fixture itself — its
+date and the two team identifiers — rather than on the database row's
+identifier, because a re-created row would re-order the set again.
+
+**Why this one earns a place in this chapter:** the obvious way to clear a
+false regression is to re-record the "before" side and compare again, and that
+is the one thing the tool's own rules forbid. A measuring instrument that
+moves on its own teaches people to re-run it until it agrees with them, which
+destroys the only thing it was for.
 
 ---
 
@@ -5047,7 +5402,7 @@ nothing.
   probabilities are more improvable than the NBA's on this measure — there is
   five times as much room — but the honest judgement is that the 2026 season
   is not finished, and fitting a correction on a partial season would be
-  fitting it on too little. Chapter 24 carries this as an open item.
+  fitting it on too little. Chapter 25 carries this as an open item.
 
 ---
 
@@ -5195,7 +5550,7 @@ values, no missing games. None of that can answer the question that actually
 decides whether a snapshot is usable: **can a live prediction actually be
 built from it?**
 
-So there is a separate check that tries exactly that, for all four leagues,
+So there is a separate check that tries exactly that, for all five leagues,
 before anything is swapped. It was demonstrated on a snapshot that was
 structurally complete — every file present, the right size — with one table's
 contents replaced by four words of nonsense. The file-level check saw nothing
@@ -5618,13 +5973,420 @@ live. Asking the running service about its health does.
 
 ---
 
-## 24. Known limitations and what comes next
+## 24. The NHL — a fifth league, and the first whose best model has no file
+
+In late October and early November 2026 the app gained ice hockey. The NHL
+went live on **5 November 2026**, and its own pages followed on the 7th.
+
+The NFL chapter opened by saying it was longer than the two before it because
+more of it was genuinely new. The same applies here, for a different reason.
+The NFL was a new *sport* with a new *data source*. The NHL reuses both of
+those lessons — it is Wikipedia again, CC BY-SA again, the dependency rule
+again — and then breaks something none of the first four leagues touched:
+
+**the best model turned out to be a formula with no fitted file at all, and
+one of the two markets it could have served was deliberately not served.**
+
+### What is actually different this time
+
+| | the four earlier leagues | the NHL |
+|---|---|---|
+| how many copies of each result? | one | **two — both teams' articles carry it** |
+| what catches a wrong score? | nothing, if the one copy is wrong | **the two copies, plus a season-level standings table** |
+| what is the headline model? | a fitted artifact | **Elo alone — three numbers and a formula, no file** |
+| are all its markets served? | yes | **no — totals are declared unserved, with the measurement** |
+| does the headline result confirm on test? | yes | **no — and it ships anyway, saying so** |
+
+### The corpus
+
+| | NBA | WNBA | G League | NFL | **NHL** |
+|---|---|---|---|---|---|
+| seasons | 11 | 12 | 23 | 15 | **13** (2013–14 on) |
+| games | 13,199 | 2,655 | 9,628 | 3,728 | **15,972** |
+| teams | 30 | 15 | 31 | 32 | **32** |
+| games per team per season | 82 | 22–44 | 24–50 | 16–17 | **82** |
+
+The NHL plays as many games as the NBA, which matters: the "17 games a season"
+problem that makes the NFL the hardest prediction task here does not apply.
+There is plenty of evidence about each team. The NHL is hard for a completely
+different reason, and section 24.6 is about that reason.
+
+### 24.1 Two copies of every result, and why that is a gift
+
+Each NHL game appears in **two** places on Wikipedia: the home team's season
+article and the away team's. The pipeline reads both.
+
+For the first four leagues, a wrong number in the source is simply a wrong
+number in the data — nothing can see it. Here, two independent transcriptions
+of the same game have to agree before the game is used. A typo in one article
+is caught by the other.
+
+When they disagree, the game is **quarantined**: set aside with both readings
+recorded, rather than one of them being picked. Picking would mean inventing a
+result, and the project's rule is that an unknown is never silently resolved.
+
+**The cost of that is real and visible to users.** A quarantined game holds
+back *both* teams' next fixtures, because the dependency rule needs each
+team's previous game to be in history. On 6 November 2026 only **2 of 1,083**
+upcoming fixtures were predictable, and that is the rule working rather than
+failing. The app says so, rather than looking broken.
+
+There is a third channel on top of the two copies. Each season has a
+**standings table** — wins, losses, overtime losses, goals for and goals
+against per team. The pipeline recomputes those from the games it built and
+compares. This is the only detector in the entire project for a particular
+kind of error: **a score changed without changing who won.** If a 4–1 is
+transcribed as 3–1 in both articles, both copies agree, the winner is right,
+and nothing except the goal totals would ever notice.
+
+### 24.2 Strict for finished seasons, advisory for the open one
+
+The standings check is season-level, not per-game. That makes it unusable as
+written during a live season: Wikipedia is edited continuously, the team
+articles and the standings page are updated by different people at different
+times, and the two legitimately disagree for hours at a stretch.
+
+The first attempt to build the open 2026-27 season died on exactly that — a
+team listed in two sub-tables of the standings template with different win
+counts, because an editor had written one game into one table and not the
+other. An edit in flight. Transient, certain to recur, and a daily job cannot
+wait for it.
+
+So the rule is asymmetric, and the asymmetry is the design:
+
+- **A completed season is strict.** A disagreement is fatal. Those seasons are
+  not being edited any more, so a disagreement is a real error.
+- **The open season is advisory and *classified*.** The build continues, and
+  the disagreement is sorted into one of four named shapes.
+
+The four shapes matter more than the pass/fail would:
+
+| shape | what it means |
+|---|---|
+| `games_missing` | all differences negative, result counts down — the articles simply lag the standings page. The steady state of a live season. |
+| `result_label` | the win/loss/overtime counts cancel and the goals agree exactly — the same games, with one *typed* differently |
+| `score_only` | **the goals differ and the result counts agree** — a score changed without changing the winner. The thing the channel exists for. |
+| `mixed` | none of the above |
+
+A test that only looked at the *sign* of the differences could not tell a
+mislabelled result from an altered score, and those are different problems
+with different fixes.
+
+**A note on reading that table.** The differences are computed *minus* stated,
+and in an open season the computed side only covers games both articles carry.
+So a **negative** difference means the team articles lag the standings page —
+not the reverse. The first version of this code had that sentence backwards in
+a comment, which is the kind of error that survives indefinitely because
+nobody re-derives a sign convention they have already read.
+
+### 24.3 The features, and the four things deliberately left out
+
+Twenty-five features: Elo for each side and their difference; rest per side
+(days since the last game, whether it is a back-to-back, whether it is a third
+game in four nights); and rolling form over the last 5 and 10 games for each
+side — goals for, goals against, goal difference, win share.
+
+The third-in-four flag is a hockey-specific judgement: in this sport a
+back-to-back is survivable, and the third game in four nights is the spot
+where a starting goaltender is rested.
+
+**Four things the data offers and the models do not use**, each for a reason
+worth stating:
+
+1. **The goaltender of record.** This is the single most predictive thing a
+   hockey bettor looks at — and it is *decided by the game*. The "goalie of
+   record" is whoever was in net for the decisive goals. A *confirmed starting*
+   goalie would be legitimately pre-game and enormously valuable, but no source
+   for that exists under this project's data rules. So the honest answer is to
+   have neither. **This is exactly the trap the NBA's availability features
+   fell into** (chapter 25, item 1): a post-game fact that looks like a feature.
+2. **The fixture's own score, margin, result and how it ended.** Obvious, but
+   worth listing, because it is the same mistake in its plainest form.
+3. **The reconciliation notes** — the columns recording which games were
+   repaired or disputed. A model reading one of those would be learning which
+   games Wikipedia's two copies disagreed about, which is a fact about the
+   encyclopedia and not about hockey.
+4. **The standings, and the puck drop time.** The standings are
+   season-to-date aggregates whose value *at the time of* an October game
+   cannot be recovered from a page that now shows the final figures — using
+   today's value for an October game is time travel. And Phase 1 measured that
+   no article carries a usable start time at all, so a late-start or matinee
+   feature cannot be built even in principle.
+
+**Home and away are in the framing, not in a column.** Every row is
+home-versus-away, so a constant "is home" column would be collinear with the
+intercept. The home effect lives in the intercept of the linear models and in
+Elo's `home_advantage`.
+
+### 24.4 Elo fitted at k = 6, which is very low, and that is the finding
+
+Elo's `k` controls how much one result moves a team's rating. The values
+fitted for the other leagues: the NBA **20**, the NFL **50**. The NHL fitted
+to **6**.
+
+That is not a quirk of the search. It is a statement about the sport: **a
+single NHL result is very weak evidence.** One-goal games and games decided
+after regulation are most of the distribution, so a win says much less about
+which team is better than a win does in basketball or football. The fitted
+parameter discovered that without being told.
+
+All three parameters were checked for whether they matter at all, by varying
+each one alone and measuring the spread in validation score: `k` moved it by
+0.0265, carry-over by 0.0156, home advantage by 0.0096. None is flat, so the
+grid's winner is a real choice rather than noise.
+
+**One guard worth copying.** The parameter search uses a fast array replay of
+the Elo calculation rather than the production function, for speed. Before any
+searching happens, a check asserts the two implementations agree **exactly** —
+worst difference 0.0 rating points. Two implementations of one rule is how a
+project ends up tuning against a formula that is not the one it ships.
+
+### 24.5 Elo alone won, so the shipped winner has no file
+
+The winner market was a straight contest between five candidates on the
+validation season. Elo alone won **outright** — not a tie broken by preferring
+the simpler object:
+
+| candidate | validation log loss |
+|---|---|
+| **Elo alone** | **0.659983** |
+| logistic over Elo | 0.660017 |
+| logistic over all 25 features | 0.662531 |
+| shallow XGBoost | 0.664334 |
+| deeper XGBoost | 0.669029 |
+
+So the NHL's headline model is three rating columns and a formula. There is no
+`winner.joblib`, and the manifest records `artifact: null` with the Elo
+parameters themselves being the model. A caller computes
+`1 / (1 + 10 ** (-(home_elo + home_advantage - away_elo) / 400))`.
+
+This surprises people, so it is worth saying plainly: **the rolling form and
+rest features earn nothing in this league.** The logistic model over all 25
+features was indistinguishable from the one over three. Twenty-two columns of
+goals-for, goals-against and rest add no information that the ratings do not
+already carry.
+
+The **puck line** — "does the home team win by 2 or more goals?" — is a
+LogisticRegression over the same three Elo columns behind a scaler, with
+deliberately **no imputer**, because those three inputs are never null. A team
+with no history carries the 1500 baseline, which is a *defined* starting value
+rather than an unknown. An imputer that never fires would invite a future
+reader to assume NaNs are handled somewhere.
+
+### 24.6 Totals are not served, and the page says why
+
+A total-goals model was built and then **not shipped**, because a constant
+predictor beat it on the test seasons:
+
+| | fitted linear model | best constant |
+|---|---|---|
+| MAE | 1.8474 | **1.8339** |
+| RMSE | 2.2979 | **2.2913** |
+
+There is no skill to ship. The alternative — shipping it anyway because a
+totals market is expected — would mean presenting a number that is worse than
+a fixed guess as though it were a prediction.
+
+The declaration travels as a **stable code plus prose**:
+`{"served": false, "reason_code": "no_skill_over_constant", "detail": "…"}`.
+The code is what any comparison keys on; the prose is for reading and is never
+byte-compared. That split exists because a gate once reported a false
+regression when a counted phrase changed inside a sentence.
+
+On the page, the reader sees the market, the words **Not offered**, and a
+sentence written for them — *"Our total-goals model did no better than always
+predicting the league average, so we don't show it."* The API's own wording,
+which is written for a maintainer, sits behind a toggle.
+
+### 24.7 The winner does not confirm on test, and ships anyway
+
+This is the most honest thing in the chapter, and the hardest to present.
+
+The decision rule was fixed in advance: choose on the validation season. Elo
+alone won validation outright, so it ships. Then the two held-back test
+seasons were scored, **as a description rather than as a second decision** —
+re-deciding on test would be selecting on test, which is the thing a held-out
+set exists to prevent.
+
+| market | test log loss | no skill | gain | 95% interval |
+|---|---|---|---|---|
+| winner | 0.681557 | 0.689575 | +0.008018 | `[-0.0158, +0.0001]` — **crosses zero** |
+| puck line | 0.625179 | 0.632543 | +0.007364 | `[-0.0144, -0.0003]` — excludes zero |
+
+**The market the NHL ships as its headline is the one test cannot distinguish
+from a constant.** The market that had to earn its place is the one that holds
+up. Per season it is starker still: the winner gains +0.0167 in 2024-25 and
+**−0.0023** in 2025-26 — in one of the two test seasons, Elo is worse than no
+skill.
+
+Three responses were available: withdraw the market, quote the figure and say
+nothing, or ship it with the caveat attached to the number. The third was
+chosen. A frozen 0.681557 quoted without its interval would be a true number
+that misleads.
+
+So the manifest carries a caveat in three forms for three audiences — a short
+badge line, a reader paragraph, and a maintainer note — and the app shows the
+short one *immediately beside the probability*, with the longer one one click
+away. **Neither reader-facing form contains a number**, by design: a caveat
+with a figure in it expires at the next retrain while still looking
+authoritative. A check fails the build if a digit appears in the short form.
+
+### 24.8 Why the season matters more than the model
+
+Measured across all thirteen seasons: Elo's gain over no skill correlates with
+how *spread out* that season's final win shares were, at **r = 0.93**.
+
+| season | win-share spread | Elo's gain |
+|---|---|---|
+| 2021-22 | 0.1274 | +0.0373 |
+| 2025-26 | 0.0818 | **−0.0023** |
+
+In a season where every team finishes near .500, there is less to predict, and
+a ratings model has less to find. 2025-26 is the second-flattest of the
+thirteen — and it is one of the two test seasons.
+
+**The consequence for anyone reading an NHL number later:** a future retrain
+that moves a figure is as likely to reflect the league's competitive balance
+that year as anything about the model. The corpus was checked before the
+season was blamed — 82 games a team, exactly 50.00% home rows, 32 teams, 6.25
+goals a game — so the data is structurally sound and the season really is
+flat.
+
+### 24.9 A calibrator built, and rejected by its own rule
+
+Calibration asks a narrower question than accuracy: *when the model says 60%,
+does it happen 60% of the time?* The NHL's raw Elo has no calibration step at
+all — it is a logistic of a rating difference, and nobody ever fitted it to
+produce calibrated probabilities. Its test calibration error is twice the
+NBA's. So a calibrator looked like a clear opportunity.
+
+**The rule was written down before any numbers were produced**: a calibrator
+ships only if, on the validation season, the paired interval for the
+*calibration* improvement excludes zero on the improving side **and** the
+log-loss interval does not exclude zero on the worsening side. Calibration is
+what is being bought, so it has to be established; and a calibrator that tidies
+the bins while making the probabilities worse is a bad trade.
+
+Neither Platt scaling nor isotonic regression cleared it. Both point estimates
+were **worse**. No third family was tried, because picking families until one
+passes is how a threshold stops meaning anything.
+
+Then the measurement that explained it. A null was built by drawing outcomes
+*from the model's own probabilities* — making the predictor perfectly
+calibrated by construction — and measuring the calibration error that noise
+alone produces. Raw Elo's error sits **inside** that null on the training
+seasons and on validation. **There was nothing for a calibrator to learn**:
+the curve it would fit is near the identity.
+
+That measurement also corrected a claim this project had believed. Calibration
+error averages *absolute* gaps, so noise can only push it up, and the size of
+that push depends on the sample. **A figure from 12,036 games and one from
+2,624 games are different quantities.** "The test error is eight times the
+training error" can be true of a predictor with no miscalibration at all — and
+here it was.
+
+### 24.10 Serving it: the dependency rule, and a clock change
+
+The NHL uses the **dependency rule**, like the NFL: a fixture becomes
+predictable once both teams' previous games are in history. The one-day-ahead
+limit that binds the three basketball leagues **must not** be applied to it.
+Measured over a replayed season, the dependency rule offers 1,292 of 1,312
+fixtures against the date rule's 1,242, with a median lead of 38.5 hours
+against 14.5 — and **71% of the season available the morning before, against
+0%**.
+
+That 0% is structural, not bad luck: a date rule offers "the day after our
+newest result", which at a morning refresh is the same calendar day.
+
+**The NHL is also why the daily refresh moved to 08:30 UTC.** An NHL result is
+final once both copies agree *and* the game's US date has ended in the latest
+zone it could have been played in — midnight Pacific. That instant is 07:00
+UTC during daylight saving and **08:00 UTC outside it**, and US daylight
+saving ended on 1 November 2026. A job running at 07:15 cleared the boundary
+in October and would have missed it entirely from November, leaving the NHL's
+data permanently a day behind. Measured through the rule rather than the
+clock: at 07:15, 248 fixtures a season would never become predictable; at
+08:30, 20 — and those 20 are a named class, season openers where one side has
+no previous game.
+
+The move was measured against the other leagues before it was made, which is
+the part worth copying. The NBA's sensitivity to a 75-minute shift was a
+*different question* from the NHL's, and unmeasured — so it was measured: no
+game date ever gained rows in a later snapshot, so the previous night is
+already complete by 07:15 and 75 minutes later costs nothing.
+
+### 24.11 One franchise that moved, decided without an error comparison
+
+Arizona became Utah in 2024. The identity table records them as two franchise
+ids and says nothing about one becoming the other, so the pipeline carries an
+authored mapping.
+
+The question is whether Utah should inherit Arizona's rating and form, or
+start from the 1500 baseline the way a genuine expansion team does. The team,
+roster, staff and contracts moved together, so the ratings a side brought into
+its first Utah game are the ones it earned in Arizona. Resetting would be
+treating a relocation as an expansion.
+
+**It could not be decided by measuring which choice predicted better, and that
+is recorded rather than glossed over.** The relocation falls in 2024-25 — a
+*test* season. Any comparison would have been made on test data.
+
+A guard makes a wrong mapping fatal: if both ids appear in the same season
+they are two different teams, and merging them would fuse two real histories,
+so the build raises rather than continuing.
+
+Utah's test-season numbers were produced afterwards and are recorded as
+**description only**, with the words that stop them being read as the
+justification. For the record, they are poor — Utah is harder to predict than
+the rest of the league, and the carried Arizona rating was below average,
+which is right, because Arizona was weak.
+
+### 24.12 What the NHL cost, and what it proved
+
+Nothing in the first four leagues' machinery had to be redesigned. The NHL
+added a per-league folder in the pipeline, a models folder, a serving module,
+one line in the refresh's league list, two lines in a Dockerfile, a database
+migration, and a page.
+
+Three things it proved that four leagues had not:
+
+1. **A league can declare that it does not serve a market**, and the whole
+   stack — manifest, service, API, page — can carry that as a state rather
+   than an absence.
+2. **A model can ship with its own weakness attached to it** rather than in a
+   footnote nobody reads.
+3. **The registry pattern held.** The frontend gained one league entry and one
+   sport entry; no component learned the word "hockey" in order to branch on
+   it. Where a page did need different behaviour — two markets instead of
+   three, a caveat beside a probability — it was driven by a *declared
+   capability*, not by checking which league was being rendered.
+
+The one thing it did *not* prove is that the pages were right. Entries
+17.33 to 17.36 are about how that was found out.
+
+---
+
+## 25. Known limitations and what comes next
 
 These are understood and accepted, not oversights.
+
+> **Read this chapter with its dates.** Items 1, 3 and 4 below were written
+> while the NBA was between seasons and the data was months old. All three
+> have since been overtaken by events — the season opened, the daily refresh
+> (chapter 23) took over, and the availability features were removed. They
+> are **annotated rather than deleted**, because an item that quietly
+> vanishes teaches nothing, and what overtook each one is the interesting
+> part.
 
 1. **Nothing is predictable until the season starts.** The data ends 12 April
    2026, the season opens 20 October 2026, and the model horizon is one day.
    The site explains this rather than showing an empty page.
+
+   > **Overtaken on 20 October 2026.** The season opened, and because the
+   > daily refresh was already running, predictions resumed **without anyone
+   > doing anything** — which was the whole point of building it. The item is
+   > kept because it describes a state this app will re-enter every summer,
+   > and the answer to it is now a job rather than a person.
 
 2. **Predictions only one day ahead — for the three basketball leagues.**
    Their models use "days since last game" as an input. For a fixture further
@@ -5643,6 +6405,12 @@ These are understood and accepted, not oversights.
 3. **The data is currently stale.** Every prediction made today is flagged
    `stale = true`. Correct behaviour, honestly reported.
 
+   > **No longer true of the in-season leagues, and the flag is why you can
+   > tell.** The refresh advances the NBA, NFL and NHL every morning, so they
+   > report `stale = false`. The WNBA, whose season ended in September, still
+   > reports `stale = true` — correctly. The same field now carries two
+   > different true answers, which is what it was for.
+
 4. **Roster availability is unknown, and will stay unknown into November.** A
    player's typical-minutes figure does not exist until they have played eleven
    games. So the season opening unblocks *fixtures*, not availability — the
@@ -5658,6 +6426,18 @@ These are understood and accepted, not oversights.
    said. Fixed on 7 October and measured both ways. The calendar is the
    remaining blocker *now* — it was not the only one then.
 
+   > **And then the item stopped existing, on 25 October 2026.** It was wrong
+   > a second time, in a larger way: the blocker was never the calendar. The
+   > four features described **who actually played**, taken from each game's
+   > own box score, so no amount of waiting would have made them available to
+   > a prediction made the day before. They were removed. The first entry
+   > under *what comes next* is the full story.
+   >
+   > This item was wrong twice, in two different ways, over two months, and
+   > both corrections are left standing. That is the most useful thing on this
+   > page: a limitation can be stated honestly, fixed honestly, and still be
+   > about the wrong thing.
+
 5. **The fixture list is only as wide as the sync horizon** — 120 days by
    default. A setting, easily raised, but a real change worth knowing about.
 
@@ -5671,7 +6451,7 @@ These are understood and accepted, not oversights.
 
 7. ~~**The game history is baked into the container image.**~~ **Resolved in
    October 2026 — and the mounted volume predicted here is exactly what it
-   got.** All nine served tables, across all four leagues, now arrive on a
+   got.** Every served table, across all five leagues, now arrives on a
    shared folder the service reads at startup, and the image carries no
    results table at all. Chapter 23 is the whole of it.
 
@@ -5777,7 +6557,7 @@ These are understood and accepted, not oversights.
     fitting on a partial season and judging it on less. **This is the one open
     accuracy item with a measured reason to expect a gain.**
 
-23. **No automatic retraining outside the NBA.** All four leagues' *data*
+23. **No automatic retraining outside the NBA.** All five leagues' *data*
     refreshes every morning (chapter 23), but only the NBA has a weekly job
     that retrains a candidate model and checks it has not got worse. The
     WNBA's, G League's and NFL's models were fitted once and change only if
@@ -5812,15 +6592,36 @@ These are understood and accepted, not oversights.
    was a different view of game data the project already holds. A betting line
    is the only remaining input that is not a rearrangement of what is already
    here.
-3. **Cloud deployment**, and deployment on merge. The last two unfinished items
-   from the original definition of done.
+3. **Cloud deployment and deployment on merge — closed, not done.** These
+   were the last two unfinished items from the original definition of done,
+   and they are now **deliberately out of scope**. The project runs on a
+   self-hosted machine, the scheduled jobs depend on a persistent disk holding
+   a corpus that takes hours to rebuild (6.6 explains why that matters), and
+   nothing about the remaining questions is a deployment question.
+
+   Writing "not done" against them indefinitely would imply the project is
+   unfinished in a way it is not. **A roadmap item that is no longer wanted
+   should be closed with a reason, not left to rot as a permanent reproach.**
+
 4. **Drift monitoring across a season** — the remaining half of real
    operational maturity. The automated retraining and its promotion gate
-   already exist.
+   already exist, and the gate already *warns* when calibration error doubles.
+   What it cannot do yet is decide what a meaningful drift threshold is, and
+   that needs several real in-season retrains to set a bar from. On the
+   measured schedule the gate acts about twice a season (6.3b), so this is a
+   question for 2027 rather than a task waiting to be picked up. Inventing a
+   threshold now would be a guess wearing a number's clothes.
+
+5. **A calibrator for the NFL's winner market.** The NHL's was built and
+   rejected by its own rule (24.9), and the measurement that killed it —
+   calibration error is pushed upward by noise, by an amount that depends on
+   the sample size — is the thing to apply here first. The NFL's reliability
+   share is five times the NBA's, so there is more to work on than there was
+   for the NHL; the tail bins are where it will be decided.
 
 ---
 
-## 25. Quick reference
+## 26. Quick reference
 
 ### Start everything
 
