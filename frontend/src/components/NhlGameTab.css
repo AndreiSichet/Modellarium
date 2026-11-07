@@ -23,11 +23,38 @@
    it - a reader who sees 69.6% and skims past this has been told the wrong
    thing. Same colour as `.market-note`, because it is the same kind of
    qualifier and a louder one would turn every NHL number into a warning. */
+/* LEFT-ALIGNED, WITH THE BAR AGAINST THE TEXT IT MARKS. `.market-value`
+   sets `text-align: right` so a number lines up with the numbers above it -
+   and these full-width children inherited it, which left the accent bar
+   sitting at the far left of an empty line while the sentence it marks sat
+   against the right edge, several hundred pixels away at 1440 px. A rule
+   that marks nothing is worse than no rule: it reads as a stray border.
+   Prose is left-aligned here and the bar is beside its first word. */
 .nhl-caveat-short {
   margin-top: var(--space-1);
   padding-left: var(--space-2);
   border-left: 2px solid var(--accent);
   max-width: var(--measure);
+  text-align: left;
+}
+
+/* The toggles and the paragraph belong to the same block and align with it,
+   so the whole caveat reads as one left-aligned column rather than three
+   things that happen to be stacked. */
+.nhl-caveat-toggle,
+.nhl-caveat-reader,
+.nhl-totals-why,
+.nhl-model {
+  text-align: left;
+}
+
+/* A SENTENCE, SO THE SENTENCE FACE. `.market-model` is set in --font-mono,
+   which is right for a bare family name like `xgboost` and wrong for
+   "Model: team Elo ratings" - monospaced prose still reads as a code
+   fragment, which is the thing writing it out was meant to stop. Scoped to
+   this tab, so every other league's model line is untouched. */
+.nhl-model {
+  font-family: var(--font-body);
 }
 
 /* A text button, because this reveals prose rather than navigating. Styled

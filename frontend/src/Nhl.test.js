@@ -251,6 +251,97 @@ describe('the detail page of a fixture that is not yet predictable', () => {
   });
 });
 
+// AWAY ON TOP, HOME BELOW - the order every other surface already uses.
+// The row alone read home-then-away, so a reader moving between a row and
+// the page it links to had to notice the teams had swapped places.
+describe('the NHL row puts the away team on top', () => {
+  test('the away team is the first line and the home team the second',
+    async () => {
+      getSchedule.mockResolvedValue([PREDICTABLE]);
+      const { container } = renderAt('/predictions/ice-hockey/nhl');
+      await screen.findByText(/can be predicted today/);
+
+      const names = Array.from(
+        container.querySelectorAll('.game-row-team-name')
+      ).map((node) => node.textContent);
+
+      // PREDICTABLE is MIN (home) v SJS (away).
+      expect(names.slice(0, 2))
+        .toEqual(['San Jose Sharks', 'Minnesota Wild']);
+    });
+
+  test('BY 2+ stays on the HOME line, and the away line keeps its blank',
+    async () => {
+      getSchedule.mockResolvedValue([PREDICTABLE]);
+      const { container } = renderAt('/predictions/ice-hockey/nhl');
+      await screen.findByText(/can be predicted today/);
+
+      const cells = Array.from(
+        container.querySelectorAll('.game-row-cell')
+      ).map((node) => node.textContent.trim());
+
+      // Two columns, two lines: away [win, blank] then home [win, by2+].
+      expect(cells).toHaveLength(4);
+      expect(cells[1]).toBe('\u2014');     // away has no puck line
+      expect(cells[3]).toMatch(/%$/);  // home does
+      // ...and the order did not silently swap the probabilities too.
+      expect(cells[0]).toBe('30.4%');
+      expect(cells[2]).toBe('69.6%');
+    });
+
+  test('the blank cell is still rendered, not skipped', async () => {
+    getSchedule.mockResolvedValue([PREDICTABLE]);
+    const { container } = renderAt('/predictions/ice-hockey/nhl');
+    await screen.findByText(/can be predicted today/);
+
+    // Skipping it would shift every later cell one column left, which is
+    // the defect the grid fix removed arriving by another route.
+    expect(container.querySelectorAll('.game-row-cell--blank'))
+      .toHaveLength(1);
+  });
+});
+
+// THE LICENCE LINE ON A FIXTURE WITH NO PREDICTION. CC BY-SA asks for
+// attribution wherever the data is shown, and a blocked fixture's page
+// shows Wikipedia-derived names and a date while carrying no prediction to
+// take the words from. /api/health already sends the same string.
+describe('attribution on a blocked fixture page', () => {
+  test('it falls back to the league freshness source', async () => {
+    getSchedule.mockResolvedValue([PREDICTABLE, BOTH_PENDING]);
+    renderAt(`/predictions/ice-hockey/nhl/${BOTH_PENDING.gameId}`);
+
+    await screen.findByText(/Not yet predictable/i);
+    const line = await screen.findByText(/NHL game data from/);
+    expect(line.textContent).toContain('English Wikipedia');
+    expect(line.textContent).toContain('CC BY-SA 4.0');
+  });
+
+  test('with no source anywhere it claims nothing', async () => {
+    getHealth.mockResolvedValue({
+      ...HEALTH,
+      nhl: { ...HEALTH.nhl, source: null },
+    });
+    getSchedule.mockResolvedValue([PREDICTABLE, BOTH_PENDING]);
+    renderAt(`/predictions/ice-hockey/nhl/${BOTH_PENDING.gameId}`);
+
+    await screen.findByText(/Not yet predictable/i);
+    expect(screen.queryByText(/game data from/)).toBeNull();
+  });
+});
+
+// THE SUBTITLE DESCRIBED THE DATE RULE AS IF IT WERE THE ONLY ONE.
+describe('the overview subtitle', () => {
+  test('it does not claim a single date for every league', async () => {
+    getSchedule.mockResolvedValue([PREDICTABLE]);
+    renderAt('/predictions');
+
+    const sub = await screen.findByText(/soonest each league can predict/);
+    expect(sub).toBeInTheDocument();
+    expect(document.body.textContent)
+      .not.toContain('newest date each league can be predicted for');
+  });
+});
+
 // THE ATTRIBUTION NAMES THIS LEAGUE, which 247 passing tests did not check.
 // `Attribution` rendered the publisher and the licence from the API and the
 // word "NFL" from its own source, so the NHL's game page read "NFL game data
@@ -542,13 +633,70 @@ describe('the game page', () => {
       expect(screen.queryByText(/San Jose Sharks wins by/)).toBeNull();
     });
 
-  test('totals say they are not offered, and why', async () => {
+  test('totals say they are not offered, and why, in plain words',
+    async () => {
+      await openGamePage();
+
+      expect(await screen.findByText(/Not offered/)).toBeInTheDocument();
+      // THE SENTENCE A READER CAN ACT ON, chosen by the reason CODE.
+      expect(
+        screen.getByText(/did no better than always predicting the league/)
+      ).toBeInTheDocument();
+      // ...and the API's own wording, which is written for a maintainer, is
+      // NOT on the page until it is asked for.
+      expect(
+        screen.queryByText(/a constant predictor beats the fitted model/)
+      ).toBeNull();
+    });
+
+  test('the API\u2019s measurement is one click away, not gone', async () => {
     await openGamePage();
 
-    expect(await screen.findByText(/Not offered/)).toBeInTheDocument();
+    await userEvent.click(
+      await screen.findByRole('button', { name: /The measurement/i }));
+
     expect(
       screen.getByText(/a constant predictor beats the fitted model on test/)
     ).toBeInTheDocument();
+  });
+
+  test('an unknown totals code gets the generic line, never the raw code',
+    async () => {
+      createPredictionFor.mockResolvedValue({
+        ...SUMMARY,
+        prediction: {
+          ...SUMMARY.prediction,
+          totalsReasonCode: 'some_code_added_later',
+        },
+      });
+      await openGamePage();
+
+      expect(await screen.findByText(/Total goals are not shown/))
+        .toBeInTheDocument();
+      expect(document.body.textContent)
+        .not.toContain('some_code_added_later');
+    });
+
+  test('the puck line does not repeat its own definition in column names',
+    async () => {
+      await openGamePage();
+
+      // The label IS the definition, in English. The note underneath said
+      // the same thing again as `HOME_MARGIN >= 2`, which names a column in
+      // a file the reader cannot see.
+      expect(await screen.findByText(/by 2 or more goals/))
+        .toBeInTheDocument();
+      expect(document.body.textContent).not.toContain('HOME_MARGIN');
+      expect(document.body.textContent).not.toContain('Defined as');
+    });
+
+  test('the model is named for a reader, not as a family code', async () => {
+    await openGamePage();
+
+    expect(await screen.findByText(/Model: team Elo ratings/))
+      .toBeInTheDocument();
+    // The bare word on its own was what a reader used to get.
+    expect(screen.queryByText(/^elo$/)).toBeNull();
   });
 
   test('the footnote carries the cutoff, the season and the rule',

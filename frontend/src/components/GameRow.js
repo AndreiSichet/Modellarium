@@ -142,17 +142,30 @@ function DeclaredMarketsRow({ game, league }) {
           ))}
         </div>
 
-        <TeamLine
-          teamId={game.homeTeamId}
-          name={game.homeTeamName}
-          abbr={game.homeTeamAbbr}
-          cells={columns.map((column) => column.home(prediction))}
-        />
+        {/* AWAY ON TOP, HOME BELOW - the order every other surface in the
+            app already uses. The NFL's rows, this league's own not-yet rows
+            ("San Jose Sharks at Dallas Stars") and its game pages
+            ("CHI @ CAR") all read away-then-home, and this row alone read
+            home-then-away. A reader comparing a row with the page it links
+            to had to notice the two teams had swapped places, which is the
+            kind of thing that is never noticed and quietly misread instead.
+
+            THE MARKET COLUMNS DO NOT MOVE WITH THEM. Each line still asks
+            the column for ITS OWN side, so BY 2+ stays on the home line -
+            now the lower one - and the away line keeps the visible blank
+            that says the market is not offered for that side rather than
+            that a value failed to load. */}
         <TeamLine
           teamId={game.awayTeamId}
           name={game.awayTeamName}
           abbr={game.awayTeamAbbr}
           cells={columns.map((column) => column.away(prediction))}
+        />
+        <TeamLine
+          teamId={game.homeTeamId}
+          name={game.homeTeamName}
+          abbr={game.homeTeamAbbr}
+          cells={columns.map((column) => column.home(prediction))}
         />
       </div>
 

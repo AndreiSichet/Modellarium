@@ -208,8 +208,20 @@ function GameDetailPage() {
           wherever the data is shown, and the words come from the prediction
           body's own `source` so they cannot drift from the backend. Absent
           for every other league, which owes no attribution. */}
+      {/* THE LICENCE LINE ALSO ON A FIXTURE WITH NO PREDICTION. The words
+          normally travel on the prediction body, and a blocked fixture has
+          none - so this page showed Wikipedia-derived team names and a date
+          with no attribution at all, which the licence asks for wherever
+          the data is shown. `/api/health` already carries the same string
+          per league, so the fallback needs no wire change; it is the same
+          source, not a second claim, and with neither present nothing is
+          asserted. */}
       {league.attributionRequired ? (
-        <Attribution source={game.prediction?.source} league={league} />
+        <Attribution
+          source={game.prediction?.source
+            || (league.freshness ? health?.[league.freshness]?.source : null)}
+          league={league}
+        />
       ) : null}
     </div>
   );

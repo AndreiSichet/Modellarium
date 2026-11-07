@@ -85,9 +85,14 @@ function GamesPage() {
       <header className="games-page-head">
         <h1 className="games-page-title">{sport ? 'Upcoming' : 'General'}</h1>
 
+        {/* TRUE OF BOTH RULES. This said "by the newest date each league
+            can be predicted for", which describes the DATE rule and is
+            false for the two leagues that use the dependency rule: their
+            sections span several days and no single date describes them.
+            The NFL has been under that sentence since it shipped. */}
         <p className="games-page-sub">
-          {sport ? `${sport.label} games` : 'Games across every sport'}, by the
-          newest date each league can be predicted for
+          {sport ? `${sport.label} games` : 'Games across every sport'}, the
+          soonest each league can predict
         </p>
       </header>
 
