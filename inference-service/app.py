@@ -402,6 +402,17 @@ class NhlMarket(BaseModel):
     detail: str | None = None
 
 
+class NhlBlocker(BaseModel):
+    """One side that is holding a fixture back, and what it waits on."""
+
+    side: str
+    franchise_id: int
+    code: str
+    # The dates of that team's earlier games with no result yet. Empty for a
+    # season opener, which waits on nothing - it has no earlier game at all.
+    pending: list[str] = []
+
+
 class NhlFixture(BaseModel):
     game_id: str
     season: str
@@ -419,6 +430,22 @@ class NhlFixture(BaseModel):
     # from the same function, so this code is the one /predict would raise.
     reason_code: str | None = None
     reason: str | None = None
+    # EVERY SIDE THAT HOLDS THE FIXTURE BACK, not just the first one.
+    # `blocking_reason` short-circuits on the first blocked team, and 1,074
+    # of 1,083 fixtures are blocked on BOTH - so a sentence built from the
+    # reason alone names the wrong team most of the time. The list is what
+    # lets a reader be told which teams, and which dates, are being waited
+    # on.
+    #
+    # THIS FIELD WAS DROPPED ON THE WIRE AND NOTHING CAUGHT IT. It was added
+    # to live_nhl_features.predictable_fixtures and to the backend DTO, and
+    # the backend's wire test passed against a fixture file written by hand -
+    # so the producer and the consumer were both tested and the ROUTE between
+    # them carried nothing. `schedule_nhl` builds this model field by field,
+    # which means a new key is silently discarded rather than passed through.
+    # The guard is now structural: `verify_nhl_schedule_wire` derives the key
+    # set from predictable_fixtures and fails on anything this model lacks.
+    blocked_by: list[NhlBlocker] = []
 
 
 class NhlResponse(BaseModel):
@@ -2188,6 +2215,8 @@ def schedule_nhl(
             home=row["home"], away=row["away"],
             predictable=row["predictable"],
             reason_code=row["reason_code"], reason=row["reason"],
+            blocked_by=[NhlBlocker(**blocker)
+                        for blocker in row.get("blocked_by", [])],
         )
         for row in rows
     ]

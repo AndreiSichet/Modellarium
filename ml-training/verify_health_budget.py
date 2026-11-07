@@ -61,6 +61,10 @@ EXIT_OK, EXIT_FAILED, EXIT_CRASHED = 0, 1, 2
 # always tested is a CHECK, not a plant.
 PLANTS = ("collapse-reasons", "slow-handler", "revert-index")
 
+# Fields this working tree adds to the NHL slate that HEAD does not have.
+# EMPTY IS THE NORMAL STATE.
+ADDED_ON_PURPOSE: list[str] = []
+
 PASSED: list = []
 FAILED: list = []
 
@@ -167,9 +171,20 @@ def equivalence(work: Path) -> None:
            not differing and len(slate_new) > 100,
            f"{len(differing)} differing field(s) over {len(slate_new)} rows"
            + (f"; first {differing[0]}" if differing else ""))
-    record("and the only NEW field is the one this phase added",
-           added == ["blocked_by"],
-           f"added {added}")
+    # THE ALLOWANCE IS A DECLARED LIST, NOT A SENTENCE ABOUT "THIS PHASE".
+    # This read `added == ["blocked_by"]` and went RED the moment that field
+    # was committed: the comparison is against `git show HEAD`, so once HEAD
+    # carries the field there is nothing new to find and `added` is empty.
+    # Same way `verify_quarantine_compatibility` went un-runnable when its
+    # change landed - a check written about a change expires when the change
+    # does, and expires GREEN-looking in the worst cases.
+    #
+    # The durable rule is that this body does not grow by accident. Put a
+    # name in ADDED_ON_PURPOSE only while the change adding it is
+    # uncommitted, and remove it in the commit that lands the field.
+    record("no field is added to the slate except a declared one",
+           added == ADDED_ON_PURPOSE,
+           f"added {added}, declared {ADDED_ON_PURPOSE}")
 
     # AND THE FLAG ITSELF, counted - so a run where every row became blocked
     # cannot pass by being uniformly wrong in both.
