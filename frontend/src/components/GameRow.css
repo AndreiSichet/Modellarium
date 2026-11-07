@@ -6,9 +6,31 @@
 
 .game-row-grid {
   display: grid;
-  grid-template-columns: 1fr 72px 72px 72px;
+  grid-template-columns: minmax(0, 1fr) 72px 72px 72px;
   align-items: center;
   gap: var(--space-1) var(--space-2);
+}
+
+/* A LEAGUE THAT DECLARES ITS MARKETS GETS EXACTLY THAT MANY COLUMNS.
+   `--row-market-count` was set on this element in JS and READ BY NOTHING,
+   so the NHL's two-market row laid itself out on the four-column default:
+   three heading cells filled columns 1-3, the home team's name landed in
+   column 4 (clipped to 72px, hence "Se..."), its two percentages wrapped
+   onto the next row, and WIN and BY 2+ sat above the wrong numbers. The
+   reader could not tell whose probability was whose, which is the one thing
+   this row exists to say. */
+.game-row-grid--declared {
+  grid-template-columns:
+    minmax(0, 1fr) repeat(var(--row-market-count, 2), 72px);
+}
+
+/* A MARKET THAT IS NOT OFFERED FOR THIS SIDE IS SHOWN AS BLANK, NOT OMITTED.
+   The NHL's puck line is "the home team wins by 2 or more" and says nothing
+   about the away side; 1 - p would assert a market nobody fitted. An empty
+   cell would read as a value that failed to load, so the dash is deliberate
+   and carries its own reason for a screen reader. */
+.game-row-cell--blank {
+  color: var(--ink-muted);
 }
 
 .game-row-headings {
@@ -107,25 +129,40 @@
   outline-offset: 2px;
 }
 
+/* NARROW WIDTHS DROP COLUMNS FROM THE DEFAULT ROW ONLY. These rules remove
+   the third and then the second market column, which for Spread/Win/Total
+   leaves the two that matter - and for a declared row would have hidden the
+   NHL's WIN cell and its heading, i.e. the headline market and the label
+   that names it. Scoped with :not() so a declared row keeps every column it
+   asked for at every width. */
 @media (max-width: 1023px) {
-  .game-row-grid {
-    grid-template-columns: 1fr 72px 72px;
+  .game-row-grid:not(.game-row-grid--declared) {
+    grid-template-columns: minmax(0, 1fr) 72px 72px;
   }
 
   .game-row-total,
-  .game-row-heading:last-child {
+  .game-row-grid:not(.game-row-grid--declared) .game-row-heading:last-child {
     display: none;
   }
 }
 
 @media (max-width: 639px) {
-  .game-row-grid {
-    grid-template-columns: 1fr 72px;
+  .game-row-grid:not(.game-row-grid--declared) {
+    grid-template-columns: minmax(0, 1fr) 72px;
   }
 
-  .game-row-heading:nth-child(2),
-  .game-row-team + .game-row-cell {
+  .game-row-grid:not(.game-row-grid--declared) .game-row-heading:nth-child(2),
+  .game-row-grid:not(.game-row-grid--declared) .game-row-team
+    + .game-row-cell {
     display: none;
+  }
+
+  /* The declared row keeps its columns and gives the names the slack
+     instead; 64px still fits "100.0%" at this size. */
+  .game-row-grid--declared {
+    grid-template-columns:
+      minmax(0, 1fr) repeat(var(--row-market-count, 2), 64px);
+    gap: var(--space-1);
   }
 }
 

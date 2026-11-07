@@ -10,6 +10,19 @@
 
 .predictions-rail {
   padding-top: var(--column-top);
+
+  /* A GRID ITEM'S FLOOR IS ITS MIN-CONTENT WIDTH UNLESS YOU SAY OTHERWISE,
+     and that is what put the whole page into horizontal overflow at 390 px
+     the day a third sport was added. The rail already carries
+     `overflow-x: auto` at narrow widths, so it is MEANT to scroll inside its
+     column - but `1fr` is `minmax(auto, 1fr)`, so the column refused to go
+     below the width of "Basketball American football Ice hockey" laid out in
+     a row with `white-space: nowrap`. The column won, the page grew past the
+     viewport, and every league's rows were clipped on the right: the Win
+     column and the More-on-this button simply off-screen. Two sports fitted
+     in 390 px and three did not, which is why nothing had surfaced it.
+     Measured in a browser - jsdom computes no layout and cannot see this. */
+  min-width: 0;
 }
 
 .predictions-content {
@@ -110,7 +123,10 @@
 
 @media (max-width: 1023px) {
   .predictions {
-    grid-template-columns: 1fr;
+    /* minmax(0, …) for the same reason as the min-width above: the bare
+       `1fr` keeps a min-content floor, so a single wide child can push the
+       page wider than the screen. */
+    grid-template-columns: minmax(0, 1fr);
     gap: 0;
 
     --column-top: var(--space-3);

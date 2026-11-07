@@ -23,19 +23,23 @@
   color: var(--ink);
 }
 
-/* The count is the one number on this block, so it is set in the mono face
-   every other figure in the app uses - and the two parts of "1 of 3" must
-   be the same face, or the sentence reads as two sources. */
+/* ONE FACE FOR THE WHOLE SENTENCE, and the previous version's own comment
+   said so while the rule underneath it did the opposite: `strong` was set in
+   --font-mono and wrapped only the FIRST number, so "13 of 1,083" rendered
+   the 13 in mono and the 1,083 in the body face. Two figures in one sentence
+   set in two faces read as two sources, which is exactly what this block
+   exists to deny - the whole point of counting both from the same rows.
+   Emphasis is now weight and colour only. */
 .date-slate-count {
   margin: var(--space-2) 0 0;
   font-family: var(--font-body);
   font-size: var(--text-label);
   color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .date-slate-count strong {
-  font-family: var(--font-mono);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--ink);
 }
 

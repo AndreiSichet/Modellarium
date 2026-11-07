@@ -39,7 +39,21 @@ function GamesPage() {
   // date would mark one league's games predictable on the other league's
   // freshness.
   const sections = leagues.map((league) => {
-    const date = predictableDateFor(league);
+    // THE HEADING IS THE DATE RULE'S ANSWER, SO ONLY A DATE-RULE LEAGUE GETS
+    // ONE. `predictableDateFor` is `dataAsOf + 1`, which is the whole rule
+    // for the three basketball leagues and MEANS NOTHING for the NFL and the
+    // NHL: their rule is a dependency on both teams' previous games, so
+    // their predictable set spans several days and no single date describes
+    // it. Printed anyway, it contradicted the rows underneath it - the NHL
+    // block was headed 2026-11-06 above fixtures dated 2026-11-07, which is
+    // the heading quietly applying MAX_DAYS_AHEAD to a league the project's
+    // own rule says it must never be applied to.
+    //
+    // NOT AN NHL DEFECT: the NFL section has been headed the same way since
+    // it shipped, and a week-long slate hid it. The rows carry their own
+    // dates in their footers, so a dependency-rule section loses nothing by
+    // saying nothing here.
+    const date = league.rule === 'date' ? predictableDateFor(league) : null;
 
     return {
       id: sectionId(league),

@@ -10,7 +10,7 @@ import './GameRow.css';
 function TeamLine({ teamId, name, abbr, spread, win, cells }) {
   // EITHER THE TWO NAMED CELLS OR A DECLARED LIST. The four original
   // leagues pass spread and win by name and render exactly as before; a
-  // league with  passes the cells it declared. One component so
+  // league with `rowMarkets` passes the cells it declared. One component so
   // the team name, badge and grid placement cannot drift between the two.
   const values = cells ?? [spread, win];
 
@@ -21,8 +21,20 @@ function TeamLine({ teamId, name, abbr, spread, win, cells }) {
         <span className="game-row-team-name">{nameOf(teamId, name)}</span>
       </div>
       {values.map((value, index) => (
+        // A CELL WITH NO VALUE IS SHOWN, NOT SKIPPED. Skipping it would
+        // shift every later cell one column left and put the headings over
+        // the wrong numbers - which is the defect this row shipped with,
+        // arriving by a different route. The dash says "not offered here"
+        // and an empty string would say "still loading".
         // eslint-disable-next-line react/no-array-index-key
-        <div className="game-row-cell" key={index}>{value}</div>
+        <div key={index}
+          className={value === null || value === undefined
+            ? 'game-row-cell game-row-cell--blank'
+            : 'game-row-cell'}>
+          {value === null || value === undefined ? (
+            <span aria-label="not offered for this team">&mdash;</span>
+          ) : value}
+        </div>
       ))}
     </>
   );
